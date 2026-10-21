@@ -6,10 +6,10 @@ O que está publicado depois da estabilização de 21/10, e o que não se deduz 
 
 | Workflow | ID | Estado | Origem no repositório |
 |---|---|---|---|
-| NORIA CORE | Motor conversacional | `mlKNPv862H2g3Gap` | publicado, versão `0344c87f` (20h2x) |\| WhatsApp + Comandos + Follow-ups \| Motor compartilhado v2 | `3N5oN6sxtir9lFrA` | publicado, versão `1bf7b6c2` (19h49) | `n8n/workflows/NORIA CORE _ WhatsApp + … v2.json` |
-| NORIA CORE | Motor conversacional | `mlKNPv862H2g3Gap` | publicado, versão `0344c87f` (20h2x) |\| Motor conversacional | `mlKNPv862H2g3Gap` | publicado | `n8n/workflows/NORIA CORE _ Motor conversacional.json` |
-| NORIA EXT | Gênesis | Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado, versão `b2743de9` (20h2x) |\| Gênesis \| Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado | `n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json` |
-| NORIA EXT | Gênesis | Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado, versão `b2743de9` (20h2x) |\| NB Bronze \| Política de negócio v2 (Núbia v1) | `vCDXJLqIBCZJRTVv` | publicado em 21/10 | `n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json` |
+| NORIA CORE \| WhatsApp + Comandos + Follow-ups \| Motor compartilhado v2 | `3N5oN6sxtir9lFrA` | publicado, versão `1bf7b6c2` (19h49) | `n8n/workflows/NORIA CORE _ WhatsApp + … v2.json` |
+| NORIA CORE \| Motor conversacional | `mlKNPv862H2g3Gap` | publicado, versão `0344c87f` (20h20) | `n8n/workflows/NORIA CORE _ Motor conversacional.json` |
+| NORIA EXT \| Gênesis \| Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado, versão `b2743de9` (20h20) | `n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json` |
+| NORIA EXT \| NB Bronze \| Política de negócio v2 (Núbia v1) | `vCDXJLqIBCZJRTVv` | publicado em 21/10 | `n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json` |
 
 - O motor (~0,9 MB) vive só no sub-workflow `Motor conversacional`. O CORE (216 KB) o chama nos nós `CORE | Motor conversacional único`, `CORE | Preparar resposta` e `CORE | Finalizar resposta`, cada um precedido por `… | Fase`.
 - Gerar o CORE sempre com o ID do motor: `NORIA_ENGINE_WORKFLOW_ID=mlKNPv862H2g3Gap node scripts/build_noria_workflows.cjs`. Sem a variável, o build mantém o ID já configurado no JSON ou gera `PREENCHER_ID_MOTOR` e avisa.
@@ -29,7 +29,7 @@ Fixe as imagens `n8nio/n8n:2.44.5` e `n8nio/runners:2.44.5` (versões iguais) an
 
 ## Evolution (instâncias)
 
-As instâncias `wesley-carros`, `clinica_nubia`, `Royal 4x4` e `testes` enviam só `MESSAGES_UPSERT` e têm `groupsIgnore: true`.| NORIA EXT | Gênesis | Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado, versão `b2743de9` (20h2x) |e Núbia entregam pelos ingressos autenticados. Editar o webhook pela tela da Evolution já salvou `enabled:false` e `events:[]` sozinho (21/10, 16:41). Confira depois de qualquer edição.
+As instâncias `wesley-carros`, `clinica_nubia`, `Royal 4x4` e `testes` enviam só `MESSAGES_UPSERT` e têm `groupsIgnore: true`. Gênesis e Núbia entregam pelos ingressos autenticados. Editar o webhook pela tela da Evolution já salvou `enabled:false` e `events:[]` sozinho (21/10, 16:41). Confira depois de qualquer edição.
 
 ## Banco (Supabase)
 
