@@ -69,6 +69,32 @@ async function main() {
     && sendFailure.world.log.simulated_sends.length === 0 && confirmFailure.world.log.simulated_sends.length === 0,
     { send_queue: sendFailure.world.tables.conversation_turn_queue[0]?.phase, confirm_queue: confirmFailure.world.tables.conversation_turn_queue[0]?.phase, sends: confirmFailure.world.log.simulated_sends.length, media: confirmFailure.world.log.simulated_media.length, rejected: rejected.steps[0]?.final });
 
+  // Casos reais de 21/10: o auditor barrou só o texto que acompanhava uma foto EXT autorizada.
+  // O pedido era só de foto; a foto responde sozinha e o texto barrado não é enviado.
+  const identity = reply => ({ ...photo(reply), response_contract: { answers: [{ request_id: 'request_1', excerpt: reply }],
+    facts: [{ fact_id: 'official.product.model', value: 'PCX', excerpt: 'PCX', source_product_id: ID }] } });
+  const kindAuditor = kind => body => {
+    const input = JSON.parse(body.contents[0].parts[0].text), attachment = (input.attachments || [])[0];
+    const segment = kind === 'attachment_caption' && attachment
+      ? { text: input.reply, kind, attachment: { id: attachment.id, product_id: attachment.product?.id, mode: 'presentation' }, evidence: [] }
+      : { text: input.reply, kind, evidence: [] };
+    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ scope_key: input.scope_key, complete: true, segments: [segment] }) }] } }] };
+  };
+  const textOnly = [
+    ['5 legenda que cita o veículo declarado', 'Segue a foto da PCX para você conferir.', 'attachment_caption', /INVALID_ATTACHMENT_CAPTION_EVIDENCE/],
+    ['6 fala classificada como não factual com fato declarado', 'Pode deixar, vou te enviar as fotos da PCX.', 'non_factual', /FACT_CLASSIFIED_AS_NON_FACTUAL/],
+    ['7 entrega afirmada antes de acontecer', 'Mandei a foto da PCX para você dar uma olhada.', 'unsupported', /SEMANTIC_FACT_UNSUPPORTED/],
+  ];
+  for (const [name, reply, kind, expected] of textOnly) {
+    const auditorFor = kindAuditor(kind);
+    const r = await exec.runScenario({ name: 'photo-text-only', turns: [{ text: 'Queria ver a foto da PCX branca', gemini: identity(reply) }], auditor_responses: [auditorFor, auditorFor, auditorFor] },
+      { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+    const queue = r.world.tables.conversation_turn_queue[0];
+    check(name + ': foto enviada, texto barrado não enviado, sem revisão', r.world.log.simulated_media.length === 1
+      && r.world.log.simulated_sends.length === 0 && queue?.phase === 'ready'
+      && expected.test(r.steps[0]?.final?.error_code || ''), { media: r.world.log.simulated_media.length, sends: r.world.log.simulated_sends.length, queue: queue?.phase, final: r.steps[0]?.final });
+  }
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.evidence)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} cenários de entrega de foto passaram.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;

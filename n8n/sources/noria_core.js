@@ -53,8 +53,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_21',
-  built_at: '2026-10-21T20:57:04.321Z',
-  core_sha256: '1886f57ceaa7630e1f4322816a0b8a30355667c162b8e445b4d50548a09bb515',
+  built_at: '2026-10-21T22:05:15.598Z',
+  core_sha256: '0096dafdda1ae25644e3f99dfdde7101e438f7869da641268ff3dfb42156a712',
   ext_sha256: '6d2ebb0d83e40f34b17b4b6035829114666aa6823ae48ecd9384f4aa7bab2249',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5101,6 +5101,9 @@ function salesGlobalFactsUnscoped(contract) {
     && !/^official\.(?:product|inventory\.\d+|catalog\.\d+)\./.test(claim.fact_id) && typeof claim.source_product_id === 'string' && claim.source_product_id !== ''
     ? { ...claim, source_product_id: '' } : claim) };
 }
+// Audit issues about the wording of the reply only (semantic evidence, caption,
+// unsupported text facts). They never question the EXT media authorisation.
+const salesTextOnlyAuditIssue = /^(?:UNSUPPORTED_FACT:|OPERATIONAL_ASSERTION_MISMATCH:|SEMANTIC_FACT_[A-Z_]+$|UNSUPPORTED_SEMANTIC_CLAIM$|FACT_CLASSIFIED_AS_NON_FACTUAL$|INVALID_ATTACHMENT_CAPTION_EVIDENCE$|UNDECLARED_OR_UNLINKED_SEMANTIC_FACT$|MISSING_SEMANTIC_SOURCE$|SEMANTIC_SOURCE_MISMATCH$|SEMANTIC_RESPONSE_COVERAGE_MISMATCH$|INVALID_SEMANTIC_EVIDENCE$)/;
 function salesMediaOnlyPlan(plan) {
   return Array.isArray(plan?.requests) && plan.requests.length > 0 && plan.requests.every(request => request?.topic === 'photos');
 }
@@ -8071,7 +8074,7 @@ async function salesGenerate(context, history, inventory, media, documentStatus,
             "- Uma resposta com modelo à pergunta de qual veículo seleciona esse item quando houver vínculo único no inventory. Use action=reply e responda sobre ele; action=catalog é para pedido de lista/opções, não para uma seleção. Não volte à lista inteira ao receber modelo, número ou pergunta sobre o item escolhido.",
             "- Ao pedir formas de pagamento, explique as modalidades de official_facts.business.payment_methods e official_facts.sales_policy, separando cartão de financeira e troca sujeita à avaliação. Não substitua a resposta pelo anúncio do veículo. Limites só podem ser informados quando cadastrados na modalidade correspondente.",
             "- Um sim responde à última pergunta. Se você ofereceu detalhes, forneça detalhes verificados novos. Se fez duas opções incompatíveis e recebeu sim, peça uma única escolha curta. Não ofereça de novo a mesma coisa nem troque por uma pergunta genérica.",
-            "- Se faltar uma informação, diga exatamente qual não está confirmada e proponha um próximo passo útil. Não use um menu de fallback nem recapitule fatos já ditos para preencher a resposta.", "- Clientes de WhatsApp podem escrever com erros, abreviacoes, girias, concordancia ruim e palavras digitadas no tempo verbal errado. Use o contexto antes de interpretar literalmente.", "- Se duas interpretacoes plausiveis mudarem produto, intencao, venda/troca, pagamento ou etapa comercial, NAO chute: faca uma unica pergunta curta de confirmacao antes de alterar o estado.", "- Uma correcao ou pergunta direta da mensagem atual tem prioridade sobre uma pergunta pendente anterior. Nunca ignore uma pergunta atual apenas para repetir um campo pendente.", "- PRECO: quando price_cents for null, nao informe valor da planilha nem invente precos. Quando houver valor, use price_cents/customer_price_cents fornecido no inventory. price_source informa a origem. So diga \"no catalogo do WhatsApp\" quando price_source comecar com whatsapp_catalog_. So diga \"em promocao\" quando price_source for whatsapp_catalog_sale. NUNCA diga \"conforme o anuncio\" apenas porque o preco veio do catalogo; anuncio e catalogo sao fontes diferentes.", ...(tenantSlug === 'wesley_automoveis' ? ["- official_facts.inventory contem SOMENTE veiculos anunciados pela Genesis para VENDA; o veiculo que o cliente oferece para a loja COMPRAR pertence ao current_lead_state/sales_leads no Supabase.", "- Status announced significa ANUNCIADO, NAO disponibilidade confirmada. Nunca diga que esta disponivel sem verificacao; nao invente cor, km ou combustivel ausentes.", "- Para Genesis, se price_source for genesis_sheet, o valor exato price_cents vem da planilha Estoque Wesley e pode ser informado em reais. O preco listado e a disponibilidade confirmada sao coisas diferentes; nao afirme estoque pronto para entrega sem verificacao."] : []), "- Resolva referências demonstrativas ou ordinais (como esse modelo, o veículo anunciado, o segundo, o de tal ano) usando recent_catalog e referral. Se houver uma única correspondência, responda sobre ela; se houver mais de uma, pergunte qual.", "- Nao trate insistencia do cliente corrigindo a IA como loop ou frustracao. Primeiro corrija a interpretacao e responda ao que foi perguntado.", "- Em compra e venda simultaneas, reconheca os dois objetivos somente no primeiro turno relevante. Nos seguintes, faca apenas a pergunta necessaria. Nao repita bordoes ou introducoes e nao recapitule modelo e ano a cada turno.", "- Quando a pessoa pedir fotos, escreva uma mensagem breve e contextual para acompanhar a mídia, sem narrar mecanismos internos. A existência de autorização não é confirmação de entrega. Só confirme envio realizado após confirmação real do provedor e não prometa resultado futuro garantido.", "- A frase automatica Ola! Posso ter mais informacoes sobre isso? deve ser interpretada como consulta contextual a item do catalogo. Use dados de catalog_referral e nao infira qual e o carro sem um vinculo verificavel."].join('\n')
+            "- Se faltar uma informação, diga exatamente qual não está confirmada e proponha um próximo passo útil. Não use um menu de fallback nem recapitule fatos já ditos para preencher a resposta.", "- Clientes de WhatsApp podem escrever com erros, abreviacoes, girias, concordancia ruim e palavras digitadas no tempo verbal errado. Use o contexto antes de interpretar literalmente.", "- Se duas interpretacoes plausiveis mudarem produto, intencao, venda/troca, pagamento ou etapa comercial, NAO chute: faca uma unica pergunta curta de confirmacao antes de alterar o estado.", "- Uma correcao ou pergunta direta da mensagem atual tem prioridade sobre uma pergunta pendente anterior. Nunca ignore uma pergunta atual apenas para repetir um campo pendente.", "- PRECO: quando price_cents for null, nao informe valor da planilha nem invente precos. Quando houver valor, use price_cents/customer_price_cents fornecido no inventory. price_source informa a origem. So diga \"no catalogo do WhatsApp\" quando price_source comecar com whatsapp_catalog_. So diga \"em promocao\" quando price_source for whatsapp_catalog_sale. NUNCA diga \"conforme o anuncio\" apenas porque o preco veio do catalogo; anuncio e catalogo sao fontes diferentes.", ...(tenantSlug === 'wesley_automoveis' ? ["- official_facts.inventory contem SOMENTE veiculos anunciados pela Genesis para VENDA; o veiculo que o cliente oferece para a loja COMPRAR pertence ao current_lead_state/sales_leads no Supabase.", "- Status announced significa ANUNCIADO, NAO disponibilidade confirmada. Nunca diga que esta disponivel sem verificacao; nao invente cor, km ou combustivel ausentes.", "- Para Genesis, se price_source for genesis_sheet, o valor exato price_cents vem da planilha Estoque Wesley e pode ser informado em reais. O preco listado e a disponibilidade confirmada sao coisas diferentes; nao afirme estoque pronto para entrega sem verificacao."] : []), "- Resolva referências demonstrativas ou ordinais (como esse modelo, o veículo anunciado, o segundo, o de tal ano) usando recent_catalog e referral. Se houver uma única correspondência, responda sobre ela; se houver mais de uma, pergunte qual.", "- Nao trate insistencia do cliente corrigindo a IA como loop ou frustracao. Primeiro corrija a interpretacao e responda ao que foi perguntado.", "- Em compra e venda simultaneas, reconheca os dois objetivos somente no primeiro turno relevante. Nos seguintes, faca apenas a pergunta necessaria. Nao repita bordoes ou introducoes e nao recapitule modelo e ano a cada turno.", "- Quando a pessoa pedir fotos, escreva uma mensagem breve e contextual para acompanhar a mídia, sem narrar mecanismos internos. A foto é a resposta: não repita preço, quilometragem, opcionais ou outros dados já enviados nesta conversa, a menos que o cliente peça de novo. A existência de autorização não é confirmação de entrega. Só confirme envio realizado após confirmação real do provedor e não prometa resultado futuro garantido.", "- A frase automatica Ola! Posso ter mais informacoes sobre isso? deve ser interpretada como consulta contextual a item do catalogo. Use dados de catalog_referral e nao infira qual e o carro sem um vinculo verificavel."].join('\n')
         }]
       }, contents: [{
         role: 'user', parts: [{
@@ -12892,14 +12895,21 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
         const issueStr = issuesList.join(';') || 'DIALOGUE_REVIEW_REQUIRED';
         event.ai_error = 'DIALOGUE_REVIEW_REQUIRED:' + issueStr;
         event.raw_payload = { ...(event.raw_payload || {}), dialogue_rejection_reason: issueStr };
-        const independentPhoto = catalogPhotoToSend && salesAuditablePhotoAttachment(catalogPhotoToSend)
-          && issuesList.some(issue => /^UNSUPPORTED_FACT:/.test(issue))
+        const independentTextFact = issuesList.some(issue => /^UNSUPPORTED_FACT:/.test(issue))
           && issuesList.every(issue => /^UNSUPPORTED_FACT:/.test(issue) || issue === 'SEMANTIC_FACT_AUDIT_REQUIRED');
+        // A photo-only request is answered by the EXT-authorised photo itself. A
+        // rejection that concerns only the accompanying text drops the text, not
+        // the photo. Another product or an unanswered request still goes to review.
+        const photoOnlyTextRejected = salesMediaOnlyPlan(naturalPlan) && issuesList.length > 0
+          && issuesList.every(issue => salesTextOnlyAuditIssue.test(issue));
+        const independentPhoto = catalogPhotoToSend && salesAuditablePhotoAttachment(catalogPhotoToSend)
+          && (independentTextFact || photoOnlyTextRejected);
         if (independentPhoto) {
           mediaOnlyDelivery = true;
           reply = '';
           event.raw_payload = { ...(event.raw_payload || {}), media_only_delivery: true,
-            photo_text_audit: 'rejected_independent_text_fact', photo_action_status: 'authorized_for_dispatch' };
+            photo_text_audit: independentTextFact ? 'rejected_independent_text_fact' : 'rejected_photo_only_text',
+            photo_action_status: 'authorized_for_dispatch' };
         } else catalogPhotoToSend = null;
         followUpDisposition = 'awaiting_customer';
         if (['sell_model', 'sell_year', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement) && (!s.sell_vehicle?.model && !s.sell_model)) {
