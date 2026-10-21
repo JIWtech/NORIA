@@ -110,6 +110,22 @@ async function main() {
     && !sentTexts.some(text => /enviar a foto/i.test(text)) && sentTexts.some(text => /Qual das Hondas/.test(text)),
     { sends: sentTexts, media: promised.world.log.simulated_media.length, final: promised.steps[0]?.final });
 
+  // Casos reais de 21/10 20h32/20h34 ("Foto do 4", "Tem foto do 1?"): a interpretação do modelo foi rejeitada
+  // pela validação e a resposta veio vazia. O CORE tinha uma pergunta de esclarecimento pronta, mas a auditoria
+  // reprovou a resposta vazia e o cliente ficou sem nada, com a conversa em revisão.
+  // Bem formada, mas reprovada numa regra (categoria de catálogo sem evidência), como em produção.
+  const invalidSemantic = { reply: '', semantic_intent: { primary_intent: 'product_details', topics: ['photos'], catalog: { category: 'cars', evidence_ids: [] } },
+    dialogue_plan: { requests: [{ id: 'r1', topic: 'photos', subject: 'specific_product' }] }, response_contract: { answers: [] } };
+  // Sem resposta para a reescrita: em produção ela também foi reprovada.
+  const unclear = await exec.runScenario({ name: 'semantic-invalid', turns: [{ text: 'Foto do 4', gemini: invalidSemantic }], auditor_responses: [] },
+    { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  const unclearTexts = unclear.world.log.simulated_sends.map(item => String(item.text || ''));
+  const unclearEvent = unclear.world.tables.channel_events.find(e => e.raw_payload?.intent_clarification === 'semantic_unavailable');
+  check('9 interpretação inválida com resposta reprovada: cliente recebe o esclarecimento, sem revisão',
+    unclearTexts.length === 1 && unclearTexts[0].length > 0 && unclear.world.tables.conversation_turn_queue[0]?.phase === 'ready'
+    && Array.isArray(unclearEvent?.raw_payload?.semantic_validation_errors) && unclearEvent.raw_payload.semantic_validation_errors.length > 0,
+    { texts: unclearTexts, queue: unclear.world.tables.conversation_turn_queue[0]?.phase, errors: unclearEvent?.raw_payload?.semantic_validation_errors, final: unclear.steps[0]?.final });
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.evidence)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} cenários de entrega de foto passaram.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;

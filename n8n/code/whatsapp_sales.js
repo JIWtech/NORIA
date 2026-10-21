@@ -5883,7 +5883,10 @@ async function runSalesTurnPrepare(context, history, event, control) {
       ? { kind: 'ambiguous_catalog_reference', reply: 'Qual veículo da lista você quis dizer? Pode informar o número ou o modelo para eu identificar corretamente.' }
       : tenantSlug === 'wesley_automoveis' && generated.semantic_intent?.valid
         ? (generated.semantic_intent.primary_intent === 'ambiguous' ? { kind: 'semantic_ambiguity', reply: SALES_INTENT_CLARIFICATION } : null)
-        : (tenantSlug === 'wesley_automoveis' ? { kind: 'semantic_unavailable', reply: salesContextualClarification(lead?.state || {}) } : salesIntentAmbiguity(currentTurnText, lead?.state || {}));
+        : (tenantSlug === 'wesley_automoveis' ? { kind: 'semantic_unavailable', reply: salesContextualClarification(lead?.state || {}),
+          // Carried to the finalize phase, which writes the event: the rules the semantic contract failed.
+          validation_errors: (Array.isArray(generated.semantic_intent?.validation_errors) ? generated.semantic_intent.validation_errors : []).slice(0, 20).map(String) }
+          : salesIntentAmbiguity(currentTurnText, lead?.state || {}));
   const intentDecision = tenantSlug === 'wesley_automoveis' && generated.semantic_intent?.valid
     ? salesApplySemanticIntent(lead?.state || {}, currentIntentAmbiguity ? salesMergeState(lead?.state || {}, {}) : (generated.state || {}), generated.semantic_intent)
     : (tenantSlug === 'wesley_automoveis'
@@ -6556,7 +6559,8 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
     pendingRequirement = '';
     followUpDisposition = 'awaiting_customer';
     optionalHumanOffer = null;
-    event.raw_payload = { ...(event.raw_payload || {}), intent_clarification: currentIntentAmbiguity.kind };
+    event.raw_payload = { ...(event.raw_payload || {}), intent_clarification: currentIntentAmbiguity.kind,
+      ...(Array.isArray(currentIntentAmbiguity.validation_errors) ? { semantic_validation_errors: currentIntentAmbiguity.validation_errors } : {}) };
   } else if (vehicleYearClarification) {
     stage = lead?.stage_key || cfg.stage_keys.qualifying;
     reply = vehicleYearClarification.reply;
@@ -7649,6 +7653,12 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
           reply = salesCatalogReply(catalogItems, intro, catalogItems.length);
           pendingRequirement = 'purchase_product';
           event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: { status: 'grounded_catalog', assignment_confirmed: false } };
+        } else if (currentIntentAmbiguity?.kind === 'semantic_unavailable' && currentIntentAmbiguity.reply) {
+          // The model's interpretation was rejected and its reply too: the CORE's clarification (no
+          // commercial claim) answers instead of silence plus an operator review.
+          reply = currentIntentAmbiguity.reply;
+          catalogPhotoToSend = null; pendingRequirement = '';
+          event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: { status: 'semantic_clarification', assignment_confirmed: false } };
         } else {
           const isCatalogOrAlt = Boolean(catalogRequested || (naturalPlan?.semantic_intent?.valid && naturalPlan.semantic_intent.catalog?.requested === true) || generated.action === 'catalog');
           const fallbackProduct = isCatalogOrAlt ? null : (generated.product || catalogChoice?.product || resolvedReferralProduct || salesResolveInventoryReference(turnText, inventory)?.product || inventory.find(p => p.id === s.product_id) || null);
