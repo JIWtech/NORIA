@@ -95,6 +95,21 @@ async function main() {
       && expected.test(r.steps[0]?.final?.error_code || ''), { media: r.world.log.simulated_media.length, sends: r.world.log.simulated_sends.length, queue: queue?.phase, final: r.steps[0]?.final });
   }
 
+  // Caso real de 21/10 19h28: "Essa Honda aí, tem foto" com três Hondas na lista. O modelo não
+  // registrou o pedido de foto e prometeu "Vou te enviar a foto"; nenhuma foto foi autorizada.
+  // A promessa não pode chegar ao cliente: a reescrita pergunta qual veículo.
+  const promise = { reply: 'Tem sim! Vou te enviar a foto da Honda para você dar uma olhada.',
+    semantic_intent: { primary_intent: 'product_details', topics: ['details'], confidence: 'high', references: { mentioned_product_ids: [], evidence_ids: ['in-1'], product_role: 'none', product_references: [] } },
+    response_contract: { answers: [] } };
+  const repair = () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ reply: 'Qual das Hondas você quer ver?',
+    response_contract: { answers: [], requested_fields: [], facts: [], fact_evidence_mode: 'standard', availability_asserted: false, assignment_confirmed: false, photo_sent: false, handoff_announced: false } }) }] } }] });
+  const promised = await exec.runScenario({ name: 'photo-promise', turns: [{ text: 'Essa Honda aí, tem foto', gemini: promise }], auditor_responses: [repair, auditor, auditor] },
+    { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  const sentTexts = promised.world.log.simulated_sends.map(item => JSON.stringify(item));
+  check('8 promessa de foto sem foto autorizada é reescrita e nunca enviada', promised.world.log.simulated_media.length === 0
+    && !sentTexts.some(text => /enviar a foto/i.test(text)) && sentTexts.some(text => /Qual das Hondas/.test(text)),
+    { sends: sentTexts, media: promised.world.log.simulated_media.length, final: promised.steps[0]?.final });
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.evidence)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} cenários de entrega de foto passaram.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;

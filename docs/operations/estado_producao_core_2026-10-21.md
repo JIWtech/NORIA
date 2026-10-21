@@ -6,8 +6,8 @@ O que está publicado depois da estabilização de 21/10, e o que não se deduz 
 
 | Workflow | ID | Estado | Origem no repositório |
 |---|---|---|---|
-| NORIA CORE \| WhatsApp + Comandos + Follow-ups \| Motor compartilhado v2 | `3N5oN6sxtir9lFrA` | publicado, versão `b7e2c4e6` | `n8n/workflows/NORIA CORE _ WhatsApp + … v2.json` |
-| NORIA CORE \| Motor conversacional | `mlKNPv862H2g3Gap` | publicado | `n8n/workflows/NORIA CORE _ Motor conversacional.json` |
+| NORIA CORE | Motor conversacional | `mlKNPv862H2g3Gap` | publicado, versão `963f3236` (19h49) |\| WhatsApp + Comandos + Follow-ups \| Motor compartilhado v2 | `3N5oN6sxtir9lFrA` | publicado, versão `1bf7b6c2` (19h49) | `n8n/workflows/NORIA CORE _ WhatsApp + … v2.json` |
+| NORIA CORE | Motor conversacional | `mlKNPv862H2g3Gap` | publicado, versão `963f3236` (19h49) |\| Motor conversacional | `mlKNPv862H2g3Gap` | publicado | `n8n/workflows/NORIA CORE _ Motor conversacional.json` |
 | NORIA EXT \| Gênesis \| Política comercial v2 | `fXGorIlPbyf9Qtsp` | publicado | `n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json` |
 | NORIA EXT \| NB Bronze \| Política de negócio v2 (Núbia v1) | `vCDXJLqIBCZJRTVv` | publicado em 21/10 | `n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json` |
 
@@ -34,9 +34,17 @@ As instâncias `wesley-carros`, `clinica_nubia`, `Royal 4x4` e `testes` enviam s
 ## Banco (Supabase)
 
 - `turn_control_fromme_manual_reply_v1.sql` foi aplicada em 21/10. Resposta manual pelo celular com origem comprovada passa a ser controle humano, e a IA cede a vez. O rollback está em `supabase/migrations_pending_review/turn_control_fromme_manual_reply_v1_rollback.sql`.
+- Gênesis: prompt `wesley-sales-v14.22-photo-flow-2026-10-21` (aplicado 21/10, 19h49; migração `genesis_prompt_v14_22_photo_flow.sql`, substitui a v14.21 nunca aplicada). O v14.20 está em `settings.prompt_snapshot_before_v14_22`; o rollback está no fim da migração.
 - Núbia: `tenant_settings.settings.noria_turn_pipeline.enabled = false`. **Não ligar enquanto a cadeia v2 não estiver de volta no CORE.** Ligado, todo turno da Núbia termina em `NORIA_TURN_PIPELINE_CONFIG_INVALID`, sem resposta e sem erro visível no n8n.
 - Conversas em `review` só saem por ação de operador: encerrar o atendimento pelo painel libera a revisão coberta pelo encerramento (`magia_record_turn_control_event` → `magia_resolve_closed_turn_review`).
 
 ## Testes
 
 `scripts/test_noria_engine_subworkflow.cjs` (motor fora do CORE) e `scripts/test_noria_nubia_route.cjs` (rota da Núbia).
+
+## Fluxo de fotos e eventos ignorados (21/10, noite)
+
+- Pedido só de foto com foto autorizada: se a auditoria barrar só o texto, a foto sai sozinha (`photo_text_audit: rejected_photo_only_text`), sem revisão.
+- Resposta que promete ou anuncia foto sem foto autorizada no turno é barrada (`UNAUTHORIZED_PHOTO_PROMISE`) e reescrita; se o veículo for ambíguo, a reescrita pergunta qual.
+- Reações, apagamentos/edições e votos de enquete são descartados em `Normalizar Entrada WhatsApp` (`ignoredReason: non_conversational_message`): não abrem turno nem contam como resposta manual.
+- Testes: `scripts/test_noria_photo_promise.cjs`, `scripts/test_noria_ignore_reactions.cjs` e `scripts/homolog/photo_delivery_checks.cjs` (8 cenários; os dados vêm de `%USERPROFILE%\.noria-homolog\`, fora do repositório).

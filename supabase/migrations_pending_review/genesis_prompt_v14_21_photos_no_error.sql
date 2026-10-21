@@ -1,3 +1,4 @@
+-- SUBSTITUÍDA por genesis_prompt_v14_22_photo_flow.sql (aplicada em 21/10/2026, 19h49). NÃO APLICAR.
 -- Gênesis (wesley_automoveis) — prompt v14.21: fotos naturais e nenhuma menção a erro ao cliente.
 -- APLICAR SOMENTE DEPOIS de publicar o CORE com a revisão que aceita reply vazio em turno só de foto
 -- (salesValidatePrimaryDialogue: photoAnswersTurn). Com o CORE antigo, reply vazio vira INVALID_PRIMARY_REPLY.
