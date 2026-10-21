@@ -1333,6 +1333,14 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
       const photoProduct = productPhoto.product_id && productPhoto.product_id !== product?.id
         ? inventory.find(item => item.id === productPhoto.product_id) || null : null;
       const authorizedProduct = photoProduct || product;
+      // The vehicle the customer just asked to see becomes the focus of the conversation: the next
+      // question ("quantos km?") is about it, not about the vehicle focused before the photo.
+      const photoFocusEvidence = photoProduct ? String(productPhoto.evidence_ids[0] || '') : '';
+      const photoFocus = photoProduct && photoFocusEvidence ? {
+        product_id: photoProduct.id, product_evidence: photoFocusEvidence, product_variant_evidence: photoFocusEvidence,
+        buy_interest: { ...(state.buy_interest || {}), brand: photoProduct.brand || '', model: photoProduct.model || '',
+          year: photoProduct.year ?? null, raw_mention: '', product_id: photoProduct.id, evidence_ids: [...productPhoto.evidence_ids] },
+      } : null;
       const decision = {
         contract: 'noria_commercial_decision_v1',
         tenant_slug: expectedSlug,
@@ -1358,10 +1366,12 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
           sell_model: buyOnlyCorrection ? '' : (reconciledVehicle ? (reconciledVehicle.model || '') : (state.sell_model || '')),
           sell_year: buyOnlyCorrection ? null : (reconciledVehicle ? (reconciledVehicle.year ?? null) : (state.sell_year || null)),
           trade_in: buyOnlyCorrection ? null : state.trade_in || null,
-          product_id: obsoleteInventoryFocus ? '' : state.product_id || '',
-          product_evidence: obsoleteInventoryFocus ? '' : state.product_evidence || '',
-          product_variant_evidence: obsoleteInventoryFocus ? '' : state.product_variant_evidence || '',
-          buy_interest: obsoleteInventoryFocus ? null : state.buy_interest || null,
+          ...(photoFocus || {
+            product_id: obsoleteInventoryFocus ? '' : state.product_id || '',
+            product_evidence: obsoleteInventoryFocus ? '' : state.product_evidence || '',
+            product_variant_evidence: obsoleteInventoryFocus ? '' : state.product_variant_evidence || '',
+            buy_interest: obsoleteInventoryFocus ? null : state.buy_interest || null,
+          }),
           pending_requirement: nextPending,
           lead_temperature: leadClassification.temperature,
           financing_qualified: collectionReady,

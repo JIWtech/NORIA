@@ -59,6 +59,12 @@ async function main() {
   check('1ª foto (Montana) enviada', media.some(url => url.includes('chevrolet-montana-2013-branca')), { media });
   check('2ª foto é a da PCX pedida, não a Montana de novo', media.length === 2 && media[1].includes('honda-pcx-2023-branca'), { media, errors: r.steps.map(s => s.final?.error_code || s.stopped || null) });
   check('nenhuma mensagem de erro técnico ao cliente', !texts.some(text => /dificuldade|instabilidade|novamente|repetir/i.test(text)), { texts });
+  // 21/10 20h01: depois da foto do item 4, "Quantos km?" foi respondido sobre a Montana. O veículo da
+  // última foto pedida passa a ser o foco do lead, com a mensagem atual como evidência.
+  const lead = r.world.tables.sales_leads.at(-1);
+  check('o foco do lead passa para a PCX da última foto pedida', lead?.state?.product_id === ID.pcx2023
+    && lead?.state?.product_evidence && lead?.state?.buy_interest?.product_id === ID.pcx2023,
+    { product_id: lead?.state?.product_id, evidence: lead?.state?.product_evidence, buy_interest: lead?.state?.buy_interest });
 
   // The photo answers alone: no "segue a foto" text is required, only the image goes out.
   const noCaption = photoRequest('', ID.montana, false, 'in-1');
