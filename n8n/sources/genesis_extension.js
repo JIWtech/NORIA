@@ -1292,10 +1292,23 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
         independentSaleAppraisal.evaluated = true;
         const vehicleModel = String(reconciledVehicle ? (reconciledVehicle.model || '') : (state.sell_vehicle?.model || state.sell_model || '')).trim();
         if (!vehicleModel) independentSaleAppraisal.missing.push('sell_model');
+        // The store does not buy below minimum_purchase_year: without the year the policy cannot be applied.
+        const vehicleYear = reconciledVehicle ? reconciledVehicle.year : (state.sell_vehicle?.year || state.sell_year);
+        if (leadRules.minimum_purchase_year !== null && !vehicleYear) independentSaleAppraisal.missing.push('sell_year');
         if (remoteAppraisal.photos_required === true && !(Number(appraisalEvidence.vehicle_photo_count) > 0)) independentSaleAppraisal.missing.push('vehicle_photo');
         if (remoteAppraisal.condition_description_required === true && appraisalEvidence.description_reported !== true) independentSaleAppraisal.missing.push('vehicle_description');
         independentSaleAppraisal.ready = independentSaleAppraisal.missing.length === 0;
       }
+      // What a remote direct-sale appraisal still lacks (model, year, photo, condition) is what the AI asks next.
+      if (independentSaleAppraisal.evaluated && !independentSaleAppraisal.ready && (!nextPending || nextPending === 'none')) {
+        nextPending = independentSaleAppraisal.missing[0];
+      }
+      // The year was asked and the customer does not know it: the purchase policy cannot be applied, so a
+      // person takes over and the lead is classified cold.
+      const priorPending = String(state.dialogue_context?.pending_requirement || state.pending_requirement || '');
+      const knownSaleYear = reconciledVehicle ? reconciledVehicle.year : (state.sell_vehicle?.year || state.sell_year);
+      const saleYearUnknown = independentSale && priorPending === 'sell_year' && !knownSaleYear
+        && /\bnao\s+(?:sei|lembro|me\s+lembro|tenho\s+(?:certeza|ideia)|faco\s+ideia)\b|\bsei\s+la\b/.test(normalizeText(turnText));
       let handoffRequired = false, handoffReason = null, handoffQueue = null;
       const appraisalRequested = dialoguePlan.handoff_reason === 'appraisal_review';
       // After the trade-in policy was discussed in this conversation, the customer naming the vehicle in this
@@ -1320,6 +1333,10 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
         handoffRequired = true; handoffReason = auctionOp.reason || 'auction_risk';
       } else if (tradeInReadyForReview) {
         handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
+      } else if (saleYearUnknown) {
+        handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
+        nextPending = '';
+        leadClassification.temperature = 'cold';
       } else if (independentSaleAppraisal.ready) {
         handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
         nextPending = '';

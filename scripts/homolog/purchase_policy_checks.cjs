@@ -83,6 +83,25 @@ async function main() {
     lead?.stage_key !== 'sales_appraisal' && !['sell_model', 'sell_year', 'vehicle_photo', 'vehicle_description'].includes(lead?.state?.dialogue_context?.pending_requirement || ''),
     { stage: lead?.stage_key, pending: lead?.state?.dialogue_context?.pending_requirement });
 
+  // Ano obrigatório na venda direta (a loja não compra antes do ano mínimo configurado). Se o cliente não
+  // souber o ano, a conversa vai para o atendente com o lead marcado como frio.
+  const decisions = [];
+  const sale = (reply, vehicle, extraState = {}) => ({ ...vehicleTurn('independent_sale', vehicle, extraState), reply, response_contract: { answers: [{ request_id: 'request_1', excerpt: reply.split(/[.?!]/)[0] }] } });
+  const yearFlow = await exec.runScenario({ name: 'sale-year', turns: [
+    { text: 'quero vender meu Onix', gemini: sale('Legal! Qual é o ano do seu Onix?', { brand: 'Chevrolet', model: 'Onix', raw_mention: 'Onix' }) },
+    { text: 'não sei o ano', gemini: sale('Sem problema.', { brand: 'Chevrolet', model: 'Onix', raw_mention: 'Onix' }) },
+  ], auditor_responses: Array(8).fill(auditor) }, { mode: 'fixtures', geminiKey: null, settings, inventory, images,
+    turnOptions: { tamperDecision: decided => { decisions.push(decided?.commercial_decision?.data || decided?.commercial_decision || null); return decided; } } });
+  check('7 venda direta sem ano: o próximo pedido ao cliente é o ano', decisions[0]?.commercial_state?.pending_requirement === 'sell_year',
+    { pending: decisions[0]?.commercial_state?.pending_requirement, appraisal: findKey(decisions[0], 'independent_sale_appraisal') });
+  const yearLead = yearFlow.world.tables.sales_leads.at(-1);
+  check('8 "não sei o ano": vai para o atendente como lead frio', decisions[1]?.handoff?.required === true
+    && decisions[1]?.lead_classification?.temperature === 'cold' && yearLead?.stage_key === 'sales_appraisal',
+    { handoff: decisions[1]?.handoff, temperature: decisions[1]?.lead_classification?.temperature, stage: yearLead?.stage_key });
+  const yearTexts = yearFlow.world.log.simulated_sends.map(item => String(item.text || ''));
+  check('9 o cliente recebe resposta nos dois turnos', yearTexts.length === 2 && yearTexts.every(Boolean), { texts: yearTexts });
+  if (process.env.HOMOLOG_DEBUG) console.log('textos:', JSON.stringify(yearTexts));
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.detail)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} purchase policy checks pass.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;
