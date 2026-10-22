@@ -74,6 +74,29 @@ if (capability !== 'sales_v1' || settings.whatsapp_processing_mode !== 'conversa
  * - noria_business_result_v1
  */
 
+// Edit distance between two short words (brand names), bounded by the caller.
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0]; row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const current = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+  }
+  return row[b.length];
+}
+
+// The rejected brand the customer's vehicle belongs to, read from brand, model and the raw mention
+// ("peugeout", "citroem"): customers misspell brands and the model may leave the brand field empty.
+function rejectedBrandOf(vehicle = {}, rejectedBrands = []) {
+  const words = [vehicle.brand, vehicle.model, vehicle.raw_mention].map(normalizeText).join(' ').split(/[^a-z0-9]+/).filter(Boolean);
+  return rejectedBrands.map(normalizeText).filter(Boolean).find(brand => words.some(word =>
+    word === brand || (brand.length >= 5 && word.length >= 4 && editDistance(word, brand) <= 2)
+    || (brand.length >= 4 && word.length >= 4 && editDistance(word, brand) <= 1))) || null;
+}
+
 function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -1108,16 +1131,21 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
       // 2. Purchase of the CUSTOMER's vehicle from tenant_settings.sdr_rules.
       // Never applied to stock that the store itself sells.
       const purchaseEvaluation = { evaluated: false, requires_human: false, reason: null, preferred: false, source: 'tenant_settings.sdr_rules' };
-      if (tradeInData?.kind === 'independent_sale') {
-        const v = mergedCustomerVehicle || {};
-        const rejectedBrands = leadRules.rejected_purchase_brands.map(normalizeText).filter(Boolean);
+      // Direct sale as the decision defines it below (independentSale): a trade-in offer is never evaluated here.
+      if (tradeInData?.kind === 'independent_sale' || (!tradeInData && state.transaction_mode === 'sell')) {
+        const v = mergedCustomerVehicle || state.sell_vehicle || {};
         const preferredModels = leadRules.preferred_purchase_models.map(normalizeText).filter(Boolean);
-        const vBrand = normalizeText(v.brand || ''), vModel = normalizeText(v.model || '');
+        const vModel = normalizeText(v.model || '');
         const vYear = v.year ? Number(v.year) : null;
         purchaseEvaluation.evaluated = true;
-        if (vBrand && rejectedBrands.some(rb => vBrand.includes(rb))) purchaseEvaluation.reason = 'rejected_brand';
-        else if (vYear && leadRules.minimum_purchase_year !== null && vYear < leadRules.minimum_purchase_year) purchaseEvaluation.reason = 'year_below_minimum';
-        purchaseEvaluation.requires_human = Boolean(purchaseEvaluation.reason);
+        const rejectedBrand = rejectedBrandOf(v, leadRules.rejected_purchase_brands);
+        if (rejectedBrand) {
+          purchaseEvaluation.reason = 'rejected_brand';
+          purchaseEvaluation.brand = leadRules.rejected_purchase_brands.find(item => normalizeText(item) === rejectedBrand) || rejectedBrand;
+        } else if (vYear && leadRules.minimum_purchase_year !== null && vYear < leadRules.minimum_purchase_year) purchaseEvaluation.reason = 'year_below_minimum';
+        // The store does not buy this vehicle: there is nothing for a human to appraise. The customer is told
+        // the policy (the EXT's own reply below) and may still use the vehicle as entry in a purchase.
+        purchaseEvaluation.requires_human = false;
         purchaseEvaluation.preferred = Boolean(vModel && preferredModels.some(m => vModel.includes(m) || m.includes(vModel)));
       }
 
@@ -1227,6 +1255,19 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
       } else if (tradeInData?.kind === 'policy_inquiry' && !product) {
         nextPending = 'purchase_product';
       }
+      // A vehicle the store does not buy: no appraisal requirement (model, year, photo, condition) is collected.
+      if (purchaseEvaluation.reason && ['sell_model', 'sell_year', 'vehicle_photo', 'vehicle_description'].includes(nextPending)) nextPending = '';
+      // The customer is told the purchase policy by the EXT itself; the model wrote before this decision.
+      const wantedProduct = product || (state.product_id ? inventory.find(item => item.id === state.product_id && commercialEligibility(item).eligible) : null);
+      const productLabel = wantedProduct ? String(wantedProduct.commercial_name || wantedProduct.name || [wantedProduct.brand, wantedProduct.model, wantedProduct.year].filter(Boolean).join(' ')).trim() : '';
+      const purchasePolicyReply = !purchaseEvaluation.reason ? null : [
+        purchaseEvaluation.reason === 'rejected_brand'
+          ? 'A loja não compra ' + purchaseEvaluation.brand + ' diretamente.'
+          : 'A loja não compra diretamente veículos anteriores a ' + leadRules.minimum_purchase_year + '.',
+        policy.trade_in.accepted_subject_to_appraisal !== true ? ''
+          : productLabel ? 'Mas ele pode entrar como parte do pagamento do ' + productLabel + ', sujeito à avaliação. Quer seguir assim?'
+            : 'Mas, se você for levar um veículo da loja, ele pode entrar como parte do pagamento, sujeito à avaliação.',
+      ].filter(Boolean).join(' ');
 
       // 7. Handoff evaluation
       // Independent sale: hand off to appraisal only when the CONFIGURED remote
@@ -1256,8 +1297,6 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
       if (auctionOp?.required) {
         handoffRequired = true; handoffReason = auctionOp.reason || 'auction_risk';
       } else if (tradeInReadyForReview) {
-        handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
-      } else if (purchaseEvaluation.requires_human) {
         handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
       } else if (independentSaleAppraisal.ready) {
         handoffRequired = true; handoffReason = 'appraisal_review'; handoffQueue = 'appraisal_review';
@@ -1416,7 +1455,8 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
           },
           independent_sale_appraisal: independentSaleAppraisal,
           customer_vehicle_reconciliation: vehicleReconciliation,
-          purchase_policy: { requires_human: purchaseEvaluation.requires_human, reason: purchaseEvaluation.reason, preferred: purchaseEvaluation.preferred, evaluated: purchaseEvaluation.evaluated },
+          purchase_policy: { requires_human: purchaseEvaluation.requires_human, reason: purchaseEvaluation.reason, preferred: purchaseEvaluation.preferred, evaluated: purchaseEvaluation.evaluated,
+            brand: purchaseEvaluation.brand || null, informational_reply: purchasePolicyReply },
           appraisal_policy: { vehicle_appraisal: policy.appraisal.vehicle_appraisal, opening_hours: facts.opening_hours || null, locations: facts.locations || null },
           warranty_policy: { response: leadRules.warranty_response || null },
         },

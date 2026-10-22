@@ -53,9 +53,9 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_22',
-  built_at: '2026-10-22T00:20:37.512Z',
-  core_sha256: '28d255ecf02f57f15516647976ebd59367296da542be770e301cf565a2665fa3',
-  ext_sha256: '2895ee4a87c717bb715ad4ed30ca1754728532a725bc0f5228343df2874d8568',
+  built_at: '2026-10-22T00:43:51.077Z',
+  core_sha256: '272b8f65690ed93eb4f6b7e58c523877bb5327df4de2e8ecdef6a8b2a211db5c',
+  ext_sha256: '1c677bc4caf5d6c6dcdea11a04680c90559f6b15a8b723e1bd317fa4c7585d3d',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -12877,8 +12877,17 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
   if (tenantSlug === 'wesley_automoveis') {
     if (deterministicSimpleReply) { reply = generated.reply; pendingRequirement = ''; followUpDisposition = 'not_applicable'; optionalHumanOffer = null; catalogPhotoToSend = null; }
     if (generated.technical_error && !(auctionIntent && auctionOp?.handoff?.required)) { reply = ''; catalogPhotoToSend = null; operatorReviewReason = operatorReviewReason || String(generated.technical_error); }
+    // The store does not buy the customer's vehicle (EXT purchase policy). The model wrote before that
+    // decision and may have said "compramos": the EXT's own statement of the policy is the reply.
+    const purchasePolicyReply = commercialDecisionAuthoritative && decisionData?.operations?.purchase_policy?.reason
+      && typeof decisionData.operations.purchase_policy.informational_reply === 'string'
+      ? decisionData.operations.purchase_policy.informational_reply.trim() : '';
+    if (purchasePolicyReply && !generated.technical_error) {
+      reply = purchasePolicyReply; pendingRequirement = ''; followUpDisposition = 'awaiting_customer'; optionalHumanOffer = null; catalogPhotoToSend = null;
+      event.raw_payload = { ...(event.raw_payload || {}), purchase_policy_reply: { reason: decisionData.operations.purchase_policy.reason } };
+    }
     // One primary provider call. Validate its answer against actual execution and required collection.
-    if (!generated.technical_error && !naturalPlanError && !afterSales && !backendHandoffReply) {
+    if (!generated.technical_error && !naturalPlanError && !afterSales && !backendHandoffReply && !purchasePolicyReply) {
       const auditInventory = inventory.filter(item => decisionData?.inventory_focus?.eligible !== false
         || item.id !== decisionData.inventory_focus.product_id);
       const auditLedger = salesDialogueFactLedger(context, generated.product, s, documentStatus, {

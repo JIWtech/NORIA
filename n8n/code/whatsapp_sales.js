@@ -7556,8 +7556,17 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
   if (tenantSlug === 'wesley_automoveis') {
     if (deterministicSimpleReply) { reply = generated.reply; pendingRequirement = ''; followUpDisposition = 'not_applicable'; optionalHumanOffer = null; catalogPhotoToSend = null; }
     if (generated.technical_error && !(auctionIntent && auctionOp?.handoff?.required)) { reply = ''; catalogPhotoToSend = null; operatorReviewReason = operatorReviewReason || String(generated.technical_error); }
+    // The store does not buy the customer's vehicle (EXT purchase policy). The model wrote before that
+    // decision and may have said "compramos": the EXT's own statement of the policy is the reply.
+    const purchasePolicyReply = commercialDecisionAuthoritative && decisionData?.operations?.purchase_policy?.reason
+      && typeof decisionData.operations.purchase_policy.informational_reply === 'string'
+      ? decisionData.operations.purchase_policy.informational_reply.trim() : '';
+    if (purchasePolicyReply && !generated.technical_error) {
+      reply = purchasePolicyReply; pendingRequirement = ''; followUpDisposition = 'awaiting_customer'; optionalHumanOffer = null; catalogPhotoToSend = null;
+      event.raw_payload = { ...(event.raw_payload || {}), purchase_policy_reply: { reason: decisionData.operations.purchase_policy.reason } };
+    }
     // One primary provider call. Validate its answer against actual execution and required collection.
-    if (!generated.technical_error && !naturalPlanError && !afterSales && !backendHandoffReply) {
+    if (!generated.technical_error && !naturalPlanError && !afterSales && !backendHandoffReply && !purchasePolicyReply) {
       const auditInventory = inventory.filter(item => decisionData?.inventory_focus?.eligible !== false
         || item.id !== decisionData.inventory_focus.product_id);
       const auditLedger = salesDialogueFactLedger(context, generated.product, s, documentStatus, {
