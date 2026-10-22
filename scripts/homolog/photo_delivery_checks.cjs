@@ -113,8 +113,9 @@ async function main() {
   // Casos reais de 21/10 20h32/20h34 ("Foto do 4", "Tem foto do 1?"): a interpretação do modelo foi rejeitada
   // pela validação e a resposta veio vazia. O CORE tinha uma pergunta de esclarecimento pronta, mas a auditoria
   // reprovou a resposta vazia e o cliente ficou sem nada, com a conversa em revisão.
-  // Bem formada, mas reprovada numa regra (categoria de catálogo sem evidência), como em produção.
-  const invalidSemantic = { reply: '', semantic_intent: { primary_intent: 'product_details', topics: ['photos'], catalog: { category: 'cars', evidence_ids: [] } },
+  // Bem formada, mas reprovada numa regra que continua estrita (veículo fora do estoque).
+  const invalidSemantic = { reply: '', semantic_intent: { primary_intent: 'product_details', topics: ['photos'],
+    references: { mentioned_product_ids: ['veiculo|inexistente|2099|'], evidence_ids: ['in-1'] } },
     dialogue_plan: { requests: [{ id: 'r1', topic: 'photos', subject: 'specific_product' }] }, response_contract: { answers: [] } };
   // Sem resposta para a reescrita: em produção ela também foi reprovada.
   const unclear = await exec.runScenario({ name: 'semantic-invalid', turns: [{ text: 'Foto do 4', gemini: invalidSemantic }], auditor_responses: [] },
@@ -125,6 +126,22 @@ async function main() {
     unclearTexts.length === 1 && unclearTexts[0].length > 0 && unclear.world.tables.conversation_turn_queue[0]?.phase === 'ready'
     && Array.isArray(unclearEvent?.raw_payload?.semantic_validation_errors) && unclearEvent.raw_payload.semantic_validation_errors.length > 0,
     { texts: unclearTexts, queue: unclear.world.tables.conversation_turn_queue[0]?.phase, errors: unclearEvent?.raw_payload?.semantic_validation_errors, final: unclear.steps[0]?.final });
+
+  // Caso real de 21/10 21h13: a foto da Tornado foi autorizada e enviada, mas o texto dizia que as fotos
+  // não estavam disponíveis. O texto que nega a foto autorizada não pode sair; a foto responde sozinha.
+  const denial = photo('No momento, as fotos desta PCX não estão disponíveis para envio. Quer saber mais algum detalhe?');
+  const denied = await run(denial);
+  check('10 texto que nega a foto autorizada não é enviado; a foto sai sozinha', denied.world.log.simulated_media.length === 1
+    && denied.world.log.simulated_sends.length === 0 && denied.world.tables.conversation_turn_queue[0]?.phase === 'ready',
+    { sends: denied.world.log.simulated_sends.map(s => s.text), media: denied.world.log.simulated_media.length, final: denied.steps[0]?.final });
+
+  // 21/10 21h07 ("Mercedes"): DIALOGUE_PLAN_REJECTED sem o motivo no evento; ele ficava só na fase prepare.
+  const badPlan = { reply: 'Ok', dialogue_plan: { handoff_reason: 'motivo_invalido' }, response_contract: { answers: [] } };
+  const rejected2 = await exec.runScenario({ name: 'plan-rejected', turns: [{ text: 'Mercedes', gemini: badPlan }], auditor_responses: [] },
+    { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  const planEvent = rejected2.world.tables.channel_events.find(e => e.raw_payload?.dialogue_plan_failure);
+  check('11 plano rejeitado: o motivo fica gravado no evento do turno', planEvent?.raw_payload?.dialogue_plan_failure?.local_reason === 'INVALID_DIALOGUE_HANDOFF',
+    { reason: planEvent?.raw_payload?.dialogue_plan_failure?.local_reason, final: rejected2.steps[0]?.final });
 
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.evidence)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} cenários de entrega de foto passaram.`);

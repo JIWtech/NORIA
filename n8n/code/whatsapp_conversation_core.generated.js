@@ -53,9 +53,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_21',
-  built_at: '2026-10-21T23:43:27.086Z',
-  core_sha256: 'f48c195202ada277e029a2bea3e8aa2b8ec94e24e5845d767f367d154fc4ebec',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_22',
+  built_at: '2026-10-22T00:20:37.512Z',
+  core_sha256: '28d255ecf02f57f15516647976ebd59367296da542be770e301cf565a2665fa3',
   ext_sha256: '2895ee4a87c717bb715ad4ed30ca1754728532a725bc0f5228343df2874d8568',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5104,19 +5104,27 @@ function salesGlobalFactsUnscoped(contract) {
 }
 // Audit issues about the wording of the reply only (semantic evidence, caption,
 // unsupported text facts). They never question the EXT media authorisation.
-const salesTextOnlyAuditIssue = /^(?:UNSUPPORTED_FACT:|OPERATIONAL_ASSERTION_MISMATCH:|SEMANTIC_FACT_[A-Z_]+$|UNSUPPORTED_SEMANTIC_CLAIM$|FACT_CLASSIFIED_AS_NON_FACTUAL$|INVALID_ATTACHMENT_CAPTION_EVIDENCE$|UNDECLARED_OR_UNLINKED_SEMANTIC_FACT$|MISSING_SEMANTIC_SOURCE$|SEMANTIC_SOURCE_MISMATCH$|SEMANTIC_RESPONSE_COVERAGE_MISMATCH$|INVALID_SEMANTIC_EVIDENCE$)/;
+const salesTextOnlyAuditIssue = /^(?:PHOTO_AVAILABILITY_CONTRADICTION$|UNSUPPORTED_FACT:|OPERATIONAL_ASSERTION_MISMATCH:|SEMANTIC_FACT_[A-Z_]+$|UNSUPPORTED_SEMANTIC_CLAIM$|FACT_CLASSIFIED_AS_NON_FACTUAL$|INVALID_ATTACHMENT_CAPTION_EVIDENCE$|UNDECLARED_OR_UNLINKED_SEMANTIC_FACT$|MISSING_SEMANTIC_SOURCE$|SEMANTIC_SOURCE_MISMATCH$|SEMANTIC_RESPONSE_COVERAGE_MISMATCH$|INVALID_SEMANTIC_EVIDENCE$)/;
 // A reply that commits to (or announces) sending a photo. Offers and questions
 // ("quer que eu te mande?", "posso enviar") are not commitments.
 function salesPromisesPhoto(reply) {
   return String(reply || '').split(/(?<=[.!?\n])/).some(sentence => {
     const text = normalizeText(sentence);
     if (/\?|\b(?:quer que|se quiser|posso|gostaria|prefere)\b/.test(text)) return false;
-    return /\b(?:vou|irei|vamos)\s+(?:te\s+|lhe\s+)?(?:enviar|mandar|encaminhar)\b.{0,40}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\b(?:estou|to|tou)\s+(?:te\s+)?(?:enviando|mandando)\b.{0,30}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\b(?:mandei|enviei|encaminhei)\b.{0,30}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\bsegue(?:m)?\s+(?:a|as)?\s*(?:fotos?|imagens?)\b/.test(text)
-      || /\baqui\s+(?:esta|estao)\s+(?:a|as)\s+(?:fotos?|imagens?)\b/.test(text);
+    return /\b(?:vou|irei|vamos)\s+(?:te\s+|lhe\s+)?(?:enviar|mandar|encaminhar)\b.{0,40}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\b(?:estou|to|tou)\s+(?:te\s+)?(?:enviando|mandando)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\b(?:mandei|enviei|encaminhei)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\bsegue(?:m)?\s+(?:a|as)?\s*(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\baqui\s+(?:esta|estao)\s+(?:a|as)\s+(?:fotos?|(?:imagem|imagens))\b/.test(text);
   });
+}
+// A reply stating that the photo is unavailable. The model writes before the EXT authorises media,
+// so with an authorised photo such a sentence contradicts what the customer receives.
+function salesDeniesPhoto(reply) {
+  const text = normalizeText(reply);
+  return /\b(?:fotos?|(?:imagem|imagens))\b.{0,60}\b(?:nao\s+(?:esta|estao|estaria|estariam|ficou|ficaram)|indisponive(?:l|is))\b/.test(text)
+    || /\bnao\s+(?:tenho|temos|ha|consigo|possuo|possuimos|encontrei|achei)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+    || /\bsem\s+(?:fotos?|(?:imagem|imagens))\s+(?:disponive|no momento|agora)/.test(text);
 }
 function salesMediaOnlyPlan(plan) {
   return Array.isArray(plan?.requests) && plan.requests.length > 0 && plan.requests.every(request => request?.topic === 'photos');
@@ -9011,26 +9019,32 @@ const salesNaturalDialogue = (() => {
     if (['all', 'cars', 'motorcycles'].includes(rawHistorical.catalog_audience)) historical.catalog_audience = rawHistorical.catalog_audience;
     if (Object.keys(historical).length) historical.requires_confirmation = true;
     const historicalMemory = Object.keys(historical).length ? { historical_context: historical } : {};
-    const scopeSource = next.catalog_audience ? next : previous;
+    // Memory without evidence from this session authorises nothing: it is ignored (the previous valid
+    // memory stays, or none), instead of rejecting the whole turn. Invalid enum values still fail.
+    const scoped = list => Array.isArray(list) && list.length > 0 && list.every(id => allowed.has(String(id)));
+    const validAudience = source => ['all', 'cars', 'motorcycles'].includes(source?.catalog_audience) && scoped(source.catalog_audience_evidence_ids);
+    if (next.catalog_audience && !['all', 'cars', 'motorcycles'].includes(next.catalog_audience)) throw Error('UNSCOPED_CATALOG_AUDIENCE');
+    const scopeSource = validAudience(next) ? next : (validAudience(previous) ? previous : {});
     const audience = scopeSource.catalog_audience;
     const audienceIds = (scopeSource.catalog_audience_evidence_ids || []).map(String);
-    if (audience && (!['all', 'cars', 'motorcycles'].includes(audience) || !audienceIds.length || audienceIds.some(id => !allowed.has(id)))) throw Error('UNSCOPED_CATALOG_AUDIENCE');
     const catalogMemory = audience ? { catalog_audience: audience, catalog_audience_evidence_ids: audienceIds } : {};
-    const purposeSource = next.customer_vehicle_purpose ? next : previous;
+    const purposes = ['none', 'independent_sale', 'entry_inquiry', 'entry', 'ambiguous_possession'];
+    const validPurpose = source => purposes.includes(source?.customer_vehicle_purpose)
+      && (source.customer_vehicle_purpose === 'none' ? (source.customer_vehicle_purpose_evidence_ids || []).every(id => allowed.has(String(id))) : scoped(source.customer_vehicle_purpose_evidence_ids));
+    if (next.customer_vehicle_purpose && !purposes.includes(next.customer_vehicle_purpose)) throw Error('UNSCOPED_VEHICLE_PURPOSE');
+    const purposeSource = validPurpose(next) ? next : (validPurpose(previous) ? previous : {});
     const purpose = purposeSource.customer_vehicle_purpose;
     const purposeIds = (purposeSource.customer_vehicle_purpose_evidence_ids || []).map(String);
-    if (purpose && (!['none', 'independent_sale', 'entry_inquiry', 'entry', 'ambiguous_possession'].includes(purpose)
-      || (purpose !== 'none' && !purposeIds.length) || purposeIds.some(id => !allowed.has(id)))) throw Error('UNSCOPED_VEHICLE_PURPOSE');
     const purposeMemory = purpose ? { customer_vehicle_purpose: purpose, customer_vehicle_purpose_evidence_ids: purposeIds } : {};
-    const status = next.trade_in_status || 'none';
-    if (!['none', 'policy_discussed', 'offered', 'declined'].includes(status)) throw Error('INVALID_DIALOGUE_MEMORY');
-    const ids = Array.isArray(next.evidence_ids) ? next.evidence_ids.map(String) : [];
-    if (ids.some(id => !allowed.has(id))) throw Error('UNSCOPED_DIALOGUE_EVIDENCE');
-    if (status !== 'none' && !ids.length) throw Error('MISSING_DIALOGUE_EVIDENCE');
-    const kind = next.vehicle_kind && next.vehicle_kind !== 'unknown' ? next.vehicle_kind : (previous.vehicle_kind || 'unknown');
-    if (!['unknown', 'car', 'motorcycle', 'other'].includes(kind)) throw Error('INVALID_ENTRY_VEHICLE_KIND');
-    const kindIds = (next.vehicle_kind && next.vehicle_kind !== 'unknown' ? next.vehicle_kind_evidence_ids : previous.vehicle_kind_evidence_ids) || [];
-    if (kindIds.some(id => !allowed.has(String(id))) || kind !== 'unknown' && !kindIds.length) throw Error('UNSCOPED_ENTRY_VEHICLE_KIND');
+    if (!['none', 'policy_discussed', 'offered', 'declined'].includes(next.trade_in_status || 'none')) throw Error('INVALID_DIALOGUE_MEMORY');
+    const ids = (Array.isArray(next.evidence_ids) ? next.evidence_ids.map(String) : []).filter(id => allowed.has(id));
+    const status = ids.length ? (next.trade_in_status || 'none') : 'none';
+    const declaredKind = next.vehicle_kind && next.vehicle_kind !== 'unknown' ? next.vehicle_kind : '';
+    if (declaredKind && !['car', 'motorcycle', 'other'].includes(declaredKind)) throw Error('INVALID_ENTRY_VEHICLE_KIND');
+    const kindFrom = declaredKind && scoped(next.vehicle_kind_evidence_ids) ? next
+      : (['car', 'motorcycle', 'other'].includes(previous.vehicle_kind) && scoped(previous.vehicle_kind_evidence_ids) ? previous : null);
+    const kind = kindFrom ? kindFrom.vehicle_kind : 'unknown';
+    const kindIds = kindFrom ? kindFrom.vehicle_kind_evidence_ids.map(String) : [];
     const kindMemory = status === 'none' && (!previous.trade_in_status || previous.trade_in_status === 'none')
       ? { vehicle_kind: 'unknown', vehicle_kind_evidence_ids: [] } : { vehicle_kind: kind, vehicle_kind_evidence_ids: kindIds.map(String) };
     if (status === 'none' && previous.trade_in_status && previous.trade_in_status !== 'none') {
@@ -9373,7 +9387,13 @@ function salesValidateSemanticIntent(value, inventory = [], sessionEvidenceIds =
   const hasCatalogMeaning = catalog.requested === true || catalog.category !== 'unspecified' || min !== null || max !== null
     || (Array.isArray(catalog.preferences) && catalog.preferences.length) || (Array.isArray(catalog.exclusions) && catalog.exclusions.length);
   let catalogEvidence = strings(catalog.evidence_ids, 'CATALOG_EVIDENCE_IDS');
-  if (hasCatalogMeaning) {
+  // A catalog filter (category, price, preferences) without session evidence on a turn that does not
+  // request the catalog is a carried-over default, not something this message said: it is dropped,
+  // as an offer response without evidence is, instead of invalidating the whole interpretation.
+  const dropCatalogFilter = hasCatalogMeaning && catalog.requested !== true
+    && (!catalogEvidence.length || catalogEvidence.some(id => !allowedEvidence.has(id)));
+  if (dropCatalogFilter) catalogEvidence = [];
+  else if (hasCatalogMeaning) {
     if (catalogEvidence.some(id => !allowedEvidence.has(id))) errors.push('UNSCOPED_CATALOG_EVIDENCE');
     if (!catalogEvidence.length) errors.push('MISSING_CATALOG_EVIDENCE');
   } else {
@@ -9439,7 +9459,9 @@ function salesValidateSemanticIntent(value, inventory = [], sessionEvidenceIds =
     valid: true, primary_intent: primaryAuthorised, secondary_intents: secondaryAuthorised.filter(item => allowed.has(item) && item !== primaryAuthorised), topics: strings(value.topics),
     customer_disposition: { value: dispositionValue, evidence_ids: dispositionEvidence },
     offer_response: { value: offerValue, evidence_ids: offerEvidence, offer_ref: offerRef },
-    catalog: { requested: catalog.requested, category: catalog.category, price_min_cents: min, price_max_cents: max, preferences, exclusions, evidence_ids: catalogEvidence },
+    catalog: dropCatalogFilter
+      ? { requested: false, category: 'unspecified', price_min_cents: null, price_max_cents: null, preferences: [], exclusions: [], evidence_ids: [] }
+      : { requested: catalog.requested, category: catalog.category, price_min_cents: min, price_max_cents: max, preferences, exclusions, evidence_ids: catalogEvidence },
     customer_vehicle: { purpose: customerVehiclePurposeAuthorised, evidence_ids: customerVehicleEvidence },
     references: { previous_catalog: refs.previous_catalog, selected_ordinal: ordinal, mentioned_product_ids: mentioned, evidence_ids: referenceEvidence, product_references: productReferences, product_role: productRole },
     conversation: { continues_previous_topic: conversation.continues_previous_topic, changes_preference: conversation.changes_preference, requires_clarification: conversation.requires_clarification, frustration: { value: frustrationValue, evidence_ids: frustrationValue === 'none' ? [] : frustrationEvidence } },
@@ -10371,6 +10393,7 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
   // Without an authorised photo in this turn nothing will be sent: a promise
   // ("vou te enviar a foto") would leave the customer waiting for nothing.
   if (salesPromisesPhoto(reply) && !salesAuditablePhotoAttachment(execution.photo_attachment)) issues.push('UNAUTHORIZED_PHOTO_PROMISE');
+  if (salesDeniesPhoto(reply) && salesAuditablePhotoAttachment(execution.photo_attachment)) issues.push('PHOTO_AVAILABILITY_CONTRADICTION');
   // Announcing that the conversation will be forwarded is an execution claim
   // too. It is valid only when this turn actually dispatched a handoff.
   if (contract.handoff_announced === true && execution.handoff_dispatched !== true) issues.push('UNEXECUTED_HANDOFF_ANNOUNCEMENT');
@@ -11295,6 +11318,11 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
   await salesLoadConfirmedOutboundIds(context);
   let lead = intermediate.lead || await salesLoadLead(context);
   let generated = intermediate.generated;
+  // Diagnostics the prepare phase wrote belong to this turn's event, which is built anew here.
+  const preparedPayload = intermediate.event?.raw_payload || {};
+  for (const key of ['dialogue_plan_failure', 'semantic_fallback']) {
+    if (preparedPayload[key] && !event.raw_payload?.[key]) event.raw_payload = { ...(event.raw_payload || {}), [key]: preparedPayload[key] };
+  }
   let naturalPlan = intermediate.dialogue_plan;
   let naturalPlanError = intermediate.natural_plan_error || null;
   const inventory = intermediate.inventory || [];

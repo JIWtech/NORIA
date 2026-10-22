@@ -44,3 +44,22 @@ test('o validador barra a promessa sem foto autorizada e a regra é recuperável
   assert.match(source, /const SALES_REPAIRABLE_ISSUES = \/\^\(\?:[^\n]*UNAUTHORIZED_PHOTO_PROMISE/);
   assert.match(source, /UNAUTHORIZED_PHOTO_PROMISE: nenhuma foto será enviada/);
 });
+
+// 21/10 21h13: foto autorizada e enviada com o texto "as fotos desta Honda Tornado não estão disponíveis".
+const denies = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name.text === 'salesDeniesPhoto');
+test('negação de foto é detectada; perguntas e outros assuntos não', () => {
+  assert.ok(denies, 'salesDeniesPhoto precisa existir no CORE');
+  vm.runInNewContext(denies.getText(ast), ctx);
+  for (const reply of [
+    'No momento, as fotos desta Honda Tornado 300L não estão disponíveis para envio.',
+    'Não tenho fotos dela agora.',
+    'A imagem está indisponível no momento.',
+  ]) assert.equal(ctx.salesDeniesPhoto(reply), true, reply);
+  for (const reply of [
+    'Pode me mandar uma foto do seu carro?',
+    'Quer ver as fotos da Tornado?',
+    'A Tornado não está mais disponível.',
+    'A Tornado 2025 tem 12 mil km.',
+  ]) assert.equal(ctx.salesDeniesPhoto(reply), false, reply);
+  assert.match(source, /if \(salesDeniesPhoto\(reply\) && salesAuditablePhotoAttachment\(execution\.photo_attachment\)\) issues\.push\('PHOTO_AVAILABILITY_CONTRADICTION'\)/);
+});

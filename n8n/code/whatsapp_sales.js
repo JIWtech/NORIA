@@ -104,12 +104,19 @@ function salesPromisesPhoto(reply) {
   return String(reply || '').split(/(?<=[.!?\n])/).some(sentence => {
     const text = normalizeText(sentence);
     if (/\?|\b(?:quer que|se quiser|posso|gostaria|prefere)\b/.test(text)) return false;
-    return /\b(?:vou|irei|vamos)\s+(?:te\s+|lhe\s+)?(?:enviar|mandar|encaminhar)\b.{0,40}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\b(?:estou|to|tou)\s+(?:te\s+)?(?:enviando|mandando)\b.{0,30}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\b(?:mandei|enviei|encaminhei)\b.{0,30}\b(?:fotos?|imagens?)\b/.test(text)
-      || /\bsegue(?:m)?\s+(?:a|as)?\s*(?:fotos?|imagens?)\b/.test(text)
-      || /\baqui\s+(?:esta|estao)\s+(?:a|as)\s+(?:fotos?|imagens?)\b/.test(text);
+    return /\b(?:vou|irei|vamos)\s+(?:te\s+|lhe\s+)?(?:enviar|mandar|encaminhar)\b.{0,40}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\b(?:estou|to|tou)\s+(?:te\s+)?(?:enviando|mandando)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\b(?:mandei|enviei|encaminhei)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\bsegue(?:m)?\s+(?:a|as)?\s*(?:fotos?|(?:imagem|imagens))\b/.test(text)
+      || /\baqui\s+(?:esta|estao)\s+(?:a|as)\s+(?:fotos?|(?:imagem|imagens))\b/.test(text);
   });
+}
+
+function salesDeniesPhoto(reply) {
+  const text = normalizeText(reply);
+  return /\b(?:fotos?|(?:imagem|imagens))\b.{0,60}\b(?:nao\s+(?:esta|estao|estaria|estariam|ficou|ficaram)|indisponive(?:l|is))\b/.test(text)
+    || /\bnao\s+(?:tenho|temos|ha|consigo|possuo|possuimos|encontrei|achei)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
+    || /\bsem\s+(?:fotos?|(?:imagem|imagens))\s+(?:disponive|no momento|agora)/.test(text);
 }
 
 function salesMediaOnlyPlan(plan) {
@@ -4078,7 +4085,13 @@ function salesValidateSemanticIntent(value, inventory = [], sessionEvidenceIds =
   const hasCatalogMeaning = catalog.requested === true || catalog.category !== 'unspecified' || min !== null || max !== null
     || (Array.isArray(catalog.preferences) && catalog.preferences.length) || (Array.isArray(catalog.exclusions) && catalog.exclusions.length);
   let catalogEvidence = strings(catalog.evidence_ids, 'CATALOG_EVIDENCE_IDS');
-  if (hasCatalogMeaning) {
+  // A catalog filter (category, price, preferences) without session evidence on a turn that does not
+  // request the catalog is a carried-over default, not something this message said: it is dropped,
+  // as an offer response without evidence is, instead of invalidating the whole interpretation.
+  const dropCatalogFilter = hasCatalogMeaning && catalog.requested !== true
+    && (!catalogEvidence.length || catalogEvidence.some(id => !allowedEvidence.has(id)));
+  if (dropCatalogFilter) catalogEvidence = [];
+  else if (hasCatalogMeaning) {
     if (catalogEvidence.some(id => !allowedEvidence.has(id))) errors.push('UNSCOPED_CATALOG_EVIDENCE');
     if (!catalogEvidence.length) errors.push('MISSING_CATALOG_EVIDENCE');
   } else {
@@ -4144,7 +4157,9 @@ function salesValidateSemanticIntent(value, inventory = [], sessionEvidenceIds =
     valid: true, primary_intent: primaryAuthorised, secondary_intents: secondaryAuthorised.filter(item => allowed.has(item) && item !== primaryAuthorised), topics: strings(value.topics),
     customer_disposition: { value: dispositionValue, evidence_ids: dispositionEvidence },
     offer_response: { value: offerValue, evidence_ids: offerEvidence, offer_ref: offerRef },
-    catalog: { requested: catalog.requested, category: catalog.category, price_min_cents: min, price_max_cents: max, preferences, exclusions, evidence_ids: catalogEvidence },
+    catalog: dropCatalogFilter
+      ? { requested: false, category: 'unspecified', price_min_cents: null, price_max_cents: null, preferences: [], exclusions: [], evidence_ids: [] }
+      : { requested: catalog.requested, category: catalog.category, price_min_cents: min, price_max_cents: max, preferences, exclusions, evidence_ids: catalogEvidence },
     customer_vehicle: { purpose: customerVehiclePurposeAuthorised, evidence_ids: customerVehicleEvidence },
     references: { previous_catalog: refs.previous_catalog, selected_ordinal: ordinal, mentioned_product_ids: mentioned, evidence_ids: referenceEvidence, product_references: productReferences, product_role: productRole },
     conversation: { continues_previous_topic: conversation.continues_previous_topic, changes_preference: conversation.changes_preference, requires_clarification: conversation.requires_clarification, frustration: { value: frustrationValue, evidence_ids: frustrationValue === 'none' ? [] : frustrationEvidence } },
@@ -5063,6 +5078,7 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
   // Without an authorised photo in this turn nothing will be sent: a promise
   // ("vou te enviar a foto") would leave the customer waiting for nothing.
   if (salesPromisesPhoto(reply) && !salesAuditablePhotoAttachment(execution.photo_attachment)) issues.push('UNAUTHORIZED_PHOTO_PROMISE');
+  if (salesDeniesPhoto(reply) && salesAuditablePhotoAttachment(execution.photo_attachment)) issues.push('PHOTO_AVAILABILITY_CONTRADICTION');
   // Announcing that the conversation will be forwarded is an execution claim
   // too. It is valid only when this turn actually dispatched a handoff.
   if (contract.handoff_announced === true && execution.handoff_dispatched !== true) issues.push('UNEXECUTED_HANDOFF_ANNOUNCEMENT');
@@ -5980,6 +5996,11 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
   await salesLoadConfirmedOutboundIds(context);
   let lead = intermediate.lead || await salesLoadLead(context);
   let generated = intermediate.generated;
+  // Diagnostics the prepare phase wrote belong to this turn's event, which is built anew here.
+  const preparedPayload = intermediate.event?.raw_payload || {};
+  for (const key of ['dialogue_plan_failure', 'semantic_fallback']) {
+    if (preparedPayload[key] && !event.raw_payload?.[key]) event.raw_payload = { ...(event.raw_payload || {}), [key]: preparedPayload[key] };
+  }
   let naturalPlan = intermediate.dialogue_plan;
   let naturalPlanError = intermediate.natural_plan_error || null;
   const inventory = intermediate.inventory || [];
