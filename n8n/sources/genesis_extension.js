@@ -1290,10 +1290,24 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
       }
       let handoffRequired = false, handoffReason = null, handoffQueue = null;
       const appraisalRequested = dialoguePlan.handoff_reason === 'appraisal_review';
-      const tradeInReadyForReview = tradeInData?.kind === 'offer'
+      // After the trade-in policy was discussed in this conversation, the customer naming the vehicle in this
+      // message (answering "qual é o modelo, ano e estado?") is the concrete offer, even when the model did not
+      // label it again. A described offer (model plus year or condition) goes to appraisal without the model's
+      // request: the store, not the model, decides that the offer is complete.
+      const tradeMemory = dialoguePlan.memory || state.dialogue_memory || {};
+      const tradeDiscussed = ['policy_discussed', 'offered'].includes(tradeMemory.trade_in_status)
+        || ['entry_inquiry', 'entry'].includes(tradeMemory.customer_vehicle_purpose);
+      const turnEventIds = new Set(turnMessages.flatMap(message => [message?.event_id, message?.id]).filter(Boolean).map(String));
+      const offeredVehicle = mergedCustomerVehicle || state.sell_vehicle || null;
+      const vehicleNamedNow = Boolean(offeredVehicle?.model) && (offeredVehicle.evidence_ids || []).some(id => turnEventIds.has(String(id)));
+      const entryFollowUp = (!tradeInData || tradeInData.kind === 'policy_inquiry') && tradeDiscussed && vehicleNamedNow
+        && (['buy', 'buy_and_sell'].includes(state.transaction_mode) || state.intent === 'buy');
+      const offerDescribed = Boolean(offeredVehicle?.model)
+        && Boolean(offeredVehicle.year || offeredVehicle.condition_reported || offeredVehicle.maintenance_reported);
+      const tradeInReadyForReview = (tradeInData?.kind === 'offer' || entryFollowUp)
         && policy.trade_in.accepted_subject_to_appraisal === true
-        && appraisalRequested
-        && !nextPending;
+        && (appraisalRequested || offerDescribed)
+        && (!nextPending || nextPending === 'none');
       if (auctionOp?.required) {
         handoffRequired = true; handoffReason = auctionOp.reason || 'auction_risk';
       } else if (tradeInReadyForReview) {

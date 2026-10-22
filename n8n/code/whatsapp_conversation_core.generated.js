@@ -54,9 +54,9 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_22',
-  built_at: '2026-10-22T00:43:51.077Z',
-  core_sha256: '272b8f65690ed93eb4f6b7e58c523877bb5327df4de2e8ecdef6a8b2a211db5c',
-  ext_sha256: '1c677bc4caf5d6c6dcdea11a04680c90559f6b15a8b723e1bd317fa4c7585d3d',
+  built_at: '2026-10-22T01:10:17.480Z',
+  core_sha256: '42529496865bc1f02952bd210c4d43a990ae343b7f633a603b875fdf918f9291',
+  ext_sha256: '60241620695f8cf64bb12d246df0a6e05405507a73f12bf9348538ce1e461a9f',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -5116,6 +5116,18 @@ function salesPromisesPhoto(reply) {
       || /\b(?:mandei|enviei|encaminhei)\b.{0,30}\b(?:fotos?|(?:imagem|imagens))\b/.test(text)
       || /\bsegue(?:m)?\s+(?:a|as)?\s*(?:fotos?|(?:imagem|imagens))\b/.test(text)
       || /\baqui\s+(?:esta|estao)\s+(?:a|as)\s+(?:fotos?|(?:imagem|imagens))\b/.test(text);
+  });
+}
+// A reply announcing that the conversation is (or will be) handed to a person. Offers and questions
+// ("quer que eu te passe?", "posso encaminhar") are not announcements.
+function salesAnnouncesHandoff(reply) {
+  const people = '(?:atendente|atendimento|equipe|consultor|consultora|vendedor|vendedora|especialista|time|pessoal)';
+  return String(reply || '').split(/(?<=[.!?\n])/).some(sentence => {
+    const text = normalizeText(sentence);
+    if (/\?|\b(?:quer que|se quiser|se preferir|posso|gostaria|prefere)\b/.test(text)) return false;
+    return new RegExp('\\b(?:vou|vamos|irei|iremos|ja)\\s+(?:te\\s+|lhe\\s+)?(?:encaminhar|passar|transferir|direcionar)\\b.{0,60}\\b' + people + '\\b').test(text)
+      || new RegExp('\\b(?:encaminhei|passei|transferi|direcionei)\\b.{0,40}\\b' + people + '\\b').test(text)
+      || new RegExp('\\b(?:um|uma|o|a|nosso|nossa)\\s+' + people + '\\s+(?:vai|ira|deve)\\s+(?:entrar em contato|te chamar|te atender|falar|continuar|seguir|avaliar)').test(text);
   });
 }
 // A reply stating that the photo is unavailable. The model writes before the EXT authorises media,
@@ -10396,7 +10408,7 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
   if (salesDeniesPhoto(reply) && salesAuditablePhotoAttachment(execution.photo_attachment)) issues.push('PHOTO_AVAILABILITY_CONTRADICTION');
   // Announcing that the conversation will be forwarded is an execution claim
   // too. It is valid only when this turn actually dispatched a handoff.
-  if (contract.handoff_announced === true && execution.handoff_dispatched !== true) issues.push('UNEXECUTED_HANDOFF_ANNOUNCEMENT');
+  if ((contract.handoff_announced === true || salesAnnouncesHandoff(reply)) && execution.handoff_dispatched !== true) issues.push('UNEXECUTED_HANDOFF_ANNOUNCEMENT');
   if (!hasFinalLedger) {
     if (execution.product?.price_cents) allowedMoney.add(Number(execution.product.price_cents));
     if (execution.product?.whatsapp_sale_price_cents) allowedMoney.add(Number(execution.product.whatsapp_sale_price_cents));
