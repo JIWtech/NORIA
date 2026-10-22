@@ -72,6 +72,25 @@ async function main() {
   const texts = promised.world.log.simulated_sends.map(item => String(item.text || ''));
   check('3 "vou passar para a equipe" sem encaminhamento executado não é enviado', texts.length > 0 && !texts.some(t => /passar seu atendimento|nossa equipe/i.test(t)), { texts, final: promised.steps[0]?.final, events: promised.world.tables.channel_events.filter(e => e.direction === "outbound").map(e => [e.service, e.ai_error, JSON.stringify(e.raw_payload?.dialogue_repair || null)]) });
 
+  // 21/10 22h17: "Você se lembra de como vou pagar?" → a IA repetiu o valor que o próprio cliente disse
+  // (R$ 30.000) e a resposta foi barrada como valor não autorizado. O ano do carro nunca vira valor citável.
+  const recall = await exec.runScenario({ name: 'customer-amount-recall', turns: [
+    { text: 'vou dar meu camaro 2007 de entrada, 30 mil avista e o resto parcelado', gemini: { reply: 'Anotado!', response_contract: { answers: [] } } },
+    { text: 'Você se lembra de como vou pagar ?', gemini: { reply: 'Lembro sim: o Camaro de entrada, R$ 30.000,00 à vista e o restante parcelado.',
+      semantic_intent: { primary_intent: 'other', topics: ['payment'] }, dialogue_plan: { requests: [{ id: 'r1', topic: 'financing', subject: 'unspecified' }] },
+      response_contract: { answers: [{ request_id: 'request_1', excerpt: 'Lembro sim' }] } } },
+  ], auditor_responses: Array(6).fill(auditor) }, { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  const recallTexts = recall.world.log.simulated_sends.map(item => String(item.text || ''));
+  check('4 a IA pode repetir o valor que o próprio cliente disse na sessão', recallTexts.some(t => /R\$ 30\.000,00/.test(t)),
+    { texts: recallTexts, final: recall.steps.at(-1)?.final?.error_code });
+  const yearEcho = await exec.runScenario({ name: 'year-not-amount', turns: [
+    { text: 'vou dar meu camaro 2007 de entrada', gemini: { reply: 'Anotado!', response_contract: { answers: [] } } },
+    { text: 'quanto eu disse que dou?', gemini: { reply: 'Você vai dar R$ 2.007,00 de entrada.', semantic_intent: { primary_intent: 'other', topics: ['payment'] },
+      dialogue_plan: { requests: [{ id: 'r1', topic: 'financing', subject: 'unspecified' }] }, response_contract: { answers: [{ request_id: 'request_1', excerpt: 'Você vai dar' }] } } },
+  ], auditor_responses: Array(6).fill(auditor) }, { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  check('5 o ano do veículo nunca é citado como valor', !yearEcho.world.log.simulated_sends.some(item => /2\.007,00/.test(String(item.text || ''))),
+    { texts: yearEcho.world.log.simulated_sends.map(item => item.text) });
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.detail)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} trade-in handoff checks pass.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;

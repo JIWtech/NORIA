@@ -54,9 +54,9 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_22',
-  built_at: '2026-10-22T01:10:17.480Z',
-  core_sha256: '42529496865bc1f02952bd210c4d43a990ae343b7f633a603b875fdf918f9291',
-  ext_sha256: '60241620695f8cf64bb12d246df0a6e05405507a73f12bf9348538ce1e461a9f',
+  built_at: '2026-10-22T01:24:38.860Z',
+  core_sha256: '8a3a94bb36febca133179e8e5a43e18358b49a8285d2a93c221d564192fd3ccd',
+  ext_sha256: 'fdfdc8786bbebf96bf42e676a1642850f79e5fb5268985f99cbcf9130d82eec0',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -6115,6 +6115,22 @@ function salesDeclaredAmounts(text) {
   }
   return [...found];
 }
+// Amounts the customer stated in this session ("30 mil avista"): the reply may repeat them as the
+// customer's own words. A bare vehicle year ("camaro 2007") is never an amount.
+function salesCustomerStatedAmounts(history = [], messages = []) {
+  const texts = [...salesCurrentSessionHistory(history).filter(row => row?.direction === 'inbound').map(row => row.message_text),
+    ...(Array.isArray(messages) ? messages : []).map(message => message?.text)].map(text => String(text || '')).filter(Boolean);
+  const found = new Set();
+  for (const text of texts) {
+    for (const cents of salesDeclaredAmounts(text)) {
+      const reais = cents / 100;
+      const yearLike = Number.isInteger(reais) && reais >= 1950 && reais <= 2039
+        && new RegExp('(?<!R\\$\\s?)\\b' + reais + '\\b(?!\\s*(?:mil|k|reais|,\\d))', 'i').test(text);
+      if (!yearLike) found.add(cents);
+    }
+  }
+  return [...found];
+}
 // The single declared amount of a message: the whole-message reading when it exists, otherwise the one unambiguous clause amount.
 function salesDeclaredAmount(text) {
   const whole = salesAmount(text);
@@ -9905,7 +9921,20 @@ function salesValidateSemanticEvidence(report, scopeKey, reply, claims, sources,
     || !report.segments.length || report.segments.length > reply.length) return ['INVALID_SEMANTIC_EVIDENCE'];
   if (report.segments.some(s => !s || typeof s.text !== 'string' || !s.text || !Array.isArray(s.evidence))
     || report.segments.map(s => s.text).join('') !== reply) return ['SEMANTIC_RESPONSE_COVERAGE_MISMATCH'];
+  // Identity of the products whose facts this report actually supports ("honda|tornado 300l|2025|vermelho").
+  const supportedIdentity = new Set(report.segments.filter(s => s.kind === 'supported_fact')
+    .flatMap(s => s.evidence.map(e => String(e?.source_product_id || '')))
+    .flatMap(id => normalizeText(id).split(/[|\s]+/)).filter(Boolean));
+  // An "unsupported" span that only names a supported product and links facts ("A Honda Tornado 300L 2025
+  // está por ", ", com ") states nothing: it is not counted as an unsupported claim.
+  const linkingWords = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'e', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'com', 'por', 'pra', 'para',
+    'que', 'sai', 'esta', 'estao', 'ta', 'fica', 'custa', 'tem', 'anunciada', 'anunciado', 'ela', 'ele', 'essa', 'esse']);
+  const onlyLinksSupportedProduct = text => {
+    const words = normalizeText(text).split(/[^a-z0-9]+/).filter(Boolean);
+    return supportedIdentity.size > 0 && words.every(word => linkingWords.has(word) || supportedIdentity.has(word));
+  };
   for (const segment of report.segments) {
+    if (segment.kind === 'unsupported' && !segment.evidence.length && onlyLinksSupportedProduct(segment.text)) continue;
     if (segment.kind === 'attachment_caption') {
       const attachment = attachments.find(item => item.id === segment.attachment?.id);
       if (!attachment || attachment.delivery_state !== 'authorized_for_dispatch'
@@ -10415,9 +10444,10 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
     if (execution.product?.canonical_price_cents) allowedMoney.add(Number(execution.product.canonical_price_cents));
     if (execution.deposit_cents) allowedMoney.add(Number(execution.deposit_cents));
   }
+  const customerMoney = new Set(Array.isArray(execution.customer_amounts_cents) ? execution.customer_amounts_cents : []);
   for (const match of reply.matchAll(/R\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)/gi)) {
     const cents = Math.round(Number(match[1].replace(/\./g, '').replace(',', '.')) * 100);
-    if (!allowedMoney.has(cents)) issues.push('UNSUPPORTED_AMOUNT:' + cents);
+    if (!allowedMoney.has(cents) && !customerMoney.has(cents)) issues.push('UNSUPPORTED_AMOUNT:' + cents);
   }
   return { status: issues.length ? 'needs_human_review' : 'accepted', issues: [...new Set(issues)], validation: 'primary_contract_v1',
     ...(issues.includes('SEMANTIC_FACT_AUDIT_REQUIRED') ? { semantic_sources: semanticSources } : {}) };
@@ -12915,6 +12945,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
         deposit_invalid: !!depositValidation, inventory_unavailable: inventoryUnavailable,
         error: event.ai_error || null, pending_requirement: pendingRequirement || 'none',
         inventory: auditInventory, turn_text: turnText,
+        customer_amounts_cents: salesCustomerStatedAmounts(history, turn?.messages || []),
         catalog_requested: catalogRequested, catalog_items: catalogItems,
         authorized_facts: decisionData?.authorized_facts || [],
         fact_ledger: auditLedger.facts,

@@ -162,14 +162,22 @@ function parseBrazilianCurrency(text) {
     parseText = parseText.replace(/\b(?:se\s+nao\s+der|caso\s+nao\s+de|se\s+precisar)\s+sem\s+entrada\b/i, '').trim();
   }
 
-  const depositMatch = !isDepositInquiry ? (
-    parseText.match(/(?:entrada|sinal)(?:\s+de)?\s*(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?|\d+(?:\.\d{3})*(?:,\d{1,2})?)/i)
-    || parseText.match(/(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?|\d+(?:\.\d{3})*(?:,\d{1,2})?)\s*(?:de\s+)?(?:entrada|sinal)/i)
-    || parseText.match(/\b(\d+(?:[.,]\d+)?\s*(?:mil|k)?)\s*(?:e\s+(?:o\s+)?(?:resto|restante|saldo)|e\s+parcela|e\s+financia)\b/i)
-    || parseText.match(/(?:dou|daria|consigo\s+dar|vou\s+dar|posso\s+dar)\s+(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?)/i)
-    || parseText.match(/tenho\s+R\$\s*(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?)/i)
-    || parseText.match(/tenho\s+(\d+(?:[.,]\d+)?\s*(?:mil|k))\b/i)
-  ) : null;
+  // A bare four-digit number in the vehicle-year range ("meu camaro 2007 de entrada") is the customer's
+  // vehicle, never an amount: amounts in that range are written with "mil", "k", "R$" or cents.
+  const vehicleYearLike = match => match && /^(?:19[5-9]\d|20[0-3]\d)$/.test(String(match[1] || '').trim()) && !/R\$\s*$/i.test(match.input.slice(0, match.index + match[0].indexOf(match[1])));
+  const depositPatterns = [
+    /(?:entrada|sinal)(?:\s+de)?\s*(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?|\d+(?:\.\d{3})*(?:,\d{1,2})?)/i,
+    /(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?|\d+(?:\.\d{3})*(?:,\d{1,2})?)\s*(?:de\s+)?(?:entrada|sinal)/i,
+    /\b(\d+(?:[.,]\d+)?\s*(?:mil|k)?)\s*(?:e\s+(?:o\s+)?(?:resto|restante|saldo)|e\s+parcela|e\s+financia)\b/i,
+    // "30 mil avista e o resto parcelado", "15 mil no pix e o restante no cartão"
+    /\b(\d+(?:[.,]\d+)?\s*(?:mil|k))\s*(?:a\s*vista|avista|em\s+dinheiro|no\s+pix|em\s+especie)\s*,?\s*(?:e\s+)?(?:o\s+)?(?:resto|restante|saldo)\b/i,
+    /(?:dou|daria|consigo\s+dar|vou\s+dar|posso\s+dar)\s+(?:R\$\s*)?(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?)/i,
+    /tenho\s+R\$\s*(\d+(?:[.,]\d+)?(?:\s*(?:mil|k))?)/i,
+    /tenho\s+(\d+(?:[.,]\d+)?\s*(?:mil|k))\b/i,
+  ];
+  const depositMatch = !isDepositInquiry
+    ? depositPatterns.map(pattern => parseText.match(pattern)).find(match => match && !vehicleYearLike(match)) || null
+    : null;
   if (depositMatch) {
     const val = parsePrice(depositMatch[1]);
     if (val !== null) {

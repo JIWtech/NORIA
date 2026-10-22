@@ -1091,6 +1091,21 @@ function salesDeclaredAmounts(text) {
   return [...found];
 }
 
+function salesCustomerStatedAmounts(history = [], messages = []) {
+  const texts = [...salesCurrentSessionHistory(history).filter(row => row?.direction === 'inbound').map(row => row.message_text),
+    ...(Array.isArray(messages) ? messages : []).map(message => message?.text)].map(text => String(text || '')).filter(Boolean);
+  const found = new Set();
+  for (const text of texts) {
+    for (const cents of salesDeclaredAmounts(text)) {
+      const reais = cents / 100;
+      const yearLike = Number.isInteger(reais) && reais >= 1950 && reais <= 2039
+        && new RegExp('(?<!R\\$\\s?)\\b' + reais + '\\b(?!\\s*(?:mil|k|reais|,\\d))', 'i').test(text);
+      if (!yearLike) found.add(cents);
+    }
+  }
+  return [...found];
+}
+
 function salesDeclaredAmount(text) {
   const whole = salesAmount(text);
   if (whole !== null) return whole;
@@ -4604,7 +4619,20 @@ function salesValidateSemanticEvidence(report, scopeKey, reply, claims, sources,
     || !report.segments.length || report.segments.length > reply.length) return ['INVALID_SEMANTIC_EVIDENCE'];
   if (report.segments.some(s => !s || typeof s.text !== 'string' || !s.text || !Array.isArray(s.evidence))
     || report.segments.map(s => s.text).join('') !== reply) return ['SEMANTIC_RESPONSE_COVERAGE_MISMATCH'];
+  // Identity of the products whose facts this report actually supports ("honda|tornado 300l|2025|vermelho").
+  const supportedIdentity = new Set(report.segments.filter(s => s.kind === 'supported_fact')
+    .flatMap(s => s.evidence.map(e => String(e?.source_product_id || '')))
+    .flatMap(id => normalizeText(id).split(/[|\s]+/)).filter(Boolean));
+  // An "unsupported" span that only names a supported product and links facts ("A Honda Tornado 300L 2025
+  // está por ", ", com ") states nothing: it is not counted as an unsupported claim.
+  const linkingWords = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'e', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'com', 'por', 'pra', 'para',
+    'que', 'sai', 'esta', 'estao', 'ta', 'fica', 'custa', 'tem', 'anunciada', 'anunciado', 'ela', 'ele', 'essa', 'esse']);
+  const onlyLinksSupportedProduct = text => {
+    const words = normalizeText(text).split(/[^a-z0-9]+/).filter(Boolean);
+    return supportedIdentity.size > 0 && words.every(word => linkingWords.has(word) || supportedIdentity.has(word));
+  };
   for (const segment of report.segments) {
+    if (segment.kind === 'unsupported' && !segment.evidence.length && onlyLinksSupportedProduct(segment.text)) continue;
     if (segment.kind === 'attachment_caption') {
       const attachment = attachments.find(item => item.id === segment.attachment?.id);
       if (!attachment || attachment.delivery_state !== 'authorized_for_dispatch'
@@ -5099,9 +5127,10 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
     if (execution.product?.canonical_price_cents) allowedMoney.add(Number(execution.product.canonical_price_cents));
     if (execution.deposit_cents) allowedMoney.add(Number(execution.deposit_cents));
   }
+  const customerMoney = new Set(Array.isArray(execution.customer_amounts_cents) ? execution.customer_amounts_cents : []);
   for (const match of reply.matchAll(/R\$\s*(\d+(?:\.\d{3})*(?:,\d{1,2})?)/gi)) {
     const cents = Math.round(Number(match[1].replace(/\./g, '').replace(',', '.')) * 100);
-    if (!allowedMoney.has(cents)) issues.push('UNSUPPORTED_AMOUNT:' + cents);
+    if (!allowedMoney.has(cents) && !customerMoney.has(cents)) issues.push('UNSUPPORTED_AMOUNT:' + cents);
   }
   return { status: issues.length ? 'needs_human_review' : 'accepted', issues: [...new Set(issues)], validation: 'primary_contract_v1',
     ...(issues.includes('SEMANTIC_FACT_AUDIT_REQUIRED') ? { semantic_sources: semanticSources } : {}) };
@@ -7592,6 +7621,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
         deposit_invalid: !!depositValidation, inventory_unavailable: inventoryUnavailable,
         error: event.ai_error || null, pending_requirement: pendingRequirement || 'none',
         inventory: auditInventory, turn_text: turnText,
+        customer_amounts_cents: salesCustomerStatedAmounts(history, turn?.messages || []),
         catalog_requested: catalogRequested, catalog_items: catalogItems,
         authorized_facts: decisionData?.authorized_facts || [],
         fact_ledger: auditLedger.facts,
