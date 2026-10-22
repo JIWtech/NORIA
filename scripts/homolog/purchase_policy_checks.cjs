@@ -102,6 +102,28 @@ async function main() {
   check('9 o cliente recebe resposta nos dois turnos', yearTexts.length === 2 && yearTexts.every(Boolean), { texts: yearTexts });
   if (process.env.HOMOLOG_DEBUG) console.log('textos:', JSON.stringify(yearTexts));
 
+  // 21/10 22h42 ("vcs compram carro? tenho um opala"): o plano do modelo pediu a foto (next_requirement
+  // vehicle_photo) e o ano nunca foi pedido. A ordem da loja (modelo, ano, foto, estado) prevalece.
+  const opalaDecisions = [];
+  const opala = { ...sale('Compramos sim! Me manda uma foto dele?', { brand: 'Chevrolet', model: 'Opala', raw_mention: 'opala' }) };
+  opala.dialogue_plan = { ...opala.dialogue_plan, next_requirement: 'vehicle_photo' };
+  await exec.runScenario({ name: 'sale-year-priority', turns: [{ text: 'Vcs compram carro ? Tenho um opala', gemini: opala }], auditor_responses: Array(4).fill(auditor) },
+    { mode: 'fixtures', geminiKey: null, settings, inventory, images,
+      turnOptions: { tamperDecision: decided => { opalaDecisions.push(decided?.commercial_decision?.data || decided?.commercial_decision || null); return decided; } } });
+  check('10 o ano vem antes da foto mesmo quando o modelo pede a foto', opalaDecisions[0]?.commercial_state?.pending_requirement === 'sell_year',
+    { pending: opalaDecisions[0]?.commercial_state?.pending_requirement });
+
+  // 21/10 22h44 ("Não tenho foto no momento"): o modelo devolveu texto vazio e a geração inteira falhou
+  // (EMPTY_SALES_REPLY), deixando a conversa retida. Texto vazio vai para a reescrita automática.
+  const rewrite = () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ reply: 'Sem problema! Qual é o ano do seu Opala?',
+    response_contract: { answers: [{ request_id: 'request_1', excerpt: 'Sem problema!' }], requested_fields: [{ field: 'sell_year', excerpt: 'Qual é o ano do seu Opala?' }], facts: [], fact_evidence_mode: 'standard',
+      availability_asserted: false, assignment_confirmed: false, photo_sent: false, handoff_announced: false } }) }] } }] });
+  const empty = await exec.runScenario({ name: 'empty-reply', turns: [{ text: 'Não tenho foto no momento', gemini: { ...sale('', { brand: 'Chevrolet', model: 'Opala', raw_mention: 'opala' }), response_contract: { answers: [] } } }],
+    auditor_responses: [rewrite, auditor, auditor, auditor] }, { mode: 'fixtures', geminiKey: null, settings, inventory, images });
+  const emptyTexts = empty.world.log.simulated_sends.map(item => String(item.text || ''));
+  check('11 resposta vazia do modelo é reescrita, sem derrubar a geração', emptyTexts.length === 1 && emptyTexts[0].length > 0
+    && empty.steps[0]?.final?.error_code !== 'DIALOGUE_GENERATION_FAILED', { texts: emptyTexts, final: empty.steps[0]?.final?.error_code });
+
   for (const row of rows) console.log((row.ok ? 'PASS ' : 'FAIL ') + row.name + (row.ok ? '' : ' ' + JSON.stringify(row.detail)));
   console.log(`${rows.filter(r => r.ok).length}/${rows.length} purchase policy checks pass.`);
   if (rows.some(r => !r.ok)) process.exitCode = 1;

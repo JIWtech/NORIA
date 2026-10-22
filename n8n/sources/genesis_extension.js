@@ -1300,7 +1300,9 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
         independentSaleAppraisal.ready = independentSaleAppraisal.missing.length === 0;
       }
       // What a remote direct-sale appraisal still lacks (model, year, photo, condition) is what the AI asks next.
-      if (independentSaleAppraisal.evaluated && !independentSaleAppraisal.ready && (!nextPending || nextPending === 'none')) {
+      // The store's order (model, year, photo, condition) prevails over the requirement the model picked.
+      if (independentSaleAppraisal.evaluated && !independentSaleAppraisal.ready
+        && (!nextPending || nextPending === 'none' || ['sell_model', 'sell_year', 'vehicle_photo', 'vehicle_description'].includes(nextPending))) {
         nextPending = independentSaleAppraisal.missing[0];
       }
       // The year was asked and the customer does not know it: the purchase policy cannot be applied, so a

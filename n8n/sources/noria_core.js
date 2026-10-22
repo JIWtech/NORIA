@@ -53,9 +53,9 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_22',
-  built_at: '2026-10-22T01:37:51.378Z',
-  core_sha256: '8a3a94bb36febca133179e8e5a43e18358b49a8285d2a93c221d564192fd3ccd',
-  ext_sha256: '8e92282b76d22f2fe4d67f461e48543e3185e14a2ca004f271824ab6ef4d8d7a',
+  built_at: '2026-10-22T01:49:51.109Z',
+  core_sha256: 'fd6dba9cc20cf93e27b60072144e3886e63a5a5771495bf83753fc6726041589',
+  ext_sha256: '8fbd0e8555ac0dc6fd121587ceda7169c7404db8bf3ffd018fe53eaa93ceb5f8',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -7284,7 +7284,9 @@ function salesValidate(result, messages, inventory, context = {}, selectionProof
   // A photo-only turn may leave the text empty: the authorised image is the answer (checked again by the primary audit).
   const photoOnlyPlan = Array.isArray(result.dialogue_plan?.requests) && result.dialogue_plan.requests.length > 0
     && result.dialogue_plan.requests.every(request => request?.topic === 'photos');
-  if (result.action === 'reply' && !result.reply.trim() && !photoOnlyPlan) throw new Error('EMPTY_SALES_REPLY');
+  // Gênesis audits every primary reply: an empty one becomes INVALID_PRIMARY_REPLY there and is rewritten,
+  // instead of failing the whole generation and leaving the conversation held.
+  if (result.action === 'reply' && !result.reply.trim() && !photoOnlyPlan && tenantSlug !== 'wesley_automoveis') throw new Error('EMPTY_SALES_REPLY');
   if (!['buy', 'sell', 'after_sales', 'unknown'].includes(s.intent) || !['buy', 'sell', 'buy_and_sell', 'after_sales', 'unknown'].includes(s.transaction_mode)) throw new Error('INVALID_SALES_INTENT');
   for (const key of ['customer_name', 'name_evidence', 'product_id', 'product_evidence', 'product_variant_evidence', 'deposit_evidence', 'sell_brand', 'sell_model', 'sell_brand_evidence', 'sell_model_evidence', 'sell_year_evidence']) {
     if (typeof s[key] !== 'string' || s[key].length > 220 || /[\n\[\]]/.test(s[key])) throw new Error('INVALID_SALES_FIELD');
@@ -13047,7 +13049,11 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
           reply = salesCatalogReply(catalogItems, intro, catalogItems.length);
           pendingRequirement = 'purchase_product';
           event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: { status: 'grounded_catalog', assignment_confirmed: false } };
-        } else if (currentIntentAmbiguity?.kind === 'semantic_unavailable' && currentIntentAmbiguity.reply) {
+        } else if (currentIntentAmbiguity?.kind === 'semantic_unavailable' && currentIntentAmbiguity.reply
+          // Only a well-formed interpretation that failed a rule: a structurally broken model output keeps
+          // the silence plus operator alert.
+          && Array.isArray(currentIntentAmbiguity.validation_errors) && currentIntentAmbiguity.validation_errors.length > 0
+          && !currentIntentAmbiguity.validation_errors.some(code => /^(?:MISSING_OR_INVALID_|INVALID_SEMANTIC_INTENT_OBJECT|SEMANTIC_INTENT_UNAVAILABLE|MISSING_[A-Z_]+_[A-Z_]+$)/.test(code) && !/^MISSING_(?:CATALOG|REFERENCE|CUSTOMER_VEHICLE|AUCTION)_EVIDENCE$/.test(code))) {
           // The model's interpretation was rejected and its reply too: the CORE's clarification (no
           // commercial claim) answers instead of silence plus an operator review.
           reply = currentIntentAmbiguity.reply;
