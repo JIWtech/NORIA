@@ -253,6 +253,15 @@ test('recuperação semântica aceita apenas falta de suporte; contradição e p
   }
 });
 
+test('foto marcada como enviada antes da confirmação recebe a reescrita auditada (produção 24/10 19:44, Onix)', async () => {
+  const { salesIssuesRepairable } = await engine(['salesIssuesRepairable']);
+  assert.equal(salesIssuesRepairable(['UNCONFIRMED_PHOTO_DELIVERY']), true);
+  assert.equal(salesIssuesRepairable(['UNCONFIRMED_PHOTO_DELIVERY', 'SEMANTIC_FACT_CONTRADICTED']), false);
+  const src = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), 'utf8');
+  const repair = src.slice(src.indexOf('async function salesRepairRejectedDialogue('), src.indexOf('async function salesAuditPrimaryDialogue('));
+  assert.match(repair, /UNCONFIRMED_PHOTO_DELIVERY:[^']*photo_sent=false/);
+});
+
 test('fato declarado em trecho que o auditor julgou não factual é falta de prova: recebe a mesma reescrita auditada', async () => {
   // Produção 24/10 14:03: "O Nissan Versa SL 2013 é uma ótima escolha." trazia modelo e ano dentro de uma opinião.
   const { salesIssuesRepairable } = await engine(['salesIssuesRepairable']);
