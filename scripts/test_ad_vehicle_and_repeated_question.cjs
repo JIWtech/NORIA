@@ -47,7 +47,8 @@ test('repetição é corrigida por reformulação auditada e nunca deixa o clien
   assert.ok(finalize.indexOf('salesRepeatsRecentAssistant(') > 0);
   const block = finalize.slice(finalize.indexOf('salesRepeatsRecentAssistant('), finalize.indexOf('salesRepeatsRecentAssistant(') + 1400);
   assert.match(block, /audit\.status === 'accepted'/, 'só depois de a resposta original ter sido aceita');
-  assert.match(block, /salesRepairRejectedDialogue\([^)]*\['REPEATED_QUESTION'\]/);
+  assert.match(core, /\? \['REPEATED_QUESTION'\] : \[\]/);
+  assert.match(block, /salesRepairRejectedDialogue\([^)]*styleIssues/);
   assert.match(block, /salesAuditPrimaryDialogue\(/, 'a reformulação passa pelo mesmo auditor');
   assert.match(block, /catch/, 'falha da reformulação mantém a resposta original aceita');
   const repair = core.slice(core.indexOf('async function salesRepairRejectedDialogue('), core.indexOf('async function salesAuditPrimaryDialogue('));

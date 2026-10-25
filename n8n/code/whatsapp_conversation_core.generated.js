@@ -84,10 +84,10 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_24',
-  built_at: '2026-10-24T23:31:29.610Z',
-  core_sha256: '5d991cd2133f9e1b86a7a68abebf31bad10d9fb1e32559fb64ac510d1790d055',
-  ext_sha256: 'dd531a1adaa56010bae606413078379b76ba0dcf22c305caedcf0cf91af68606',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_25',
+  built_at: '2026-10-25T01:34:57.947Z',
+  core_sha256: '184049f1e22be30e2cd6474e8bbe0efa80c76b692d71db7c6bdb1aaecebdeb05',
+  ext_sha256: '84fed140175bd51bc514cf63540b30ca76be600073543be7969a098b4f464093',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -8116,6 +8116,40 @@ function salesReferralForTurn(history = [], messages = [], context = {}) {
   return null;
 }
 
+// Palavra do anúncio igual a uma palavra do modelo, ou com duas letras vizinhas trocadas ("pxc" -> "pcx").
+function salesAdTokenMatches(word, token) {
+  if (word === token) return true;
+  if (word.length !== token.length || token.length < 3) return false;
+  const diff = [...word].map((char, index) => char !== token[index] ? index : -1).filter(index => index >= 0);
+  return diff.length === 2 && diff[1] === diff[0] + 1 && word[diff[0]] === token[diff[1]] && word[diff[1]] === token[diff[0]];
+}
+// Veículos do estoque citados no texto do anúncio da própria loja, trecho a trecho: palavra distintiva do modelo e, se houver, o ano.
+// É só um dado para o modelo; a escolha e a política continuam com o modelo e a EXT.
+function salesAdInventoryCandidates(referral, inventory = []) {
+  const text = [referral?.title, referral?.body].filter(Boolean).join('\n');
+  if (!text) return [];
+  const found = [];
+  for (const segment of text.split(/\n|\//)) {
+    const words = normalizeText(segment).split(/[^a-z0-9]+/).filter(Boolean);
+    const years = words.filter(word => /^(?:19|20)\d{2}$/.test(word)).map(Number);
+    for (const row of Array.isArray(inventory) ? inventory : []) {
+      if (!row || found.some(item => item.id === row.id)) continue;
+      const tokens = normalizeText(row.model).split(/[^a-z0-9]+/).filter(token => token.length >= 3);
+      if (!tokens.some(token => words.some(word => salesAdTokenMatches(word, token)))) continue;
+      if (years.length && !years.includes(Number(row.year))) continue;
+      found.push({ id: row.id, brand: row.brand, model: row.model, year: row.year, status: row.status });
+    }
+  }
+  return found.slice(0, 6);
+}
+// Resposta a um clique de anúncio que não cita nenhum dos veículos dele.
+function salesAdVehicleNotAddressed(reply = '', adVehicles = []) {
+  if (!Array.isArray(adVehicles) || !adVehicles.length) return false;
+  const words = normalizeText(reply).split(/[^a-z0-9]+/).filter(Boolean);
+  return !adVehicles.some(vehicle => normalizeText(vehicle.model).split(/[^a-z0-9]+/).filter(token => token.length >= 3)
+    .some(token => words.some(word => salesAdTokenMatches(word, token))));
+}
+
 function salesReferralProduct(referral, inventory = [], queryText = '') {
   // A WhatsApp product ID identifies a provider SKU, not the local inventory ID.
   // Prefer a verified external-ID link. On a missing link only, match an explicit
@@ -8285,6 +8319,7 @@ async function salesGenerate(context, history, inventory, media, documentStatus,
   const contextualReference = salesUsesStructuredDialogue() ? { product: null, invalid: false, ambiguous: false, candidates: [], contextual: false } : salesCatalogChoice(history, turn.messages, inventory);
   const referralFacts = referral ? {
     context: { source: referral.source, title: referral.title, body: referral.body, media_type: referral.media_type },
+    ad_vehicles: salesAdInventoryCandidates(referral, inventory),
     inventory_match: referralMatch?.product ? {
       status: 'unique', vehicle: {
         name: referralMatch.product.name, model: referralMatch.product.model,
@@ -10290,6 +10325,7 @@ async function salesRepairRejectedDialogue(context, history, generated, plan, co
     'Uma resposta ao cliente foi rejeitada pela auditoria por incoerência com o que foi realmente executado. Escreva UMA nova resposta em português do Brasil, natural e no tom do atendimento, mantendo o que estava correto.',
     'Responda primeiro às perguntas atuais do cliente (plan.requests); só depois retome a informação pendente. Use SOMENTE fatos de facts, citados em response_contract.facts com fact_id, value e excerpt exatos; não acrescente preço, condição ou disponibilidade fora de facts.',
     'SEMANTIC_FACT_UNSUPPORTED e UNSUPPORTED_SEMANTIC_CLAIM: o auditor independente encontrou afirmações sem prova. Retire essas afirmações e seus pressupostos; não confirme uma hipótese do cliente como informação oficial. Se o pedido depende de um dado ausente, reconheça naturalmente que ele não está confirmado, sem inventar sua negação, prometer retorno ou anunciar encaminhamento não executado. A nova candidata passará pela mesma auditoria; não tente justificar a afirmação rejeitada.',
+    'AD_VEHICLE_NOT_ADDRESSED: o cliente chegou por um anúncio e a resposta não citou nenhum veículo de ad_vehicles. Se houver um só, responda sobre ele; se houver vários, pergunte qual interessa citando-os pelo nome. Use o status de cada um (vendido não é oferecido). Preço só dos facts.',
     'REPEATED_QUESTION: a resposta repete quase igual a pergunta da sua última mensagem ou uma mensagem anterior inteira. Veja em recent_assistant_messages o follow-up ou a fala do atendente que o cliente pode estar respondendo. Reconheça o que o cliente acabou de dizer, responda primeiro ao assunto atual e, se ainda precisar do dado, peça com outras palavras ou avance para o próximo passo; se o cliente disse que vai levar o veículo pessoalmente, não peça fotos.',
     'FACT_CLASSIFIED_AS_NON_FACTUAL: um fato declarado só aparece dentro de uma frase de opinião ou cortesia. Pode manter a cortesia (como "ótima escolha" ou "boa pedida"), mas escreva o fato também numa frase factual citada em response_contract.facts; não transforme opinião em característica do veículo (estado, conservação, ausência de defeito) sem fonte.',
     'UNCONFIRMED_PHOTO_DELIVERY: a foto autorizada é enviada pelo sistema depois desta mensagem e a entrega ainda não foi confirmada. Escreva o texto que acompanha a foto sem dizer que ela já foi enviada ou que está aqui, responda também às outras perguntas do cliente e declare photo_sent=false.',
@@ -10300,6 +10336,7 @@ async function salesRepairRejectedDialogue(context, history, generated, plan, co
     history: salesDialogueHistory(history), plan: { requests: plan?.requests || [], next_requirement: plan?.next_requirement || 'none' },
     collection: { active: collection?.active === true, next_field: collection?.next_field || null, missing_fields: collection?.missing_fields || [] },
     facts: ledgerFacts, execution: { handoff_dispatched: execution.handoff_dispatched === true, assigned: execution.assigned === true, photo_sent: execution.photo_sent === true },
+    ad_vehicles: Array.isArray(execution.ad_vehicles) ? execution.ad_vehicles : [],
   }, schema);
   if (!out || typeof out.reply !== 'string' || !out.reply.trim() || !out.response_contract || typeof out.response_contract !== 'object') throw new Error('REPAIR_INVALID');
   // A semantic rejection cannot be repaired by downgrading the contract to
@@ -13244,7 +13281,9 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
         fact_ledger: auditLedger.facts,
         handoff_claim_required: true, handoff_dispatched: handoffExecution.executed === true,
         financing_policy_inquiry: decisionData?.operations?.financing?.inquiry === true && financingCollection.active !== true,
-        strict_current_catalog: commercialDecisionAuthoritative
+        strict_current_catalog: commercialDecisionAuthoritative,
+        // Só um clique de anúncio NESTE turno pede que a resposta cite os veículos dele.
+        ad_vehicles: salesAdInventoryCandidates(salesReferralForTurn([], turn.messages, context), inventory)
       };
       // A name proof the validation accepted only provisionally is judged by the independent semantic audit of this turn.
       if (s.name_verified === true && s.name_proof?.audit === 'pending') {
@@ -13270,15 +13309,19 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
           if (reaudit.status === 'accepted') { generated = candidate; repairedReply = candidate.primary_reply; audit = reaudit; }
         } catch (error) { dialogueRepair = { attempted: true, original_issues: audit.issues, status: 'failed', error: String(error?.message || error).slice(0, 120) }; }
       }
-      // Estilo: repetir a mesma pergunta soa robótico. Uma reformulação, auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
-      if (audit.status === 'accepted' && !dialogueRepair && salesRepeatsRecentAssistant(audit.redacted_reply || primaryDialogueReply, history)) {
+      // Estilo: repetir a mesma pergunta ou ignorar os veículos do anúncio clicado soa robótico. Uma reformulação,
+      // auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
+      const styleIssuesFor = text => [...(salesRepeatsRecentAssistant(text, history) ? ['REPEATED_QUESTION'] : []),
+        ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : [])];
+      const styleIssues = audit.status === 'accepted' && !dialogueRepair ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
+      if (styleIssues.length) {
         try {
-          const candidate = await salesRepairRejectedDialogue(context, history, generated, naturalPlan, financingCollection, auditExecution, ['REPEATED_QUESTION'], auditLedger.facts);
+          const candidate = await salesRepairRejectedDialogue(context, history, generated, naturalPlan, financingCollection, auditExecution, styleIssues, auditLedger.facts);
           const reaudit = await salesAuditPrimaryDialogue(context, candidate, naturalPlan, financingCollection, auditExecution);
-          const improved = reaudit.status === 'accepted' && !salesRepeatsRecentAssistant(reaudit.redacted_reply || candidate.primary_reply, history);
-          dialogueRepair = { attempted: true, original_issues: ['REPEATED_QUESTION'], status: improved ? 'accepted' : 'kept_original', issues: reaudit.issues || [] };
+          const improved = reaudit.status === 'accepted' && !styleIssuesFor(reaudit.redacted_reply || candidate.primary_reply).length;
+          dialogueRepair = { attempted: true, original_issues: styleIssues, status: improved ? 'accepted' : 'kept_original', issues: reaudit.issues || [] };
           if (improved) { generated = candidate; repairedReply = candidate.primary_reply; audit = reaudit; }
-        } catch (error) { dialogueRepair = { attempted: true, original_issues: ['REPEATED_QUESTION'], status: 'kept_original', error: String(error?.message || error).slice(0, 120) }; }
+        } catch (error) { dialogueRepair = { attempted: true, original_issues: styleIssues, status: 'kept_original', error: String(error?.message || error).slice(0, 120) }; }
       }
       event.raw_payload = { ...(event.raw_payload || {}), ...(dialogueRepair ? { dialogue_repair: dialogueRepair } : {}), dialogue_audit: {
         ...audit,
