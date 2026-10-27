@@ -5,10 +5,12 @@ function env(name, fallback = '') {
 }
 function suffix(value) { return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '_'); }
 function trimText(value, limit = 900) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
+// The generator may decline (action skip): an empty reply is never sent. The old shape ({reply}) still sends.
 function parseReply(value) {
   const text = String(value || '').trim();
   try {
     const parsed = JSON.parse(text);
+    if (parsed.action === 'skip') return '';
     return trimText(parsed.reply || parsed.text || '');
   } catch (_) {
     const match = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
@@ -79,6 +81,14 @@ async function conversationChanged(job) {
   return Array.isArray(rows) && rows.some(row =>
     (row.direction === 'inbound' && row.sender_type === 'contact') || row.handoff === true
     || row.service === 'conversation_closed' || row.ai_provider === 'conversation_closed');
+}
+
+// The reply the job is anchored to carries the customer's validated end of conversation (CORE grounding).
+async function customerEnded(job) {
+  const rows = await get('channel_events?select=raw_payload&id=eq.' + encodeURIComponent(job.anchor_event_id)
+    + '&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
+  const value = rows?.[0]?.raw_payload?.grounding?.customer_disposition?.value;
+  return ['closed', 'declined', 'deferred'].includes(value) ? value : '';
 }
 
 async function hasFutureAppointment(job) {
@@ -167,19 +177,22 @@ async function generate(job, settings, history) {
     mode: 'follow_up', step: job.step_key, objective: job.objective, contact_name: job.contact_name || '',
     conversation: history.map(row => ({ direction: row.direction, text: row.message_text, at: row.created_at })),
     rules: [
+      'Este envio e uma retomada da conversa, horas depois: nao responda a ultima mensagem como se fosse agora.',
+      'Nunca escreva despedida ou agradecimento (por nada, obrigada pela preferencia, tenha um otimo dia): isso nao e retomada.',
+      'Se o cliente encerrou, recusou ou disse que volta depois, ou se nao houver o que retomar, retorne action skip com reply vazio.',
       'Escreva uma unica mensagem curta, em portugues do Brasil.',
       'Respeite integralmente a personalidade, fatos e limites do system prompt.',
       'Nao invente preco, disponibilidade, desconto, endereco ou pagamento.',
       'Nao diga que o cliente sumiu e nao mencione tempo de espera.',
-      'Nao envie se a conversa exigir humano, pagamento, cancelamento ou remarcacao.',
-      'Retorne JSON com apenas a chave reply.'
+      'Nao envie se a conversa exigir humano, pagamento, cancelamento ou remarcacao: retorne action skip.',
+      'Retorne JSON com action (send ou skip) e reply.'
     ],
   };
   const geminiPayload = {
       system_instruction: { parts: [{ text: prompt }] },
       contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
       generationConfig: { temperature: 0.35, maxOutputTokens: 500, responseMimeType: 'application/json',
-        responseSchema: { type: 'OBJECT', properties: { reply: { type: 'STRING' } }, required: ['reply'] } },
+        responseSchema: { type: 'OBJECT', properties: { action: { type: 'STRING', enum: ['send', 'skip'] }, reply: { type: 'STRING' } }, required: ['action', 'reply'] } },
   };
   const geminiLease = await reserveGeminiFollowUp(job, settings, model, geminiPayload);
   let body;
@@ -195,7 +208,8 @@ async function generate(job, settings, history) {
   if (!candidate || candidate.finishReason !== 'STOP') throw new Error('Gemini nao concluiu o follow-up');
   const text = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('') || '';
   const reply = parseReply(text);
-  if (!reply || reply.length > 900 || /\[HUMANO_SOLICITADO\]|\[ACAO:/i.test(reply)) throw new Error('Resposta de follow-up invalida');
+  if (!reply) return { skip: true, model, usage: body.usageMetadata || {} };
+  if (reply.length > 900 || /\[HUMANO_SOLICITADO\]|\[ACAO:/i.test(reply)) throw new Error('Resposta de follow-up invalida');
   return { reply, model, usage: body.usageMetadata || {} };
 }
 
@@ -222,6 +236,12 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
       outcome.push({ id: job.id, status: 'cancelled' });
       continue;
     }
+    const ended = await customerEnded(job);
+    if (ended) {
+      await finish(job, 'cancelled', null, 'customer_' + ended);
+      outcome.push({ id: job.id, status: 'cancelled', reason: 'customer_' + ended });
+      continue;
+    }
     if (!sales && await hasFutureAppointment(job)) {
       await finish(job, 'cancelled', null, 'appointment_exists');
       outcome.push({ id: job.id, status: 'cancelled', reason: 'appointment_exists' });
@@ -238,6 +258,11 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     if (!channel?.external_id) throw new Error('Canal WhatsApp ativo nao encontrado');
     const generated = sales ? salesFollowUp(job, settings)
       : await generate.call(this, job, settings, Array.isArray(history) ? history.reverse() : []);
+    if (generated.skip) {
+      await finish(job, 'cancelled', null, 'follow_up_not_applicable');
+      outcome.push({ id: job.id, status: 'cancelled', reason: 'follow_up_not_applicable' });
+      continue;
+    }
     if (await conversationChanged(job)) {
       await finish(job, 'cancelled', null, 'conversation_control_changed_before_send');
       outcome.push({ id: job.id, status: 'cancelled' });

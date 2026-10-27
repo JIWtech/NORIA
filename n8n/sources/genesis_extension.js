@@ -1334,11 +1334,18 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
         if (remoteAppraisal.condition_description_required === true && appraisalEvidence.description_reported !== true) independentSaleAppraisal.missing.push('vehicle_description');
         independentSaleAppraisal.ready = independentSaleAppraisal.missing.length === 0;
       }
+      // Optional appraisal questions (vehicle_appraisal.remote.ask_mileage): asked once, never a requirement for the
+      // appraisal handoff; the team handles what was or was not answered. The CORE only reports a mileage stated with evidence.
+      const optionalAppraisalAsked = Array.isArray(state.optional_appraisal_asked) ? state.optional_appraisal_asked.map(String).slice(0, 10) : [];
+      const optionalAppraisalQuestion = independentSaleAppraisal.evaluated && !independentSaleAppraisal.ready
+        && remoteAppraisal.ask_mileage === true && appraisalEvidence.mileage_reported !== true
+        && !optionalAppraisalAsked.includes('sell_mileage') && !['sell_model', 'sell_year'].includes(independentSaleAppraisal.missing[0])
+        ? 'sell_mileage' : '';
       // What a remote direct-sale appraisal still lacks (model, year, photo, condition) is what the AI asks next.
       // The store's order (model, year, photo, condition) prevails over the requirement the model picked.
       if (independentSaleAppraisal.evaluated && !independentSaleAppraisal.ready
         && (!nextPending || nextPending === 'none' || ['sell_model', 'sell_year', 'vehicle_photo', 'vehicle_description'].includes(nextPending))) {
-        nextPending = independentSaleAppraisal.missing[0];
+        nextPending = optionalAppraisalQuestion || independentSaleAppraisal.missing[0];
       }
       // The year was asked and the customer does not know it: the purchase policy cannot be applied, so a
       // person takes over and the lead is classified cold.
@@ -1495,6 +1502,8 @@ async function executeBusinessOperation(operation, payload = {}, context = {}) {
             buy_interest: obsoleteInventoryFocus ? null : state.buy_interest || null,
           }),
           pending_requirement: nextPending,
+          optional_appraisal_asked: nextPending === 'sell_mileage' && !optionalAppraisalAsked.includes('sell_mileage')
+            ? [...optionalAppraisalAsked, 'sell_mileage'] : optionalAppraisalAsked,
           lead_temperature: leadClassification.temperature,
           financing_qualified: collectionReady,
         },

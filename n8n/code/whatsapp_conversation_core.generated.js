@@ -85,9 +85,9 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_27',
-  built_at: '2026-10-27T12:51:24.488Z',
-  core_sha256: 'e71b51a8f8f41e624ca03e5e29cf72b40437e3e8a8753fc7256995491386606d',
-  ext_sha256: '84fed140175bd51bc514cf63540b30ca76be600073543be7969a098b4f464093',
+  built_at: '2026-10-27T13:17:19.879Z',
+  core_sha256: '240e8314578dbfc7e1207fe8216f668f30b4c6f9d1ead784c6baf43cf10bd330',
+  ext_sha256: 'a31a4292c01177c5f456fd6110ea9d96f6f2c24bfac9c603fd71dbc37f30274d',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -3276,6 +3276,12 @@ async function scheduleFollowUps(context, sentEvent, event) {
   const settings = settingsFor(context);
   if (event.raw_payload?.generation_failure || event.raw_payload?.dialogue_plan_failure
     || event.raw_payload?.technical_error_code || event.raw_payload?.ai_processing_ok === false) return 0;
+  // Grounded path: an end of conversation validated against the customer's current message stops follow-ups.
+  const groundedDisposition = event.raw_payload?.grounding?.customer_disposition?.value;
+  if (!salesEnabled(context) && ['closed', 'declined', 'deferred'].includes(groundedDisposition)) {
+    await cancelPendingFollowUps(context, 'customer_' + groundedDisposition);
+    return 0;
+  }
   if (salesEnabled(context)) {
     const disposition = event.raw_payload?.follow_up_disposition;
     if (['closed_by_customer', 'declined', 'resolved', 'deferred_by_customer'].includes(disposition)) {
@@ -3991,7 +3997,10 @@ function groundingResponseSchema(context = {}, catalog = { matches: [] }) {
         },
         required: ['customer_name', 'service_id', 'date', 'time', 'name_evidence', 'service_evidence', 'date_evidence', 'time_evidence', 'unit_id', 'unit_evidence']
       },
-    }, required: ['action', 'reply', 'message_keys', 'state', 'price_claims']
+      customer_disposition: { type: 'OBJECT', description: 'Decida pelo significado da mensagem atual do cliente se ele encerrou a conversa (closed), recusou a oferta (declined) ou adiou para outro momento (deferred). Pergunta, dúvida, interesse ou resposta curta que continua o assunto é active. evidence_ids: IDs das mensagens ATUAIS do cliente que comprovam; vazio quando active.',
+        properties: { value: { type: 'STRING', enum: ['active', 'closed', 'declined', 'deferred'] }, evidence_ids: { type: 'ARRAY', items: str } },
+        required: ['value', 'evidence_ids'] },
+    }, required: ['action', 'reply', 'message_keys', 'state', 'price_claims', 'customer_disposition']
   };
   // Gemini only sees keys with validated LIVE prices and active service IDs.
   const approved = groundingApprovedView(context, catalog);
@@ -4001,6 +4010,16 @@ function groundingResponseSchema(context = {}, catalog = { matches: [] }) {
     else schema.properties.action.enum = schema.properties.action.enum.filter(action => action !== 'approved_reply');
   }
   return schema;
+}
+
+// Encerramento declarado pelo modelo só vale com prova nas mensagens ATUAIS do cliente; qualquer dúvida é active.
+// Só afeta follow-ups: a resposta ao cliente segue o fluxo normal.
+function groundingCustomerDisposition(raw, currentMessageIds = []) {
+  const value = raw && typeof raw === 'object' ? raw.value : '';
+  const ids = Array.isArray(raw?.evidence_ids) ? raw.evidence_ids.map(String).slice(0, 10) : [];
+  const current = new Set(currentMessageIds.map(String));
+  if (!['closed', 'declined', 'deferred'].includes(value) || !ids.length || !ids.every(id => current.has(id))) return { value: 'active', evidence_ids: [] };
+  return { value, evidence_ids: ids };
 }
 
 function groundingValidateResponse(result, context, customerMessages, catalog, appointments, previousState = {}) {
@@ -4248,6 +4267,7 @@ async function callGroundedGemini(context, history, catalog, appointments) {
     if (candidate?.finishReason !== 'STOP') throw new Error('Incomplete model output');
     const value = JSON.parse(candidate.content.parts.filter(p => !p.thought).map(p => p.text || '').join(''));
     let validated = groundingValidateResponse(value, context, customerMessages, catalog, appointments, previousState);
+    audit.customer_disposition = groundingCustomerDisposition(value.customer_disposition, turn.messages.map(m => m.event_id));
     if (parseAppointmentCreationTag(validated.text) && !validated.bookingRequested) throw new Error('UNAUTHORIZED_BOOKING_DIRECTIVE');
     if (validated.bookingRequested) {
       audit.booking_authorization = await groundingAuditBookingAuthorization(context, history, customerMessages, catalog, validated.state);
@@ -7372,6 +7392,17 @@ function salesVehicleYearClarification(text = '') {
   return { raw: match[1], reply: 'Só confirmando: qual é o ano correto do veículo? Recebi “' + match[1] + '”.' };
 }
 
+// Parsing técnico da quilometragem citada pelo cliente: "85000", "85.000", "85 mil", "85k", "85,5 mil".
+// O número precisa aparecer inteiro na mensagem; um ano do veículo nunca vira quilometragem.
+function salesMileageMentioned(text, mileage, vehicleYear = null) {
+  const value = normalizeText(text);
+  if (!Number.isSafeInteger(mileage) || mileage < 0 || mileage === vehicleYear) return false;
+  for (const match of value.matchAll(/(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:mil|k)\b/g)) {
+    if (Math.round(Number(match[1].replace(',', '.')) * 1000) === mileage) return true;
+  }
+  return [...value.matchAll(/\d{1,3}(?:\.\d{3})+|\d+/g)].some(match => match[0].replace(/\D/g, '') === String(mileage));
+}
+
 function salesSanitizeSemanticState(state, messages, selectionProofs = new Map(), inventory = []) {
   const byId = new Map();
   for (const message of messages) if (!byId.has(message.id)) byId.set(message.id, message);
@@ -7480,7 +7511,7 @@ function salesSanitizeSemanticState(state, messages, selectionProofs = new Map()
   if (s.sell_vehicle.category !== 'unknown' && !sellVehicleEvidence.length) s.sell_vehicle.category = 'unknown';
   if (s.sell_vehicle.mileage_km !== null) {
     const mileage = String(s.sell_vehicle.mileage_km);
-    const evidenced = sellVehicleEvidence.some(id => normalizeText(byId.get(id)?.text).replace(/\D/g, '').includes(mileage));
+    const evidenced = sellVehicleEvidence.some(id => salesMileageMentioned(byId.get(id)?.text, s.sell_vehicle.mileage_km, s.sell_vehicle.year));
     if (!Number.isSafeInteger(s.sell_vehicle.mileage_km) || s.sell_vehicle.mileage_km < 0 || !evidenced) s.sell_vehicle.mileage_km = null;
   }
   if (!sellVehicleEvidence.length) {
@@ -11632,6 +11663,8 @@ async function runSalesTurnPrepare(context, history, event, control) {
       vehicle_photo_count: salesVehiclePhotoCount(history, documents, appraisalEvidenceState),
       description_reported: salesDescriptionComplete(appraisalEvidenceState),
       description_evidence_ids: [...new Set([...(appraisalVehicle.maintenance_evidence_ids || []), ...(appraisalVehicle.condition_evidence_ids || [])])].slice(-30),
+      // mileage_km only survives extraction when the customer's own message contains it.
+      mileage_reported: Number.isSafeInteger(appraisalVehicle.mileage_km) && appraisalVehicle.mileage_km >= 0,
       appraisal_channel: String(appraisalEvidenceState.appraisal_channel || lead?.state?.appraisal_channel || '')
     };
   } catch (error) { appraisalEvidence = null; }
@@ -12806,7 +12839,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       }
       if (salesNaturalDialogue.responseContract(naturalPlan, s, {}).vehicle_entry_discussion_allowed && s.dialogue_memory?.trade_in_status === 'policy_discussed' && pendingRequirement === 'deposit') pendingRequirement = 'trade_in_confirmation';
       if (naturalPlan.memory?.customer_vehicle_purpose === 'entry_inquiry' || (naturalPlan.requests || []).some(r => r.topic === 'trade_in' && !s.product_id && !generated.product)) {
-        if (['sell_model', 'sell_year', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement)) {
+        if (['sell_model', 'sell_year', 'sell_mileage', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement)) {
           pendingRequirement = (s.product_id || generated.product) ? '' : 'purchase_product';
         }
       }
@@ -13414,7 +13447,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
             photo_action_status: 'authorized_for_dispatch' };
         } else catalogPhotoToSend = null;
         followUpDisposition = 'awaiting_customer';
-        if (['sell_model', 'sell_year', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement) && (!s.sell_vehicle?.model && !s.sell_model)) {
+        if (['sell_model', 'sell_year', 'sell_mileage', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement) && (!s.sell_vehicle?.model && !s.sell_model)) {
           pendingRequirement = (s.product_id || generated.product) ? '' : 'purchase_product';
           if (s.dialogue_context) s.dialogue_context.pending_requirement = pendingRequirement;
         }

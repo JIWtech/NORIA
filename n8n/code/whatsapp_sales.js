@@ -2062,6 +2062,15 @@ function salesVehicleYearClarification(text = '') {
   return { raw: match[1], reply: 'Só confirmando: qual é o ano correto do veículo? Recebi “' + match[1] + '”.' };
 }
 
+function salesMileageMentioned(text, mileage, vehicleYear = null) {
+  const value = normalizeText(text);
+  if (!Number.isSafeInteger(mileage) || mileage < 0 || mileage === vehicleYear) return false;
+  for (const match of value.matchAll(/(\d{1,3}(?:[.,]\d{1,3})?)\s*(?:mil|k)\b/g)) {
+    if (Math.round(Number(match[1].replace(',', '.')) * 1000) === mileage) return true;
+  }
+  return [...value.matchAll(/\d{1,3}(?:\.\d{3})+|\d+/g)].some(match => match[0].replace(/\D/g, '') === String(mileage));
+}
+
 function salesSanitizeSemanticState(state, messages, selectionProofs = new Map(), inventory = []) {
   const byId = new Map();
   for (const message of messages) if (!byId.has(message.id)) byId.set(message.id, message);
@@ -2170,7 +2179,7 @@ function salesSanitizeSemanticState(state, messages, selectionProofs = new Map()
   if (s.sell_vehicle.category !== 'unknown' && !sellVehicleEvidence.length) s.sell_vehicle.category = 'unknown';
   if (s.sell_vehicle.mileage_km !== null) {
     const mileage = String(s.sell_vehicle.mileage_km);
-    const evidenced = sellVehicleEvidence.some(id => normalizeText(byId.get(id)?.text).replace(/\D/g, '').includes(mileage));
+    const evidenced = sellVehicleEvidence.some(id => salesMileageMentioned(byId.get(id)?.text, s.sell_vehicle.mileage_km, s.sell_vehicle.year));
     if (!Number.isSafeInteger(s.sell_vehicle.mileage_km) || s.sell_vehicle.mileage_km < 0 || !evidenced) s.sell_vehicle.mileage_km = null;
   }
   if (!sellVehicleEvidence.length) {
@@ -6085,6 +6094,8 @@ async function runSalesTurnPrepare(context, history, event, control) {
       vehicle_photo_count: salesVehiclePhotoCount(history, documents, appraisalEvidenceState),
       description_reported: salesDescriptionComplete(appraisalEvidenceState),
       description_evidence_ids: [...new Set([...(appraisalVehicle.maintenance_evidence_ids || []), ...(appraisalVehicle.condition_evidence_ids || [])])].slice(-30),
+      // mileage_km only survives extraction when the customer's own message contains it.
+      mileage_reported: Number.isSafeInteger(appraisalVehicle.mileage_km) && appraisalVehicle.mileage_km >= 0,
       appraisal_channel: String(appraisalEvidenceState.appraisal_channel || lead?.state?.appraisal_channel || '')
     };
   } catch (error) { appraisalEvidence = null; }
@@ -7259,7 +7270,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       }
       if (salesNaturalDialogue.responseContract(naturalPlan, s, {}).vehicle_entry_discussion_allowed && s.dialogue_memory?.trade_in_status === 'policy_discussed' && pendingRequirement === 'deposit') pendingRequirement = 'trade_in_confirmation';
       if (naturalPlan.memory?.customer_vehicle_purpose === 'entry_inquiry' || (naturalPlan.requests || []).some(r => r.topic === 'trade_in' && !s.product_id && !generated.product)) {
-        if (['sell_model', 'sell_year', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement)) {
+        if (['sell_model', 'sell_year', 'sell_mileage', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement)) {
           pendingRequirement = (s.product_id || generated.product) ? '' : 'purchase_product';
         }
       }
@@ -7867,7 +7878,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
             photo_action_status: 'authorized_for_dispatch' };
         } else catalogPhotoToSend = null;
         followUpDisposition = 'awaiting_customer';
-        if (['sell_model', 'sell_year', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement) && (!s.sell_vehicle?.model && !s.sell_model)) {
+        if (['sell_model', 'sell_year', 'sell_mileage', 'vehicle_description', 'vehicle_photo'].includes(pendingRequirement) && (!s.sell_vehicle?.model && !s.sell_model)) {
           pendingRequirement = (s.product_id || generated.product) ? '' : 'purchase_product';
           if (s.dialogue_context) s.dialogue_context.pending_requirement = pendingRequirement;
         }

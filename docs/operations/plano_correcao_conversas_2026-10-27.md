@@ -170,6 +170,13 @@ Fila: Gênesis com 65 conversas em `review` (16 dos últimos 3 dias) e 5 em `unc
 
 **Aceite**: nenhuma sequência renovada indefinidamente com o mesmo contato em 7 dias, sem cliente real silenciado.
 
+**[v4] Medição de 24 a 27/10 (só leitura)**:
+- Robôs de empresa recebendo resposta e follow-up na Núbia: Photoliliaaraujo (…0455, 3 follow-ups) e um "Espaço …" (follow-up "Será sempre bem-vinda! Como posso te chamar?" duas vezes). Nenhuma supressão `non_customer` registrada. Na Gênesis não apareceu robô de empresa no período.
+- Follow-up depois de o cliente encerrar ("Não, obrigada", "Obrigada", "no momento não posso"): Núbia 16 de 86, Gênesis 6 de 52. Exemplo: …67228 recebeu 3 follow-ups depois de "Não, obrigada".
+- Núbia: 14 follow-ups são despedidas atrasadas ("Por nada! Tenha um ótimo dia.", "Obrigada pela preferência."), enviadas horas depois como se fossem retomada. Indica que o gerador de follow-up responde à última mensagem em vez de retomar.
+- Conversas com 3 ou mais follow-ups em 3 dias: Núbia 5, Gênesis 2.
+- Correção prevista junto com P1-6/P1-7: o encerramento pelo cliente (`customer_disposition` validado) cancela os follow-ups pendentes e impede novos. Follow-up que não é retomada (despedida) não é enviado.
+
 ---
 
 ### P1-7. Follow-up com o mesmo texto repetido
@@ -254,6 +261,33 @@ Passo 0: registrar `finishReason`, tamanho da saída e motivo da invalidação (
 
 Passo 0: reproduzir no executor de homologação e identificar a afirmação.
 
+### P1-11. **[v4]** Documento do veículo (CRLV) lido como documento pessoal trava o turno (…0563128, Rodolfo)
+
+**Comprovado (27/10, horário de Brasília)**: 09:44 o cliente perguntou se a loja compra carro e a IA pediu marca, modelo e ano. 09:46 ele enviou 1 CRLV (Fiat Siena Attractive 1.4, 2013/2014) e 4 fotos do carro. 09:47 o turno foi para revisão com `technical_error_code = DOCUMENT_REQUIRES_REVIEW` (erro externo `DIALOGUE_GENERATION_FAILED`), sem nenhuma resposta ao cliente. A equipe respondeu às 09:58. O lead continua sem marca, modelo e ano.
+
+**Causa no código (conferida)**:
+- `salesClassifyImages` só conhece as categorias `vehicle_photo | document | other | uncertain`. Um CRLV cai em `document`.
+- Todo `document` vai para o leitor de documento pessoal (prompt "CNH/documento: nome, CPF, número da CNH e nascimento"). Esse leitor lança `DOCUMENT_REQUIRES_REVIEW` quando o CPF não valida, a CNH não tem 11 dígitos, a data não é válida ou não há nome, CPF nem CNH.
+- O erro é lançado dentro do laço e interrompe o lote inteiro. As 4 fotos já classificadas se perdem e o turno vai para revisão.
+- **Não comprovado**: qual campo disparou o erro (a execução 475126 não está mais disponível). Hipóteses: CPF/CNPJ do proprietário que não valida como CPF, ou o RENAVAM (11 dígitos) lido como CNH.
+
+**Correção (Motor, sem schema)**:
+1. O classificador ganha a categoria `vehicle_document`, separada de `document` (pessoal). A legenda técnica continua mandando `cnh|cpf|rg` para o caminho pessoal, sem mudança.
+2. `vehicle_document` não passa pelo leitor de identidade. Vira evidência de que o cliente enviou o documento do veículo, e marca/modelo/ano só entram como dado se o leitor próprio extrair texto legível. Nada é completado nem inventado, e esses dados nunca preenchem campos de identidade (nome, CPF, CNH).
+3. As validações de identidade continuam iguais para documento pessoal: CPF inválido, CNH malformada ou data inválida seguem indo para revisão.
+4. Uma falha de leitura num documento não descarta as outras evidências do lote: as fotos do veículo continuam disponíveis e o EXT decide a próxima pergunta. Documento pessoal ilegível continua indo para revisão, como hoje.
+5. O passo 4 só pode valer para `vehicle_document`. Para documento pessoal, decidir com o EXT se a revisão continua obrigatória.
+
+**Teste**: reproduzir CRLV + 4 fotos em uma venda independente (compra do carro do cliente) e verificar que:
+- o turno não vai para revisão por causa do CRLV;
+- as 4 fotos continuam como evidência;
+- nenhum campo de identidade é preenchido com dado do CRLV;
+- marca/modelo/ano só aparecem se foram lidos, nunca deduzidos.
+
+Testes de regressão: documento pessoal com CPF inválido continua indo para revisão, e CNH legítima continua extraída.
+
+**Antes de implementar**: comparar com a versão ativa do Motor (`eace2a40`, publicada em 27/10 09:52), que é posterior à execução do caso.
+
 ---
 
 ## 4. Ordem de execução **[v2]**
@@ -266,6 +300,7 @@ Passo 0: reproduzir no executor de homologação e identificar a afirmação.
 | 4 | P2-8 diagnóstico de `uncertain` | nenhum (leitura + reprodução) | antecipado |
 | 5 | **[v3]** P0-1 aviso no painel do operador | app (frontend) | antes das melhorias de estilo: atende quem está aguardando |
 | 6 | **[v3]** N-1 passo 0 (replay …1038 e …9775) | nenhum | confirma a causa |
+| 6b | **[v4]** P1-11 CRLV separado de documento pessoal | Motor | cliente fica sem resposta; vem antes dos ajustes de estilo |
 | 7 | N-1 contexto limitado + `opening` + nome validado | Motor | |
 | 8 | N-1 ajuste de prompt da Núbia | dado no Supabase | depois do 7 |
 | 9 | P0-3 correção | Motor + EXT Gênesis | indivisível se a regra do EXT depender do dado novo |
