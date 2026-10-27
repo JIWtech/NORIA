@@ -84,9 +84,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_25',
-  built_at: '2026-10-25T01:34:57.947Z',
-  core_sha256: '184049f1e22be30e2cd6474e8bbe0efa80c76b692d71db7c6bdb1aaecebdeb05',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_27',
+  built_at: '2026-10-27T12:51:24.488Z',
+  core_sha256: 'e71b51a8f8f41e624ca03e5e29cf72b40437e3e8a8753fc7256995491386606d',
   ext_sha256: '84fed140175bd51bc514cf63540b30ca76be600073543be7969a098b4f464093',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -1099,6 +1099,40 @@ function httpGeminiMetadata(url, payload, options = {}) {
   return { model: options.model || match?.[1] || null, operation };
 }
 
+// Falha HTTP fora do Gemini descrita sem dados sensíveis: provedor, operação, método, rota normalizada por modelo fixo
+// (nunca o caminho real, filtros, host ou instância), status e código técnico sanitizado.
+function httpFailureDescriptor(url, method, error, operation = 'http_request') {
+  // Leitura simples da URL: não depende do construtor URL do ambiente do nó.
+  const parse = value => { const m = /^https?:\/\/([^/?#]+)([^?#]*)/i.exec(String(value || '')); return m ? { host: m[1].toLowerCase(), pathname: m[2] || '/' } : null; };
+  const parsed = parse(url);
+  const supabaseHost = parse(env('SUPABASE_URL'))?.host || '';
+  const segment = value => /^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(String(value || '')) ? String(value) : '{id}';
+  const path = parsed ? parsed.pathname : '';
+  let provider = 'other', route = '{other}';
+  if (parsed && supabaseHost && parsed.host === supabaseHost) {
+    const rpc = /^\/rest\/v1\/rpc\/([^/]+)\/?$/.exec(path);
+    const rest = /^\/rest\/v1\/([^/]+)/.exec(path);
+    const storage = /^\/storage\/v1\/([^/]+)/.exec(path);
+    if (rpc) { provider = 'supabase_rpc'; route = '/rest/v1/rpc/' + segment(rpc[1]); }
+    else if (rest) { provider = 'supabase_rest'; route = '/rest/v1/' + segment(rest[1]); }
+    else if (storage) { provider = 'supabase_storage'; route = '/storage/v1/' + segment(storage[1]); }
+    else { provider = 'supabase'; route = '{supabase}'; }
+  } else if (parsed) {
+    const parts = path.split('/').filter(Boolean);
+    provider = 'external';
+    route = parts.length >= 2 ? '/' + segment(parts[0]) + '/' + segment(parts[1]) + (parts.length > 2 ? '/{id}' : '') : '{other}';
+  }
+  let data = error?.response?.data ?? error?.response?.body ?? error?.cause?.response?.data;
+  if (typeof data === 'string' && data.length <= 16384) { try { data = JSON.parse(data); } catch { data = null; } }
+  const providerCode = data && typeof data === 'object' && typeof data.code === 'string'
+    && /^(?:PGRST\d{3}|[0-9A-Z]{5})$/.test(data.code) ? data.code : '';
+  const status = Number(error?.response?.status || error?.response?.statusCode || error?.statusCode || error?.httpCode || 0);
+  return {
+    provider, operation: String(operation || 'http_request').slice(0, 60), method: String(method || '').toUpperCase().slice(0, 6),
+    route, status: Number.isInteger(status) && status > 0 ? status : null, code: supabaseRaisedToken(error) || providerCode,
+  };
+}
+
 async function httpJson(method, url, headers = {}, payload = null, options = {}) {
   const isGemini = /^https:\/\/generativelanguage\.googleapis\.com\//.test(String(url || ''));
   if (isGemini) {
@@ -1142,7 +1176,12 @@ async function httpJson(method, url, headers = {}, payload = null, options = {})
       }
       return response;
     } catch (error) {
-      if (!isGemini) throw error;
+      if (!isGemini) {
+        if (error && typeof error === 'object' && !error.noria_http) {
+          try { error.noria_http = httpFailureDescriptor(url, method, error, metadata.operation); } catch { }
+        }
+        throw error;
+      }
       lastDiagnostic = error?.diagnostic && typeof error.diagnostic === 'object'
         ? {
           ...error.diagnostic, model: error.diagnostic.model || metadata.model,
@@ -11475,6 +11514,8 @@ async function runSalesTurnPrepare(context, history, event, control) {
         ? { action: 'reply', reason: 'none', reply: directCatalogAnswer.reply, state: salesMergeState(lead?.state || {}, {}), product: directCatalogAnswer.matched_product || null }
         : await salesGenerate(context, history, inventory, documents, documentStatus, lead);
       const referral = salesReferralForTurn(history, turn.messages, context);
+      // Diagnóstico (plano 27/10, P0-3 passo 0): só a contagem, sem conteúdo do anúncio.
+      if (referral) event.raw_payload = { ...(event.raw_payload || {}), ad_vehicles_prepare_count: salesAdInventoryCandidates(referral, inventory).length };
       const currentQuery = turn.messages.map(message => message.text || '').join(' ');
       const referralReply = salesReferralReply(currentQuery, referral, inventory);
       resolvedReferralProduct = referral ? salesReferralProduct(referral, inventory, currentQuery).product : null;
@@ -13313,7 +13354,11 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       // auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
       const styleIssuesFor = text => [...(salesRepeatsRecentAssistant(text, history) ? ['REPEATED_QUESTION'] : []),
         ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : [])];
-      const styleIssues = audit.status === 'accepted' && !dialogueRepair ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
+      const styleCheckSkipped = audit.status !== 'accepted' ? 'audit_not_accepted' : dialogueRepair ? 'prior_repair' : null;
+      const styleIssues = styleCheckSkipped === null ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
+      // Diagnóstico (plano 27/10, P0-3 passo 0): contagem da fase final e motivo de a checagem de estilo não rodar.
+      event.raw_payload = { ...(event.raw_payload || {}), ad_vehicles_finalize_count: auditExecution.ad_vehicles.length,
+        style_check: { evaluated: styleCheckSkipped === null, skipped_reason: styleCheckSkipped, issues: styleIssues } };
       if (styleIssues.length) {
         try {
           const candidate = await salesRepairRejectedDialogue(context, history, generated, naturalPlan, financingCollection, auditExecution, styleIssues, auditLedger.facts);
@@ -14425,6 +14470,7 @@ try {
     requires_technical_intervention: true,
     turn_token: turn?.token || null, conversation_session_id: turn?.boundary_id || null,
     grouped_message_ids: (turn?.messages || []).map(item => item.id),
+    ...(error?.noria_http ? { http_failure: error.noria_http } : {}),
     ...(deliveryAttemptId ? { delivery_attempt_id: deliveryAttemptId } : {}),
     ...(providerMessageId ? { provider_message_id: providerMessageId } : {}),
   };

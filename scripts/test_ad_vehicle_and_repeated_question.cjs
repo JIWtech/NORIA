@@ -45,8 +45,8 @@ test('o Gemini vê follow-ups e mensagens do atendente, identificados pelo autor
 test('repetição é corrigida por reformulação auditada e nunca deixa o cliente sem resposta', () => {
   const finalize = core.slice(core.indexOf('async function runSalesTurnFinalize('));
   assert.ok(finalize.indexOf('salesRepeatsRecentAssistant(') > 0);
-  const block = finalize.slice(finalize.indexOf('salesRepeatsRecentAssistant('), finalize.indexOf('salesRepeatsRecentAssistant(') + 1400);
-  assert.match(block, /audit\.status === 'accepted'/, 'só depois de a resposta original ter sido aceita');
+  const block = finalize.slice(finalize.indexOf('salesRepeatsRecentAssistant('), finalize.indexOf('salesRepeatsRecentAssistant(') + 2400);
+  assert.match(block, /audit\.status !== 'accepted' \? 'audit_not_accepted'/, 'só depois de a resposta original ter sido aceita');
   assert.match(core, /\? \['REPEATED_QUESTION'\] : \[\]/);
   assert.match(block, /salesRepairRejectedDialogue\([^)]*styleIssues/);
   assert.match(block, /salesAuditPrimaryDialogue\(/, 'a reformulação passa pelo mesmo auditor');

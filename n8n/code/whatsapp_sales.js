@@ -5967,6 +5967,8 @@ async function runSalesTurnPrepare(context, history, event, control) {
         ? { action: 'reply', reason: 'none', reply: directCatalogAnswer.reply, state: salesMergeState(lead?.state || {}, {}), product: directCatalogAnswer.matched_product || null }
         : await salesGenerate(context, history, inventory, documents, documentStatus, lead);
       const referral = salesReferralForTurn(history, turn.messages, context);
+      // Diagnóstico (plano 27/10, P0-3 passo 0): só a contagem, sem conteúdo do anúncio.
+      if (referral) event.raw_payload = { ...(event.raw_payload || {}), ad_vehicles_prepare_count: salesAdInventoryCandidates(referral, inventory).length };
       const currentQuery = turn.messages.map(message => message.text || '').join(' ');
       const referralReply = salesReferralReply(currentQuery, referral, inventory);
       resolvedReferralProduct = referral ? salesReferralProduct(referral, inventory, currentQuery).product : null;
@@ -7805,7 +7807,11 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       // auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
       const styleIssuesFor = text => [...(salesRepeatsRecentAssistant(text, history) ? ['REPEATED_QUESTION'] : []),
         ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : [])];
-      const styleIssues = audit.status === 'accepted' && !dialogueRepair ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
+      const styleCheckSkipped = audit.status !== 'accepted' ? 'audit_not_accepted' : dialogueRepair ? 'prior_repair' : null;
+      const styleIssues = styleCheckSkipped === null ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
+      // Diagnóstico (plano 27/10, P0-3 passo 0): contagem da fase final e motivo de a checagem de estilo não rodar.
+      event.raw_payload = { ...(event.raw_payload || {}), ad_vehicles_finalize_count: auditExecution.ad_vehicles.length,
+        style_check: { evaluated: styleCheckSkipped === null, skipped_reason: styleCheckSkipped, issues: styleIssues } };
       if (styleIssues.length) {
         try {
           const candidate = await salesRepairRejectedDialogue(context, history, generated, naturalPlan, financingCollection, auditExecution, styleIssues, auditLedger.facts);
