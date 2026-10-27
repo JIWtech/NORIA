@@ -280,6 +280,7 @@ const cleanEventRemainder = (value) => capitalizeFirst(String(value || '').repla
  * @returns {{ kind: string, title: string, detail: string }}
  */
 export function describeSystemEvent(message) {
+  if (message?.systemEvent?.kind === 'review') return message.systemEvent;
   // Remove prefixos técnicos como "[Kanban]".
   const text = String(message?.text || '').replace(/^\[[^\]]+\]\s*/, '').trim();
   const service = String(message?.service || '');

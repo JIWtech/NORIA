@@ -1,3 +1,4 @@
+import { DocumentAttachment } from './DocumentAttachment.jsx';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Loader2,
@@ -8,7 +9,6 @@ import {
   Sparkles,
   CircleDollarSign,
   Maximize2,
-  Download,
   ExternalLink,
 } from 'lucide-react';
 import { mediaDisplayLabel } from '../../../services/media/mediaPresentation.js';
@@ -23,8 +23,6 @@ import {
   REAL_MEDIA_KINDS,
   mediaSourceChanged,
   unavailableMediaLabel,
-  formatFriendlyMimeType,
-  formatFileSize,
 } from '../../../utils/audioUtils.js';
 import {
   getMediaUrlFromCache,
@@ -376,48 +374,7 @@ export function MediaAttachment({ media, audioTranscription, onMediaLoad, onRetr
   }
 
   if (kind === 'document') {
-    const fileName = media.fileName || 'Documento';
-    const friendlyType = formatFriendlyMimeType(media.mimeType, fileName);
-    const friendlySize = formatFileSize(media.size);
-    const metaText = [friendlyType, friendlySize].filter(Boolean).join(' • ');
-
-    if (effectiveUrl) {
-      return (
-        <div className="document-attachment">
-          <div className="document-attachment-icon-wrapper">
-            <FileText size={22} className="document-attachment-icon" />
-          </div>
-          <div className="document-attachment-info">
-            <div className="document-attachment-filename" title={fileName}>{fileName}</div>
-            {metaText && <div className="document-attachment-meta">{metaText}</div>}
-          </div>
-          <a
-            className="document-attachment-action"
-            href={effectiveUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            download={fileName}
-            aria-label={`Baixar documento ${fileName}`}
-          >
-            <Download size={16} />
-          </a>
-        </div>
-      );
-    }
-
-    return (
-      <div className="document-attachment is-pending" title="O documento ainda está sendo processado">
-        <div className="document-attachment-icon-wrapper">
-          <FileText size={22} className="document-attachment-icon" />
-        </div>
-        <div className="document-attachment-info">
-          <div className="document-attachment-filename" title={fileName}>{fileName}</div>
-          <div className="document-attachment-meta">
-            {metaText ? `${metaText} • ` : ''}Documento
-          </div>
-        </div>
-      </div>
-    );
+    return <DocumentAttachment key={effectiveUrl} media={media} src={effectiveUrl} onLoad={onMediaLoad} />;
   }
 
   // Fallback somente para mídias reais desconhecidas com URL

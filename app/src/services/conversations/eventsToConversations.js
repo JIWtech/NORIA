@@ -1,3 +1,4 @@
+import { technicalEventPresentation } from './technicalEventPresentation.js';
 import { asObject } from '../../utils/asObject.js';
 import { formatDate } from '../../utils/dateFormatting.js';
 import { prepareConversationEvents } from './conversationEvents.js';
@@ -98,7 +99,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
         owner: initialOwner,
         ownerId: initialOwnerId,
         unread: 0,
-        lastMessage: initialPreview?.text || event.message_text || mediaPreview(normalizeMedia(event.raw_payload, event)) || '',
+        lastMessage: technicalEventPresentation(event)?.title || initialPreview?.text || event.message_text || mediaPreview(normalizeMedia(event.raw_payload, event)) || '',
         lastMessageSender: initialPreview?.sender || null,
         lastMessageSenderType: initialPreview?.senderType || null,
         lastAt: formatDate(event.created_at),
@@ -186,7 +187,8 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
       conversation.messages.push({
         from: isOperator ? 'agent' : event.sender_type === 'system' ? 'system' : 'ai',
         sent_by: event.sent_by_user || (isOperator ? 'Operador' : null),
-        text: visibleText || event.response_text || '',
+        text: technicalEventPresentation(event)?.title || visibleText || event.response_text || '',
+        systemEvent: technicalEventPresentation(event),
         at: formatDate(event.created_at),
         status: event.delivery_status,
         media,

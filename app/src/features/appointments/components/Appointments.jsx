@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Building2,
@@ -105,9 +106,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
       setStatus('Agendamento criado e enviado para o Kanban.');
       await onChanged?.();
     } catch (error) {
-      setStatus(/SLOT_UNAVAILABLE|LEGACY_BOOKING/.test(error.message || '')
-        ? 'Horario indisponivel ou aguardando revisao da equipe. Consulte outra data.'
-        : error.message || 'Nao foi possivel salvar o agendamento.');
+      setStatus(userFacingError(error, 'Não foi possível salvar o agendamento.'));
     } finally {
       setSaving(false);
     }

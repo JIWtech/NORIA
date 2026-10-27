@@ -1,3 +1,4 @@
+import { technicalEventPresentation } from './technicalEventPresentation.js';
 import { isConversationClosed } from './conversationLifecycle.js';
 import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
 import { cleanAgentName } from '../agents/agentNames.js';
@@ -388,6 +389,8 @@ export function resolveMessageSender(event = {}, fallbackOwner = '') {
 
 export function resolveEventMessagePreview(event, fallbackOwner = '') {
   if (!event || isInternalOperationalEvent(event)) return null;
+  const technical = technicalEventPresentation(event);
+  if (technical) return { text: technical.title, sender: 'Sistema', senderType: 'system' };
   const payload = asObject(event.raw_payload);
   if (event.direction === 'internal' || event.is_internal === true || payload.is_internal === true) {
     return null;

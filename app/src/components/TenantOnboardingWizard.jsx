@@ -1,3 +1,4 @@
+import { userFacingError } from '../utils/userFacingError.js';
 import React, { useState, useMemo } from 'react';
 import {
   Building2,
@@ -142,7 +143,7 @@ export function TenantOnboardingWizard({
         onSuccess(result);
       }
     } catch (err) {
-      setError(err.message || 'Falha ao concluir o onboarding da empresa.');
+      setError(userFacingError(err, 'Falha ao concluir o onboarding da empresa.'));
     } finally {
       setLoading(false);
     }

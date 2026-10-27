@@ -16,7 +16,37 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { resolveSingleMediaUrl, getMediaUrlFromCache } from '../../../services/media/mediaUrlService.js';
+import { cachedViewerMediaUrl, resolveViewerMediaUrl } from '../../../services/media/viewerMediaUrl.js';
+import { getAuthClient } from '../../../services/auth/authService.js';
+import { shouldCloseMediaViewer } from '../utils/viewerInteractions.js';
+
+
+// Cada origem mantém seu próprio resultado; uma troca nunca reutiliza a foto anterior.
+function useViewerMediaUrl(media, fallback = '') {
+  const key = JSON.stringify([media.src || '', media.bucket || '', media.storagePath || '', fallback]);
+  const known = cachedViewerMediaUrl(media, fallback);
+  const [result, setResult] = useState({ key, url: known, error: false });
+  useEffect(() => {
+    if (known) return undefined;
+    let active = true;
+    setResult({ key, url: '', error: false });
+    resolveViewerMediaUrl(media, getAuthClient(), fallback)
+      .then(url => { if (active) setResult({ key, url, error: !url }); })
+      .catch(() => { if (active) setResult({ key, url: '', error: true }); });
+    return () => { active = false; };
+  }, [key, known]);
+  return { url: known || (result.key === key ? result.url : ''), error: result.key === key && result.error };
+}
+
+function GalleryThumbnail({ item, fallback = '' }) {
+  const isVideo = item.kind === 'video';
+  const { url, error } = useViewerMediaUrl(isVideo ? { src: item.poster || '' } : { ...item, src: item.poster || item.src }, fallback);
+  const [failedUrl, setFailedUrl] = useState('');
+  if (url && failedUrl !== url) return <img src={url} alt="" loading="lazy" onError={() => setFailedUrl(url)} />;
+  return <div className="media-viewer-thumb-fallback">
+    {!url && !error && !isVideo ? <Loader2 size={16} className="media-viewer-spinner" /> : isVideo ? <Video size={16} /> : <ImageIcon size={16} />}
+  </div>;
+}
 
 const EXTENSION_BY_TYPE = {
   'image/jpeg': 'jpg',
@@ -35,10 +65,10 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
   const [rotation, setRotation] = useState(0);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [resolvedSrc, setResolvedSrc] = useState('');
   const [loadState, setLoadState] = useState('loading');
   const dragRef = useRef(null);
   const dragMovedRef = useRef(false);
+  const pointerStartedOnBackdropRef = useRef(false);
   const pointerStartRef = useRef({ x: 0, y: 0 });
   const touchStartRef = useRef(null);
   const videoRef = useRef(null);
@@ -57,35 +87,8 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
   const canGoPrevious = activeIndex > 0;
   const canGoNext = activeIndex < imageGallery.length - 1;
 
-  // Resolve a URL assinada sob demanda quando o item só tem bucket/storagePath
-  useEffect(() => {
-    if (activeMedia.src) {
-      setResolvedSrc(activeMedia.src);
-      return undefined;
-    }
-    if (activeMedia.bucket && activeMedia.storagePath) {
-      const cached = getMediaUrlFromCache(activeMedia.bucket, activeMedia.storagePath);
-      if (typeof cached === 'string') {
-        setResolvedSrc(cached);
-        return undefined;
-      }
-      let isMounted = true;
-      resolveSingleMediaUrl(activeMedia.bucket, activeMedia.storagePath)
-        .then((url) => {
-          if (isMounted && url) setResolvedSrc(url);
-        })
-        .catch(() => {
-          if (isMounted) setLoadState('error');
-        });
-      return () => {
-        isMounted = false;
-      };
-    }
-    setResolvedSrc('');
-    return undefined;
-  }, [activeMedia.src, activeMedia.bucket, activeMedia.storagePath]);
-
-  const effectiveSrc = resolvedSrc || activeMedia.src || (activeIndex === initialIndex ? src : '');
+  const { url: effectiveSrc, error: sourceError } = useViewerMediaUrl(activeMedia, activeIndex === initialIndex ? src : '');
+  useEffect(() => { if (sourceError) setLoadState('error'); }, [sourceError]);
 
   const resetImage = useCallback(() => {
     setZoom(1);
@@ -204,6 +207,7 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
   }, [isCurrentImage, setImageZoom, anchorFromEvent]);
 
   const handlePointerDown = (event) => {
+    pointerStartedOnBackdropRef.current = event.target === event.currentTarget;
     pointerStartRef.current = { x: event.clientX, y: event.clientY };
     dragMovedRef.current = false;
     if (!isCurrentImage || zoom <= 1) return;
@@ -267,12 +271,21 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
   };
 
   // Clique no fundo fecha; clique depois de arrastar não fecha
-  const handleStageClick = () => {
-    if (dragMovedRef.current) {
-      dragMovedRef.current = false;
-      return;
-    }
-    closeViewer();
+  const handleStageClick = (event) => {
+    event.stopPropagation();
+    const close = shouldCloseMediaViewer(event, {
+      moved: dragMovedRef.current, startedOnBackdrop: pointerStartedOnBackdropRef.current,
+    });
+    dragMovedRef.current = false;
+    if (close) closeViewer();
+  };
+
+  const handleStageDoubleClick = (event) => {
+    // Com zoom, a captura do ponteiro redireciona o duplo clique ao palco.
+    if (!isCurrentImage || loadState !== 'ready' || pointerStartedOnBackdropRef.current) return;
+    event.stopPropagation();
+    if (zoomRef.current > 1) setImageZoom(1);
+    else setImageZoom(2.5, anchorFromEvent(event));
   };
 
   const handleDownload = async (event) => {
@@ -320,7 +333,9 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
       role="dialog"
       aria-modal="true"
       aria-label={isCurrentVideo ? 'Visualizador de vídeo' : 'Visualizador de imagem'}
-      onClick={closeViewer}
+      onClick={(event) => {
+        if (shouldCloseMediaViewer(event, { moved: dragMovedRef.current })) closeViewer();
+      }}
     >
       <header
         className="media-viewer-toolbar"
@@ -437,6 +452,7 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
         ref={stageRef}
         className={`media-viewer-stage ${isCurrentImage ? 'is-image' : 'is-video'} ${zoom > 1 ? 'is-zoomed' : ''} ${isDragging ? 'is-dragging' : ''}`}
         onClick={handleStageClick}
+        onDoubleClick={handleStageDoubleClick}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopDragging}
@@ -472,14 +488,6 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
             onLoad={() => setLoadState('ready')}
             onError={() => setLoadState('error')}
             onClick={(event) => event.stopPropagation()}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              if (zoom > 1) {
-                setImageZoom(1);
-              } else {
-                setImageZoom(2.5, anchorFromEvent(event));
-              }
-            }}
             style={{
               transform: `translate(${position.x}px, ${position.y}px) scale(${zoom}) rotate(${rotation}deg)`,
             }}
@@ -555,7 +563,6 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
           {imageGallery.map((item, idx) => {
             const isActive = idx === activeIndex;
             const isItemVideo = item.kind === 'video';
-            const thumbSrc = item.poster || item.src;
             return (
               <button
                 key={item.id || item.src || idx}
@@ -569,13 +576,7 @@ export function MediaViewer({ kind = 'image', src, alt, poster, gallery = [], in
                   setActiveIndex(idx);
                 }}
               >
-                {thumbSrc ? (
-                  <img src={thumbSrc} alt="" loading="lazy" />
-                ) : (
-                  <div className="media-viewer-thumb-fallback">
-                    {isItemVideo ? <Video size={16} /> : <ImageIcon size={16} />}
-                  </div>
-                )}
+                <GalleryThumbnail item={item} fallback={idx === initialIndex && !isItemVideo ? src : ''} />
                 {isItemVideo && (
                   <span className="media-viewer-thumb-play" aria-hidden="true">
                     <Play size={12} fill="currentColor" />

@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState } from 'react';
 import { Mail, Lock, EyeOff, Eye, RefreshCcw, ArrowRight } from 'lucide-react';
 import noriaLogo from '../../../assets/noria_logo.png';
@@ -21,7 +22,7 @@ export function LoginPage() {
       nextUrl.searchParams.set('app', '1');
       window.location.replace(nextUrl.toString());
     } catch (loginError) {
-      setError(loginError.message || 'Não foi possível entrar.');
+      setError(userFacingError(loginError, 'Não foi possível entrar.'));
     } finally {
       setLoading(false);
     }

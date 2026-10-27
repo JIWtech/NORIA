@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   AlertCircle,
@@ -796,7 +797,7 @@ export function Conversations({
     if (!selected || (!text && !attachment) || sending) return;
 
     if (attachment) {
-      setSendError('O envio direto de áudio e arquivos ao WhatsApp requer integração de storage e endpoint de mídia no backend. O preview local está funcional.');
+      setSendError('O envio de anexos ainda não está disponível por aqui. Envie o arquivo pelo WhatsApp da empresa.');
       return;
     }
 
@@ -820,7 +821,7 @@ export function Conversations({
       }
       await onSent?.({ showLoading: false });
     } catch (error) {
-      setSendError(error.message || 'Não foi possível enviar a resposta.');
+      setSendError(userFacingError(error, 'Não foi possível enviar a resposta.'));
     } finally {
       setSending(false);
     }
@@ -856,7 +857,7 @@ export function Conversations({
         closeActionBtnRef.current?.focus();
       }, 0);
     } catch (error) {
-      setSendError(error.message || 'Não foi possível encerrar o atendimento.');
+      setSendError(userFacingError(error, 'Não foi possível encerrar o atendimento.'));
     } finally {
       closeInFlight.current = false;
       setEnding(false);

@@ -1,3 +1,4 @@
+import { userFacingError } from '../utils/userFacingError.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
@@ -827,7 +828,7 @@ function App() {
         ));
         return true;
       } catch (error) {
-        if (currentScope.current === requestedScope) setLoadError(error.message || 'Falha ao carregar os dados.');
+        if (currentScope.current === requestedScope) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
         return false;
       } finally {
         if (currentScope.current === requestedScope) {
@@ -909,7 +910,7 @@ function App() {
       });
     } catch (error) {
       setAvailableTenants([]);
-      setTenantAccess({ userId, loaded: true, error: error.message || 'Erro ao carregar empresas' });
+      setTenantAccess({ userId, loaded: true, error: userFacingError(error, 'Erro ao carregar empresas') });
     }
   }, [session?.user?.id]);
 

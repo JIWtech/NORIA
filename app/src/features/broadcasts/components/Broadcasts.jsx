@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Clock3,
@@ -134,7 +135,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       }
     } catch (error) {
       setImportSummary(null);
-      setStatus(error.message || 'Nao foi possivel importar a planilha.', 'error');
+      setStatus(userFacingError(error, 'Nao foi possivel importar a planilha.'), 'error');
     }
   }
 
@@ -280,7 +281,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`Retomada concluída: ${counters.sent} enviados, ${counters.failed} falhas${counters.unknown ? `, ${counters.unknown} incertos` : ''}.`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Falha ao retomar campanha.', 'error');
+      setStatus(userFacingError(error, 'Falha ao retomar campanha.'), 'error');
     } finally {
       setBusy(false);
       abortControllerRef.current = null;
@@ -304,7 +305,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res.cancelled_recipients || 0} pendentes cancelados).`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Erro ao cancelar campanha.', 'error');
+      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -327,7 +328,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`${unknownList.length} envio(s) incertos reconciliados como ${targetStatus === RECIPIENT_STATUS.SENT ? 'enviados' : 'falha'}.`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Falha ao reconciliar envios incertos.', 'error');
+      setStatus(userFacingError(error, 'Falha ao reconciliar envios incertos.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -397,7 +398,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           status: CAMPAIGN_STATUS.PARTIAL_ERROR,
         }).catch(() => {});
       }
-      setStatus(error.message || 'Falha ao executar disparo.', 'error');
+      setStatus(userFacingError(error, 'Falha ao executar disparo.'), 'error');
     } finally {
       setBusy(false);
       abortControllerRef.current = null;
