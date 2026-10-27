@@ -84,8 +84,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_27',
-  built_at: '2026-10-27T13:17:19.879Z',
-  core_sha256: '240e8314578dbfc7e1207fe8216f668f30b4c6f9d1ead784c6baf43cf10bd330',
+  built_at: '2026-10-27T13:59:32.970Z',
+  core_sha256: '592a2ef6e65f51f98d283790cf804d93262ea564e8450fda0d514e496cc4e160',
   ext_sha256: 'a31a4292c01177c5f456fd6110ea9d96f6f2c24bfac9c603fd71dbc37f30274d',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5589,9 +5589,14 @@ function salesAlbumEnvelope(message) {
     && !raw.source_media && !raw.media;
 }
 
+// WhatsApp protocol markers without customer content (reaction, secretEncryptedMessage) are not files: they never
+// discard the rest of the turn, and a turn made only of them is answered with silence.
 function salesMediaCapability(messages = []) {
-  const markers = (Array.isArray(messages) ? messages : []).filter(message => !salesAlbumEnvelope(message))
-    .map(message => String(message?.text || '').trim().match(/^\[([a-z_]+)\](?:\n|$)/i)?.[1]?.toLowerCase()).filter(Boolean);
+  const SALES_TECHNICAL_MARKERS = ['reaction', 'secretencrypted'];
+  const list = (Array.isArray(messages) ? messages : []).filter(message => !salesAlbumEnvelope(message));
+  const markerOf = message => String(message?.text || '').trim().match(/^\[([a-z_]+)\](?:\n|$)/i)?.[1]?.toLowerCase() || '';
+  if (list.length && list.every(message => SALES_TECHNICAL_MARKERS.includes(markerOf(message)))) return { supported: false, kind: 'technical_only', reply: '' };
+  const markers = list.map(markerOf).filter(kind => kind && !SALES_TECHNICAL_MARKERS.includes(kind));
   if (markers.includes('contact')) return { supported: false, kind: 'contact', reply: 'Recebi o contato, mas não uso esse arquivo como informação comercial. Pode me dizer em texto como posso ajudar?' };
   const unknown = markers.find(kind => !['image', 'document', 'audio', 'video', 'sticker'].includes(kind));
   if (unknown) return { supported: false, kind: 'unknown', reply: 'Recebi o arquivo, mas não consigo interpretar esse formato com segurança. Pode enviar em texto, imagem, vídeo ou PDF?' };
@@ -6924,6 +6929,28 @@ function salesResolveCustomerVehicleYearEvidence(operationYear, generatedYear, g
   if (explicit && evidenced.includes(explicit)) return { year, evidence_id: explicit, ambiguous: false };
   if (evidenced.length === 1) return { year, evidence_id: evidenced[0], ambiguous: false };
   return { year: null, evidence_id: '', ambiguous: true };
+}
+
+// Product rule (27/10): when the AI is stuck with no safe reply, the conversation goes to the team. The tenant's
+// configured human stage (allow_ai=false) makes magia_sales_save lock the AI itself, and the default operator is
+// assigned through the regular assignment event. Without a configured human stage nothing changes.
+async function salesTechnicalHoldHandoff(context, cfg, saved, state, product) {
+  const humanStage = cfg.stage_keys?.human;
+  const meta = humanStage && cfg.stages && typeof cfg.stages === 'object' ? cfg.stages[humanStage] : null;
+  if (!humanStage || meta?.allow_ai !== false || meta.closed === true) return null;
+  const persisted = await salesPersistEmptyRecoveryState(context, turn, chatId, { ...saved, stage_key: humanStage }, state, product);
+  if (persisted.ai_locked !== true) throw new Error('TECHNICAL_HOLD_LOCK_NOT_CONFIRMED');
+  let lead = persisted, assignmentConfirmed = false;
+  try {
+    const assignee = await salesResolveDefaultAssignee(context);
+    if (assignee) {
+      const result = await salesAssignConversation(context, assignee, persisted);
+      const outcome = await salesVerifyAssignmentOutcome(context, persisted, assignee, Array.isArray(result) ? result[0] : result, null);
+      assignmentConfirmed = outcome?.status === 'assigned';
+      if (outcome?.lead) lead = outcome.lead;
+    }
+  } catch { }
+  return { lead, stage_key: humanStage, assignment_confirmed: assignmentConfirmed };
 }
 
 async function salesPersistEmptyRecoveryState(context, turn, chatId, saved, state, product) {
@@ -11469,6 +11496,16 @@ async function runSalesTurnPrepare(context, history, event, control) {
     await saveEvent(event); await complete('done');
     return { ok: true, skipped: true, reason: 'silent_ack' };
   }
+  // A turn made only of WhatsApp protocol markers (reaction, secretEncryptedMessage) carries nothing to answer.
+  if (salesMediaCapability(turn.messages).kind === 'technical_only') {
+    if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
+    Object.assign(event, {
+      ai_provider: 'sales_silent_ack', service: 'sales_qualification', stage: lead?.stage_key || cfg.stage_keys.qualifying, handoff: false,
+      raw_payload: { ...(event.raw_payload || {}), ai_suppressed: true, ai_suppressed_reason: 'technical_marker_only' }
+    });
+    await saveEvent(event); await complete('done');
+    return { ok: true, skipped: true, reason: 'technical_marker_only' };
+  }
   let naturalPlan = null, naturalPlanError = null;
   let deterministicSimpleReply = false;
   let directCatalogAnswer = null;
@@ -11558,6 +11595,7 @@ async function runSalesTurnPrepare(context, history, event, control) {
         reply: await composeMediaNotice(context, history, mediaCapability.kind === 'contact' ? 'contact_card' : 'unsupported_file', mediaCapability.reply),
         product: lead?.product || null, media_notice: mediaCapability.kind
       };
+      generated.primary_reply = generated.reply;
     }
   } catch (error) {
     // Nothing was sent yet: provider pressure is retried by the queue instead of ending the turn in review.
@@ -13365,7 +13403,10 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
         auditExecution.name_proof_audit = { customer_name: s.customer_name, claimed_kind: s.name_proof.kind,
           customer_message: String(citedMessage?.text || '').slice(0, 600), ...(questionRow ? { assistant_question: String(questionRow.message_text || '').slice(0, 600) } : {}) };
       }
-      let audit = await salesAuditPrimaryDialogue(context, generated, naturalPlan, financingCollection, auditExecution);
+      // A media notice (file the channel cannot read) is not a commercial reply: composeMediaNotice already bounds it
+      // (no digits, links or commands) and it has no structured contract to audit.
+      let audit = generated.media_notice ? { status: 'accepted', issues: [], validation: 'media_notice' }
+        : await salesAuditPrimaryDialogue(context, generated, naturalPlan, financingCollection, auditExecution);
       if (auditExecution.name_proof_audit?.verdict === 'rejected' && audit.status === 'accepted') {
         audit = { ...audit, status: 'rejected', issues: [...(audit.issues || []), 'UNPROVEN_CUSTOMER_NAME'] };
       }
@@ -13386,7 +13427,8 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       // auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
       const styleIssuesFor = text => [...(salesRepeatsRecentAssistant(text, history) ? ['REPEATED_QUESTION'] : []),
         ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : [])];
-      const styleCheckSkipped = audit.status !== 'accepted' ? 'audit_not_accepted' : dialogueRepair ? 'prior_repair' : null;
+      const styleCheckSkipped = audit.status !== 'accepted' ? 'audit_not_accepted' : dialogueRepair ? 'prior_repair'
+        : generated.media_notice ? 'media_notice' : null;
       const styleIssues = styleCheckSkipped === null ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
       // Diagnóstico (plano 27/10, P0-3 passo 0): contagem da fase final e motivo de a checagem de estilo não rodar.
       event.raw_payload = { ...(event.raw_payload || {}), ad_vehicles_finalize_count: auditExecution.ad_vehicles.length,
@@ -13520,10 +13562,21 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       s.pending_requirement = pendingRequirement || '';
       s.dialogue_context = { ...(s.dialogue_context || {}), pending_requirement: pendingRequirement || '' };
       try {
-        saved = await salesPersistEmptyRecoveryState(context, turn, chatId, saved, s, generated.product);
-        event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: {
-          ...(event.raw_payload?.dialogue_recovery || {}), state_persisted: true
-        } };
+        // The AI is stuck with no safe reply: the conversation goes to the team (configured human stage + assignment).
+        const technicalHandoff = await salesTechnicalHoldHandoff(context, cfg, saved, s, generated.product);
+        if (technicalHandoff) {
+          saved = technicalHandoff.lead;
+          event.stage = cfg.stages?.[technicalHandoff.stage_key]?.name || event.stage;
+          event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: {
+            ...(event.raw_payload?.dialogue_recovery || {}), status: 'technical_hold_handoff', state_persisted: true,
+            stage_key: technicalHandoff.stage_key, ai_locked: true, assignment_confirmed: technicalHandoff.assignment_confirmed
+          } };
+        } else {
+          saved = await salesPersistEmptyRecoveryState(context, turn, chatId, saved, s, generated.product);
+          event.raw_payload = { ...(event.raw_payload || {}), dialogue_recovery: {
+            ...(event.raw_payload?.dialogue_recovery || {}), state_persisted: true
+          } };
+        }
       } catch (_) {
         operatorReviewReason = 'EMPTY_RECOVERY_STATE_PERSISTENCE_FAILED';
         event.ai_error = operatorReviewReason;

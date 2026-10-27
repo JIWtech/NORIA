@@ -60,5 +60,5 @@ test('contagem de veículos do anúncio nas duas fases e motivo da checagem de e
   assert.match(core, /ad_vehicles_prepare_count: salesAdInventoryCandidates\(referral, inventory\)\.length/);
   assert.match(core, /ad_vehicles_finalize_count: auditExecution\.ad_vehicles\.length/);
   assert.match(core, /style_check: \{ evaluated: styleCheckSkipped === null, skipped_reason: styleCheckSkipped/);
-  assert.match(core, /audit\.status !== 'accepted' \? 'audit_not_accepted' : dialogueRepair \? 'prior_repair' : null/);
+  assert.match(core, /audit\.status !== 'accepted' \? 'audit_not_accepted' : dialogueRepair \? 'prior_repair'\n\s*: generated\.media_notice \? 'media_notice' : null/);
 });
