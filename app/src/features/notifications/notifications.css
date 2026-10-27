@@ -78,6 +78,8 @@
 .notification-entry:first-child { border-top: 0; padding-top: 2px; }
 .notification-entry-icon { flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: var(--surface-soft); color: var(--muted); }
 .notification-entry-icon.attention { color: var(--amber); background: #fbbf2414; }
+.notification-entry.is-overdue .notification-entry-icon.attention { color: var(--red); background: #ef444414; }
+.notification-entry.is-overdue .notification-entry-title { color: var(--red); font-weight: 600; }
 .notification-entry-icon.leads, .notification-entry-icon.resolved { color: var(--green); }
 .notification-entry-icon.appointments { color: var(--violet); }
 .notification-entry-icon.conversations { color: var(--brand); }

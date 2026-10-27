@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Bell, CalendarDays, Check, CheckCheck, ChevronRight, CircleCheck, MessageSquare, RefreshCw, TrendingUp, UsersRound, Volume2, VolumeX, X } from 'lucide-react';
 import { useNotifications } from './useNotifications.js';
-import { incidentPresentation } from './notificationService.js';
+import { humanReplyStatus, incidentPresentation } from './notificationService.js';
 import { findNotificationConversation, notificationScope } from './operatorEvents.js';
 import { useOperatorNotifications } from './useOperatorNotifications.js';
 import { useNotificationSound } from './useNotificationSound.js';
@@ -73,11 +73,12 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, c
   }, [open]);
 
   const items = useMemo(() => [...activity.items, ...inbox.items.map(item => {
-    const presentation = incidentPresentation(item);
+    const presentation = incidentPresentation(item, humanReplyStatus(item, inbox.replies, tenantId, inbox.checkedAt));
     return { id: `inbox:${item.id}`, remote: item, title: presentation.title, description: presentation.description,
-      category: 'attention', attention: !item.resolved_at, unread: item.unread, chatId: item.chat_id, channel: item.channel_type,
+      category: 'attention', attention: presentation.attention ?? !item.resolved_at, overdue: Boolean(presentation.overdue),
+      unread: item.unread, chatId: item.chat_id, channel: item.channel_type,
       createdAt: item.updated_at || item.created_at, resolved: Boolean(item.resolved_at) };
-  })].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [activity.items, inbox.items]);
+  })].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)), [activity.items, inbox.items, inbox.replies, inbox.checkedAt, tenantId]);
   const unread = activity.items.filter(item => item.unread).length + (inbox.unread || 0);
   const filtered = items.filter(item => (filter !== 'unread' || item.unread) && (filter !== 'attention' || item.attention)
     && (category === 'all' || item.category === category));
@@ -164,7 +165,7 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, c
                 <ul className="notification-group-items">
                   {visible.map(item => {
                     const Icon = item.resolved ? CircleCheck : categoryIcons[item.category] || Bell;
-                    return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : 'is-read'}`}>
+                    return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : 'is-read'}${item.overdue ? ' is-overdue' : ''}`}>
                       <span className={`notification-entry-icon ${item.attention ? 'attention' : item.resolved ? 'resolved' : item.category}`}><Icon size={14} aria-hidden="true" /></span>
                       <div className="notification-entry-body">
                         <p className="notification-entry-title">{item.title}{item.unread && <span className="notification-unread-dot" aria-label="Não lida" />}</p>
