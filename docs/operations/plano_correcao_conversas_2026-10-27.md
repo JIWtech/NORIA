@@ -1,11 +1,15 @@
 # Plano de correção — conversas de 24 a 27/10/2026 (Gênesis e Núbia) — v3
 
+**Publicação autorizada em 27/10:** P1-11, P1-6, P2-9 (passo 0) e N-1 foram aplicados no Motor `73422e9d`, com RPC e prompt v6 da Núbia. Backups, validação e limites em [publicacao_correcoes_conversas_2026-10-27.md](publicacao_correcoes_conversas_2026-10-27.md). Nenhuma mensagem antiga foi reenviada ou fila liberada. As indicações de pendência das versões anteriores são históricas.
+
 Base: análise de `channel_events`, `conversation_turn_queue` e `follow_up_jobs` (Supabase `gfwwawazivmuqyctjsxj`) de 24/10 03:00 UTC a 27/10, e leitura do código local em `dev`. Versões em produção na análise: Motor `39795829`, EXT Gênesis `c09ca46c`, Entrada `e95f9020`, EXT Núbia `5d545c63`.
 
 **v2** incorpora a revisão do Codex (27/10) e acrescenta os itens da Núbia (N-1 a N-3). Mudanças em relação à v1 estão marcadas com **[v2]**.
 **v3** aplica os ajustes finais da segunda revisão do Codex (N-1, P1-6, P1-7, critérios de amostra e ordem), marcados com **[v3]**.
 
-Este documento é para revisão; nada aqui está implementado. **Homologação com Gemini pago e publicação continuam dependendo de autorização explícita** para cada item.
+**Atualização local em 27/10:** P1-11, P1-6, P2-9 (passo 0) e N-1 receberam implementação e testes locais. Detalhes, limitações e dependências em [correcoes_pendentes_conversas_2026-10-27.md](correcoes_pendentes_conversas_2026-10-27.md). Isso não significa publicação ou aceite em produção. P1-6 agora tem uma proposta de nova RPC, necessária para ignorar só o turno sem prender mensagens futuras; essa exceção ao escopo inicial sem schema permanece pendente de autorização para aplicação.
+
+**Homologação com Gemini pago, mudanças no banco e publicação continuam dependendo de autorização explícita** para cada item. As versões do cabeçalho são o snapshot histórico da análise original.
 
 ---
 

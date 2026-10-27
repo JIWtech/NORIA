@@ -7,7 +7,7 @@ const names = ['turn_transient_failures', 'genesis_service_authority', 'catalog_
   'telegram_error_privacy', 'genesis_identity_cache', 'human_services_handoff', 'handoff_three_scenarios',
   'noria_extension_semantics', 'noria_engine_subworkflow', 'booking_authorization', 'noria_primary_dialogue',
   'core_commercial_boundary', 'primary_response_boundary', 'core_unavailable_media', 'noria_document_identity',
-  'sales_followup_database_policy', 'core_ext_contract_guards', 'semantic_courtesy', 'ad_vehicle_and_repeated_question', 'audio_batch_limit', 'media_notice', 'ad_inventory_candidates', 'observability_diagnostics', 'genesis_sale_mileage', 'follow_up_closure', 'ingress_landline_commercial', 'technical_hold_handoff'];
+  'sales_followup_database_policy', 'core_ext_contract_guards', 'semantic_courtesy', 'ad_vehicle_and_repeated_question', 'audio_batch_limit', 'media_notice', 'ad_inventory_candidates', 'observability_diagnostics', 'genesis_sale_mileage', 'follow_up_closure', 'ingress_landline_commercial', 'technical_hold_handoff', 'pending_conversation_fixes', 'semantic_contact_ignore_rpc'];
 const result = spawnSync(process.execPath, ['--test', '--test-concurrency=3', ...names.map(name => 'scripts/test_' + name + '.cjs')], {
   cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: 60000, maxBuffer: 4e6,
 });

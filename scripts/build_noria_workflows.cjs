@@ -483,7 +483,7 @@ const ts = require('../app/node_modules/typescript');
 const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const sales = ast.statements
   .filter(ts.isFunctionDeclaration)
-  .filter(n => /^(sales|runSales|executeCommercial|commercialResult)/.test(n.name.text))
+  .filter(n => /^(sales|runSales|executeCommercial|commercialResult)/.test(n.name.text) || n.name.text === 'modelOutputDiagnostic')
   .map(n => n.getText(ast))
   .join('\n\n');
 fs.writeFileSync(path.join(root, 'n8n/code/whatsapp_sales.js'), '// NORIA sales source projection; canonical source: n8n/sources/noria_core.js\n' + sales + '\n');

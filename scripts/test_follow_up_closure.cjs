@@ -111,7 +111,7 @@ test('CORE: o modelo da Núbia declara o encerramento no contrato estruturado', 
   const schema = slice('groundingResponseSchema');
   assert.match(schema, /customer_disposition: \{ type: 'OBJECT'/);
   assert.match(schema, /enum: \['active', 'closed', 'declined', 'deferred'\]/);
-  assert.match(schema, /required: \['action', 'reply', 'message_keys', 'state', 'price_claims', 'customer_disposition'\]/);
+  assert.match(schema, /required: \['action', 'reply', 'message_keys', 'state', 'price_claims', 'customer_disposition', 'contact_context'\]/);
   assert.match(slice('callGroundedGemini'), /audit\.customer_disposition = groundingCustomerDisposition\(value\.customer_disposition, turn\.messages\.map/);
 });
 

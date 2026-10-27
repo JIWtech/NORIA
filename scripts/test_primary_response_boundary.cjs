@@ -44,3 +44,46 @@ test('duas respostas vazias não são publicadas nem geram regeneração ilimita
   assert.equal(r.calls, 2);
   assert.equal(r.world.log.simulated_sends.length, 0);
 });
+
+test('duas respostas malformadas deixam diagnóstico de ambas sem guardar seu conteúdo', async () => {
+  const r = await run(true);
+  const event = r.world.tables.channel_events.find(e => e.raw_payload?.model_output_diagnostics?.length === 2);
+  assert.ok(event, 'diagnóstico precisa chegar ao evento persistido');
+  const diagnostics = event.raw_payload.model_output_diagnostics;
+  assert.deepEqual(diagnostics.map(d => d.attempt), [1, 2]);
+  assert.ok(diagnostics.every(d => d.finish_reason === 'STOP' && d.output_chars > 0 && d.validation_reason === 'invalid_structure'));
+  assert.ok(!JSON.stringify(diagnostics).includes('conteúdo sem contrato'));
+});
+
+test('regeneração bem-sucedida preserva diagnóstico da candidata rejeitada', async () => {
+  const r = await run();
+  const event = r.world.tables.channel_events.find(e => e.direction === 'outbound' && e.delivery_status === 'sent');
+  assert.equal(event.raw_payload.model_output_diagnostics.length, 1);
+  assert.equal(event.raw_payload.model_output_diagnostics[0].attempt, 1);
+});
+
+test('JSON inválido duas vezes é distinguido de contrato incompleto', async () => {
+  const result = await ex.runScenario({ name: 'malformed_json', turns: [{ text: 'Olá', gemini: {} }] }, {
+    mode: 'fixtures', geminiKey: null, settings: ex.loadSettings(), inventory,
+    geminiOverride: (_body, schema) => schema.properties?.semantic_intent
+      ? { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '{"reply":' }] } }] } : undefined,
+  });
+  const diagnostics = result.world.tables.channel_events.find(e => e.raw_payload?.model_output_diagnostics)?.raw_payload.model_output_diagnostics;
+  assert.equal(diagnostics.length, 2);
+  assert.ok(diagnostics.every(d => d.validation_reason === 'invalid_json'));
+  assert.equal(result.world.log.simulated_sends.length, 0);
+});
+
+test('MAX_TOKENS é registrado sem aumentar limite nem criar nova tentativa', async () => {
+  let calls = 0;
+  const result = await ex.runScenario({ name: 'truncated_json', turns: [{ text: 'Olá', gemini: {} }] }, {
+    mode: 'fixtures', geminiKey: null, settings: ex.loadSettings(), inventory,
+    geminiOverride: (_body, schema) => {
+      if (!schema.properties?.semantic_intent) return undefined;
+      calls++; return { candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"reply":' }] } }] };
+    },
+  });
+  const diagnostics = result.world.tables.channel_events.find(e => e.raw_payload?.model_output_diagnostics)?.raw_payload.model_output_diagnostics;
+  assert.equal(calls, 1); assert.equal(diagnostics[0].finish_reason, 'MAX_TOKENS');
+  assert.equal(diagnostics[0].validation_reason, 'incomplete');
+});
