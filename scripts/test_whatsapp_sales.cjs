@@ -267,11 +267,12 @@ test('pending onboarded channel cannot enter legacy fallback; existing legacy te
   const env={SUPABASE_URL:'https://db.test',SUPABASE_SERVICE_ROLE_KEY:'fake'};
   const helpers={httpRequest:async({url})=>url.includes('/channels?')?[{status:'pending',config:{onboarding_package:'wesley'}}]:[]};
   await assert.rejects(selector.call({helpers},input,env),/do not use fallback/);
-  helpers.httpRequest=async({url})=>url.includes('/channels?')?[]:url.includes('/tenants?')?[{id:'legacy',status:'active'}]:[{settings:{}}];
+  // The selector reads tenant and routing settings in one request (tenant_settings embedded, routing fields only).
+  helpers.httpRequest=async({url})=>url.includes('/channels?')?[]:[{id:'legacy',status:'active',tenant_settings:[{}]}];
   const legacy=await selector.call({helpers},input,env);assert.equal(legacy.json.use_conversation_core,false);
-  helpers.httpRequest=async({url})=>url.includes('/tenants?')?[{id:'sales',status:'active'}]:[{settings:{contact_exclusion_enabled:true}}];
+  helpers.httpRequest=async()=>[{id:'sales',status:'active',tenant_settings:[{exclusion:true}]}];
   await assert.rejects(selector.call({helpers},{...input,tenant_resolution:{source:'channels.external_id'}},env),/legacy fallback blocked/);
-  helpers.httpRequest=async({url})=>url.includes('/tenants?')?[{id:'sales',status:'active'}]:[{settings:{conversation_capability:'sales_v1',whatsapp_processing_mode:'conversation_core_v1'}}];
+  helpers.httpRequest=async()=>[{id:'sales',status:'active',tenant_settings:[{capability:'sales_v1',mode:'conversation_core_v1'}]}];
   const commercial=await selector.call({helpers},{...input,tenant_slug:'sales',tenant_resolution:{source:'channels.external_id'}},env);
   assert.equal(commercial.json.core_sales,true);
 });

@@ -84,9 +84,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_27',
-  built_at: '2026-10-27T20:07:13.698Z',
-  core_sha256: 'ac006ce068a626d71ec44db59f1fe94b215052ccdd3896dc5de46f6e58d296e0',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_28',
+  built_at: '2026-10-28T13:28:39.428Z',
+  core_sha256: '44330069b5fe330c8e10dcc248144a373a9ca4bc7fa8dd1db4f4e6cdde43df59',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6795,6 +6795,13 @@ function salesSchema() {
   };
 }
 
+// Ad title/body are written by the store and often list one vehicle per line: line breaks are kept (salesText drops
+// multi-line text entirely), brackets are neutralised and the text is bounded by truncation, never discarded.
+function salesReferralText(value, max = 500) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/\r\n?/g, '\n').replace(/[\[\]]/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, max).trim();
+}
+
 function salesText(value, max = 220) {
   const text = typeof value === 'string' ? value.trim() : '';
   return text.length <= max && !/[\n\[\]]/.test(text) ? text : '';
@@ -8258,7 +8265,7 @@ function salesReferralForTurn(history = [], messages = [], context = {}) {
   const clean = raw => {
     if (!raw || typeof raw !== 'object') return null;
     const referral = {
-      source: salesText(raw.source, 60), title: salesText(raw.title, 500), body: salesText(raw.body, 500),
+      source: salesText(raw.source, 60), title: salesReferralText(raw.title, 500), body: salesReferralText(raw.body, 500),
       source_id: salesText(raw.source_id, 220), source_url: salesText(raw.source_url, 500), media_type: salesText(raw.media_type, 60),
       product_id: salesText(raw.product_id, 220), retailer_id: salesText(raw.retailer_id, 220)
     };
@@ -11865,8 +11872,8 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
   let generated = intermediate.generated;
   // Diagnostics the prepare phase wrote belong to this turn's event, which is built anew here.
   const preparedPayload = intermediate.event?.raw_payload || {};
-  for (const key of ['dialogue_plan_failure', 'semantic_fallback', 'model_output_diagnostics', 'sales_response_repair', 'generation_failure']) {
-    if (preparedPayload[key] && !event.raw_payload?.[key]) event.raw_payload = { ...(event.raw_payload || {}), [key]: preparedPayload[key] };
+  for (const key of ['dialogue_plan_failure', 'semantic_fallback', 'model_output_diagnostics', 'sales_response_repair', 'generation_failure', 'ad_vehicles_prepare_count']) {
+    if (preparedPayload[key] !== undefined && preparedPayload[key] !== null && event.raw_payload?.[key] === undefined) event.raw_payload = { ...(event.raw_payload || {}), [key]: preparedPayload[key] };
   }
   let naturalPlan = intermediate.dialogue_plan;
   let naturalPlanError = intermediate.natural_plan_error || null;
