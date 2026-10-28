@@ -12,6 +12,7 @@ const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_id
 let coreCode = fs.readFileSync(coreSourcePath, 'utf8');
 const extCode = fs.readFileSync(extSourcePath, 'utf8');
 const genesisIdentityCode = fs.readFileSync(genesisIdentitySourcePath, 'utf8');
+const intakeNormalizerCode = fs.readFileSync(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js'), 'utf8').trimEnd();
 // The Núbia v2 EXT remains an isolated, inactive workflow for future work; it is no longer embedded in the CORE.
 const nubiaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/nubia_extension.js'), 'utf8');
 // Router of the live CORE: legacy tenants route without any database read. The services-pipeline router
@@ -436,6 +437,10 @@ for (const [source, file, prefix, code] of targets) {
 
   // If shared core workflow, also update the intake node 'Registrar Mensagem na Fila'
   if (source === 'noria_core.js') {
+    const normalizerNode = workflow.nodes.find(n => n.name === 'Normalizar Entrada WhatsApp');
+    if (!normalizerNode) throw new Error('MISSING_INTAKE_NORMALIZER_NODE');
+    new AsyncFunction('$json', '$env', intakeNormalizerCode);
+    normalizerNode.parameters.jsCode = intakeNormalizerCode;
     // Project only this helper: the existing embedded router has independent
     // local changes and must not be replaced wholesale with another version.
     const commandNode = workflow.nodes.find(n => n.name === 'Executar Comando1');
@@ -506,6 +511,7 @@ const manifest = {
   // The EXT identity node filters runtime flags before the policy executes.
   // Its changes must be distinguishable from an unchanged commercial policy.
   ext_identity_sha256: crypto.createHash('sha256').update(genesisIdentityCode).digest('hex'),
+  intake_normalizer_sha256: crypto.createHash('sha256').update(intakeNormalizerCode).digest('hex'),
   ext_bundle_sha256: crypto.createHash('sha256').update(JSON.stringify({
     identity: genesisIdentityCode, policy: extCode,
   })).digest('hex'),
@@ -518,6 +524,7 @@ const manifest = {
     'n8n/sources/noria_core.js',
     'n8n/sources/genesis_extension.js',
     'n8n/sources/genesis_tenant_identity.js',
+    'n8n/sources/whatsapp_normalize_entry.js',
     'n8n/sources/nubia_extension.js',
     'n8n/sources/noria_router_core.js',
     'n8n/workflows/' + NUBIA_EXT_WORKFLOW_FILE,

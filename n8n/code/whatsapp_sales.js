@@ -4684,7 +4684,7 @@ function salesSemanticAuditRequest(scopeKey, reply, claims, sources, model, medi
         type: 'OBJECT', properties: {
           scope_key: str, complete: { type: 'BOOLEAN' }, segments: { type: 'ARRAY', items: {
             type: 'OBJECT', properties: { text: str,
-              kind: { type: 'STRING', enum: ['supported_fact', 'non_factual', 'contradicted', 'unsupported', 'uncertain', ...(mediaDelivery ? ['technical_media_disclosure'] : []), ...(attachments.length ? ['attachment_caption'] : [])] },
+              kind: { type: 'STRING', enum: ['supported_fact', 'non_factual', 'contradicted', 'unsupported', 'uncertain', 'technical_internal_disclosure', ...(mediaDelivery ? ['technical_media_disclosure'] : []), ...(attachments.length ? ['attachment_caption'] : [])] },
               ...(attachments.length ? { attachment: { type: 'OBJECT', properties: {
                 id: str, product_id: str, mode: { type: 'STRING', enum: ['presentation', 'delivery_confirmation', 'visual_description'] }
               }, required: ['id', 'product_id', 'mode'] } } : {}),
@@ -4702,6 +4702,7 @@ function salesSemanticAuditRequest(scopeKey, reply, claims, sources, model, medi
     }
   };
   request.system_instruction.parts.push({ text: 'SEGMENTAÇÃO: mantenha cada proposição factual inteira no mesmo segmento, incluindo o sujeito, os verbos de ligação e os qualificadores. Não separe o nome do produto ou a ligação de seu valor como unsupported se a proposição completa for sustentada pela fonte. Se faltar suporte para qualquer parte do sentido, rejeite a proposição inteira; tokens conhecidos do produto não comprovam outro preço, condição ou disponibilidade.' });
+  request.system_instruction.parts.push({ text: 'PRIVACIDADE OPERACIONAL: em qualquer assunto, classifique como technical_internal_disclosure a exposição de detalhes da implementação do atendimento: referência interna sem identificação, vínculo entre anúncio e estoque, falha de integração, regras de auditoria, contratos, flags, banco de dados ou execução do sistema. Mesmo um dado técnico verdadeiro não é conteúdo de atendimento e não deve ser supported_fact nem non_factual. Pedir naturalmente que o cliente esclareça qual veículo interessa, sem explicar o mecanismo interno, é permitido. Não confunda informação pública do negócio, anúncio, catálogo, localização e horário com detalhe técnico. Preserve toda a verificação factual usual.' });
   if (nameProof) {
     request.generationConfig.responseSchema.properties.name_proof_verdict = { type: 'OBJECT', properties: {
       relation: { type: 'STRING', enum: ['customer_self', 'third_party', 'vehicle_or_product', 'business_or_place', 'not_a_name', 'unclear'] },
@@ -4867,6 +4868,8 @@ async function salesRepairRejectedDialogue(context, history, generated, plan, co
     'Uma resposta ao cliente foi rejeitada pela auditoria por incoerência com o que foi realmente executado. Escreva UMA nova resposta em português do Brasil, natural e no tom do atendimento, mantendo o que estava correto.',
     'Responda primeiro às perguntas atuais do cliente (plan.requests); só depois retome a informação pendente. Use SOMENTE fatos de facts, citados em response_contract.facts com fact_id, value e excerpt exatos; não acrescente preço, condição ou disponibilidade fora de facts.',
     'SEMANTIC_FACT_UNSUPPORTED e UNSUPPORTED_SEMANTIC_CLAIM: o auditor independente encontrou afirmações sem prova. Retire essas afirmações e seus pressupostos; não confirme uma hipótese do cliente como informação oficial. Se o pedido depende de um dado ausente, reconheça naturalmente que ele não está confirmado, sem inventar sua negação, prometer retorno ou anunciar encaminhamento não executado. A nova candidata passará pela mesma auditoria; não tente justificar a afirmação rejeitada.',
+    'SEMANTIC_FACT_TECHNICAL_INTERNAL_DISCLOSURE: retire explicações sobre referência interna, identificação no sistema, vínculo anúncio/estoque, contratos, auditoria e integrações. Esclareça a dúvida do cliente ou peça a informação faltante com naturalidade, sem expor o mecanismo técnico. Não invente fatos para ocultar a limitação.',
+    'COLETA AUTORIZADA: collection.next_field e execution.pending_requirement vêm da decisão comercial final. Se purchase_product ainda falta, não pressuponha veículo escolhido e não peça nascimento ou documentos antes de esclarecer o veículo. Menção anterior não é escolha. Responda aos pedidos reais em plan.requests e registre answers com excerpt literal, inclusive quando a resposta esclarece o produto. Uma mensagem que só entrega o nome ou outro dado não é uma nova pergunta sobre financiamento. Não repita campos já preenchidos.',
     'AD_VEHICLE_NOT_ADDRESSED: o cliente chegou por um anúncio e a resposta não citou nenhum veículo de ad_vehicles. Se houver um só, responda sobre ele; se houver vários, pergunte qual interessa citando-os pelo nome. Use o status de cada um (vendido não é oferecido). Preço só dos facts.',
     'REPEATED_QUESTION: a resposta repete quase igual a pergunta da sua última mensagem ou uma mensagem anterior inteira. Veja em recent_assistant_messages o follow-up ou a fala do atendente que o cliente pode estar respondendo. Reconheça o que o cliente acabou de dizer, responda primeiro ao assunto atual e, se ainda precisar do dado, peça com outras palavras ou avance para o próximo passo; se o cliente disse que vai levar o veículo pessoalmente, não peça fotos.',
     'FACT_CLASSIFIED_AS_NON_FACTUAL: um fato declarado só aparece dentro de uma frase de opinião ou cortesia. Pode manter a cortesia (como "ótima escolha" ou "boa pedida"), mas escreva o fato também numa frase factual citada em response_contract.facts; não transforme opinião em característica do veículo (estado, conservação, ausência de defeito) sem fonte.',
@@ -4877,13 +4880,13 @@ async function salesRepairRejectedDialogue(context, history, generated, plan, co
     issues, rejected_reply: String(generated.primary_reply || ''), current_messages: turn.messages.map(m => ({ id: m.event_id, text: salesRedactPersonalData(m.text || '') })),
     history: salesDialogueHistory(history), plan: { requests: plan?.requests || [], next_requirement: plan?.next_requirement || 'none' },
     collection: { active: collection?.active === true, next_field: collection?.next_field || null, missing_fields: collection?.missing_fields || [] },
-    facts: ledgerFacts, execution: { handoff_dispatched: execution.handoff_dispatched === true, assigned: execution.assigned === true, photo_sent: execution.photo_sent === true },
+    facts: ledgerFacts, execution: { handoff_dispatched: execution.handoff_dispatched === true, assigned: execution.assigned === true, photo_sent: execution.photo_sent === true, pending_requirement: execution.pending_requirement || 'none' },
     ad_vehicles: Array.isArray(execution.ad_vehicles) ? execution.ad_vehicles : [],
   }, schema);
   if (!out || typeof out.reply !== 'string' || !out.reply.trim() || !out.response_contract || typeof out.response_contract !== 'object') throw new Error('REPAIR_INVALID');
   // A semantic rejection cannot be repaired by downgrading the contract to
   // standard and skipping independent verification of the new wording.
-  const semanticRejection = issues.some(issue => issue === 'SEMANTIC_FACT_UNSUPPORTED' || issue === 'UNSUPPORTED_SEMANTIC_CLAIM' || issue === 'FACT_CLASSIFIED_AS_NON_FACTUAL');
+  const semanticRejection = issues.some(issue => issue === 'SEMANTIC_FACT_UNSUPPORTED' || issue === 'UNSUPPORTED_SEMANTIC_CLAIM' || issue === 'FACT_CLASSIFIED_AS_NON_FACTUAL' || issue === 'SEMANTIC_FACT_TECHNICAL_INTERNAL_DISCLOSURE');
   const responseContract = semanticRejection ? { ...out.response_contract, fact_evidence_mode: 'semantic' } : out.response_contract;
   return { ...generated, primary_reply: out.reply.trim(), response_contract: responseContract };
 }
@@ -5034,6 +5037,14 @@ function salesValidatePrimaryDialogue(generated, plan, collection = {}, executio
   const collectionTopics = ['name', 'deposit', 'documents', 'purchase', 'acknowledgement', 'disposition'];
   const customerChangedTopic = requestsToAudit.some(r => !collectionTopics.includes(r.topic));
   if (collection.active && !collection.ready && collection.next_field && !customerChangedTopic && plan?.next_requirement === collection.next_field && !asked.has(collection.next_field)) issues.push('MISSING_COLLECTION_QUESTION:' + collection.next_field);
+  // Produto pendente da EXT prevalece mesmo se o modelo manteve financing como
+  // tópico. Consulta de política pode ser respondida sem coleta; pedir dados
+  // pessoais não pode ultrapassar esse pré-requisito comercial.
+  if (collection.active && !collection.ready && collection.next_field === 'purchase_product'
+    && !asked.has('purchase_product')
+    && ['customer_name', 'birth_date', 'identity_document_photo', 'documents', 'deposit'].some(field => asked.has(field))) {
+    issues.push('MISSING_COLLECTION_QUESTION:purchase_product');
+  }
   const externalPendingVehicleField = String(execution.pending_requirement || '');
   const pendingVehicleMissing = externalPendingVehicleField === 'sell_model' ? !(svState.model || generated.state?.sell_model)
     : externalPendingVehicleField === 'sell_year' ? !(svState.year || generated.state?.sell_year)

@@ -20,7 +20,23 @@ if (hit?.contract === cacheContract && Number(hit.at) > Date.now() - 60000 && hi
 const base = String($env.SUPABASE_URL || '').replace(/\/$/, ''), key = String($env.SUPABASE_SERVICE_ROLE_KEY || '');
 if (!base || !key) throw new Error('NORIA_CREDENCIAIS_SUPABASE_AUSENTES');
 const headers = {apikey:key,Authorization:'Bearer '+key};
-const get = endpoint => this.helpers.httpRequest({method:'GET',url:base+'/rest/v1/'+endpoint,headers,json:true,timeout:7000});
+// Uma nova tentativa por execução, somente para GET e falha transitória.
+// Falha persistente não autoriza identidade antiga; validação/cache ficam abaixo.
+let identityReadRetryUsed = false;
+const get = async endpoint => {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { return await this.helpers.httpRequest({method:'GET',url:base+'/rest/v1/'+endpoint,headers,json:true,timeout:7000}); }
+    catch (error) {
+      const status = Number(error?.statusCode || error?.response?.status || error?.cause?.statusCode || 0);
+      const code = String(error?.code || error?.cause?.code || '');
+      const transient = status === 408 || status === 429 || status >= 500 && status <= 599
+        || !status && (['ECONNABORTED','ECONNRESET','ETIMEDOUT','EAI_AGAIN','ENETUNREACH','ECONNREFUSED'].includes(code)
+          || /timeout|timed out/i.test(String(error?.message || '')));
+      if (attempt !== 0 || identityReadRetryUsed || !transient) throw error;
+      identityReadRetryUsed = true;
+    }
+  }
+};
 const tenants = await get('tenants?select=id,slug,status&id=eq.'+encodeURIComponent(uuid)+'&slug=eq.'+encodeURIComponent(expectedSlug)+'&limit=1');
 if (!Array.isArray(tenants) || tenants.length!==1 || tenants[0].status!=='active') throw new Error('NORIA_TENANT_INVALIDO');
 // Only the keys this node exposes are read: the settings document also carries large prompt revisions the EXT never uses.
