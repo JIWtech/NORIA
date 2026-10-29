@@ -2906,6 +2906,19 @@ function salesAdInventoryCandidates(referral, inventory = []) {
   return found.slice(0, 6);
 }
 
+function salesAdVehiclePresumed(reply = '', adVehicles = [], turnText = '') {
+  const offerable = (Array.isArray(adVehicles) ? adVehicles : []).filter(vehicle => vehicle
+    && !['sold', 'vendido', 'unverified', 'nao_verificado', 'reserved', 'reservado', 'unavailable', 'indisponivel'].includes(normalizeText(vehicle.status)));
+  if (offerable.length < 2) return false;
+  const named = text => {
+    const words = normalizeText(text).split(/[^a-z0-9]+/).filter(Boolean);
+    return offerable.filter(vehicle => normalizeText(vehicle.model).split(/[^a-z0-9]+/).filter(token => token.length >= 3)
+      .some(token => words.some(word => salesAdTokenMatches(word, token))));
+  };
+  if (named(turnText).length) return false;
+  return named(reply).length === 1;
+}
+
 function salesAdVehicleNotAddressed(reply = '', adVehicles = []) {
   if (!Array.isArray(adVehicles) || !adVehicles.length) return false;
   const words = normalizeText(reply).split(/[^a-z0-9]+/).filter(Boolean);
@@ -4882,6 +4895,7 @@ async function salesRepairRejectedDialogue(context, history, generated, plan, co
     'SEMANTIC_FACT_TECHNICAL_INTERNAL_DISCLOSURE: retire explicações sobre referência interna, identificação no sistema, vínculo anúncio/estoque, contratos, auditoria e integrações. Esclareça a dúvida do cliente ou peça a informação faltante com naturalidade, sem expor o mecanismo técnico. Não invente fatos para ocultar a limitação.',
     'COLETA AUTORIZADA: collection.next_field e execution.pending_requirement vêm da decisão comercial final. Se purchase_product ainda falta, não pressuponha veículo escolhido e não peça nascimento ou documentos antes de esclarecer o veículo. Menção anterior não é escolha. Responda aos pedidos reais em plan.requests e registre answers com excerpt literal, inclusive quando a resposta esclarece o produto. Uma mensagem que só entrega o nome ou outro dado não é uma nova pergunta sobre financiamento. Não repita campos já preenchidos.',
     'AD_VEHICLE_NOT_ADDRESSED: o cliente chegou por um anúncio e a resposta não citou nenhum veículo de ad_vehicles. Se houver um só, responda sobre ele; se houver vários, pergunte qual interessa citando-os pelo nome. Use o status de cada um (vendido não é oferecido). Preço só dos facts.',
+    'AD_VEHICLE_PRESUMED: o anúncio tem vários veículos ofertáveis em ad_vehicles e o cliente não disse qual quer, mas a resposta falou de um só como se fosse o de interesse. Não presuma: cite os ofertáveis pelo nome e pergunte qual interessa. Vendido não é oferecido.',
     'REPEATED_QUESTION: a resposta repete quase igual a pergunta da sua última mensagem ou uma mensagem anterior inteira. Veja em recent_assistant_messages o follow-up ou a fala do atendente que o cliente pode estar respondendo. Reconheça o que o cliente acabou de dizer, responda primeiro ao assunto atual e, se ainda precisar do dado, peça com outras palavras ou avance para o próximo passo; se o cliente disse que vai levar o veículo pessoalmente, não peça fotos.',
     'FACT_CLASSIFIED_AS_NON_FACTUAL: um fato declarado só aparece dentro de uma frase de opinião ou cortesia. Pode manter a cortesia (como "ótima escolha" ou "boa pedida"), mas escreva o fato também numa frase factual citada em response_contract.facts; não transforme opinião em característica do veículo (estado, conservação, ausência de defeito) sem fonte.',
     'UNCONFIRMED_PHOTO_DELIVERY: a foto autorizada é enviada pelo sistema depois desta mensagem e a entrega ainda não foi confirmada. Escreva o texto que acompanha a foto sem dizer que ela já foi enviada ou que está aqui, responda também às outras perguntas do cliente e declare photo_sent=false.',
@@ -7889,7 +7903,8 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
       // Estilo: repetir a mesma pergunta ou ignorar os veículos do anúncio clicado soa robótico. Uma reformulação,
       // auditada pelo mesmo auditor; se falhar, vai a resposta já aceita.
       const styleIssuesFor = text => [...(salesRepeatsRecentAssistant(text, history) ? ['REPEATED_QUESTION'] : []),
-        ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : [])];
+        ...(salesAdVehicleNotAddressed(text, auditExecution.ad_vehicles) ? ['AD_VEHICLE_NOT_ADDRESSED'] : []),
+        ...(salesAdVehiclePresumed(text, auditExecution.ad_vehicles, auditExecution.turn_text) ? ['AD_VEHICLE_PRESUMED'] : [])];
       const styleCheckSkipped = audit.status !== 'accepted' ? 'audit_not_accepted' : dialogueRepair ? 'prior_repair'
         : generated.media_notice ? 'media_notice' : null;
       const styleIssues = styleCheckSkipped === null ? styleIssuesFor(audit.redacted_reply || primaryDialogueReply) : [];
