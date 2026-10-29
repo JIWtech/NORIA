@@ -84,9 +84,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_28',
-  built_at: '2026-10-28T13:28:39.428Z',
-  core_sha256: '44330069b5fe330c8e10dcc248144a373a9ca4bc7fa8dd1db4f4e6cdde43df59',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_29',
+  built_at: '2026-10-29T03:03:32.643Z',
+  core_sha256: 'fb8704abeea466901b53b8dfb4ea6b01800f8ddf0105ddb768998baf6dcc242d',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -8513,6 +8513,12 @@ async function salesGenerate(context, history, inventory, media, documentStatus,
     || lead?.product
     || null;
   const primaryFacts = salesDialogueFactLedger(context, primaryCandidateProduct, lead?.state || {}, documentStatus, {}, [], projectedInventory);
+  // Each ad vehicle carries the ledger scope of its facts (official.inventory.K): naming it is a store fact the model
+  // must declare with fact_id = fact_scope + '.model' / '.year' and source_product_id = id. Sold items have no scope.
+  if (referralFacts?.ad_vehicles?.length) {
+    const scopeById = new Map(primaryFacts.facts.filter(fact => /^official\.inventory\.\d+\.id$/.test(fact.id)).map(fact => [fact.value, fact.id.replace(/\.id$/, '')]));
+    referralFacts.ad_vehicles = referralFacts.ad_vehicles.map(vehicle => ({ ...vehicle, fact_scope: scopeById.get(String(vehicle.id)) || null }));
+  }
   const currentTurnMessages = turn.messages.map(message => ({
     id: String(message?.event_id || message?.id || ''),
     text: salesRedactPersonalData(message?.text || '')
@@ -11015,7 +11021,7 @@ function salesDialogueSalesSchema() {
       fact_evidence_mode: { type: 'STRING', enum: ['standard', 'semantic'], description: 'Detalhes/condição ou uso de observations: semantic. A resposta pode ser natural e usar apenas detalhes pertinentes, preservando qualificadores e atribuição. O auditor verifica o sentido de toda a resposta contra as fontes, sem exigir cópia integral no texto ao cliente.' },
       answers: { type: 'ARRAY', items: { type: 'OBJECT', properties: { request_id: str, excerpt: str }, required: ['request_id', 'excerpt'] } },
       requested_fields: { type: 'ARRAY', items: { type: 'OBJECT', properties: { field: str, excerpt: str }, required: ['field', 'excerpt'] } },
-      facts: { type: 'ARRAY', items: { type: 'OBJECT', properties: { fact_id: str, source_product_id: { type: 'STRING', description: 'Para official.product/inventory/catalog, copiar o id do MESMO produto no fact_ledger; para fatos sem produto, string vazia.' }, value: { type: 'STRING', description: 'Valor integral do fact_ledger para este fact_id, sem reescrever, recortar qualificadores ou converter unidades.' }, excerpt: str }, required: ['fact_id', 'source_product_id', 'value', 'excerpt'] } },
+      facts: { type: 'ARRAY', items: { type: 'OBJECT', properties: { fact_id: { type: 'STRING', description: 'Id exato de um fato do fact_ledger. Ao nomear um veículo de official_facts.referral.ad_vehicles, use o fact_scope dele (fact_scope + ".model", ".year"...) e o id dele em source_product_id; veículo sem fact_scope não é citado como oferta.' }, source_product_id: { type: 'STRING', description: 'Para official.product/inventory/catalog, copiar o id do MESMO produto no fact_ledger; para fatos sem produto, string vazia.' }, value: { type: 'STRING', description: 'Valor integral do fact_ledger para este fact_id, sem reescrever, recortar qualificadores ou converter unidades.' }, excerpt: str }, required: ['fact_id', 'source_product_id', 'value', 'excerpt'] } },
       availability_asserted: { type: 'BOOLEAN', description: 'true somente se a resposta AFIRMA que um veículo está disponível, em estoque, pronta entrega ou que já foi vendido. false quando a resposta apenas informa que a disponibilidade ainda não foi confirmada ou que o anúncio não prova estoque.' }, assignment_confirmed: { type: 'BOOLEAN' }, photo_sent: { type: 'BOOLEAN' }, handoff_announced: { type: 'BOOLEAN' }
     },
     required: ['fact_evidence_mode', 'answers', 'requested_fields', 'facts', 'availability_asserted', 'assignment_confirmed', 'photo_sent', 'handoff_announced']
@@ -11054,7 +11060,7 @@ function salesDialogueFactLedger(context, product, state, documentStatus, execut
       price_source: product.price_source || null, availability_verified: product.availability_verified === true, mechanical_report_verified: false,
       usable_photo_count: salesPhotoSendingFlags(settings) ? salesUsableCatalogPhotos(product, salesCatalogRuntimeAudit, context).length : 0
     } : null,
-    inventory: inventorySnapshot.filter(p => !['sold', 'vendido', 'unverified', 'nao_verificado'].includes(normalizeText(p.status))).map(p => ({ id: p.id, model: p.model, brand: p.brand, status: p.status || null, year: p.year, color: p.color || null, km: p.km ?? null, fuel: p.fuel || null, observations: p.observations || null, advertised_price_cents: p.price_cents ?? null, price_source: p.price_source || null, availability_verified: p.availability_verified === true, mechanical_report_verified: false,
+    inventory: inventorySnapshot.filter(p => p.offerable !== false && !['sold', 'vendido', 'unverified', 'nao_verificado'].includes(normalizeText(p.status))).map(p => ({ id: p.id, model: p.model, brand: p.brand, status: p.status || null, year: p.year, color: p.color || null, km: p.km ?? null, fuel: p.fuel || null, observations: p.observations || null, advertised_price_cents: p.price_cents ?? null, price_source: p.price_source || null, availability_verified: p.availability_verified === true, mechanical_report_verified: false,
       usable_photo_count: salesPhotoSendingFlags(settings) ? salesUsableCatalogPhotos(p, salesCatalogRuntimeAudit, context).length : 0 })),
     // Authorization to send vehicle photos on this channel is a tenant setting,
     // independent of whether a photo is registered for the product. Without this

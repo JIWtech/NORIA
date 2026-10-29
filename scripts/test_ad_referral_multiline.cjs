@@ -39,3 +39,26 @@ test('campos que não são texto do anúncio continuam com a regra antiga (uma l
 test('a contagem da primeira fase chega ao evento do turno', () => {
   assert.match(core, /for \(const key of \[[^\]]*'ad_vehicles_prepare_count'[^\]]*\]\)/);
 });
+
+// 28/10 (…6983, …7908): com os veículos já chegando, a IA citava "Temos a Honda PCX 2023 e a Honda Tornado…" sem
+// declarar o fato, porque ad_vehicles não trazia a referência do fato no ledger; o verificador reprovava como sem prova.
+test('cada veículo do anúncio leva a referência do fato que a IA deve citar', () => {
+  const generate = core.slice(core.indexOf('async function salesGenerate('), core.indexOf('async function salesGenerate(') + 30000);
+  const at = generate.indexOf('const primaryFacts = salesDialogueFactLedger(');
+  const block = generate.slice(at, at + 1200);
+  assert.match(block, /referralFacts\?\.ad_vehicles\?\.length/);
+  assert.ok(block.includes(String.raw`/^official\.inventory\.\d+\.id$/`), 'regex do escopo do ledger');
+  assert.match(block, /fact_scope: scopeById\.get\(String\(vehicle\.id\)\) \|\| null/);
+  const scope = new Map([{ id: 'official.inventory.3.id', value: 'pcx' }, { id: 'official.inventory.3.model', value: 'PCX' }, { id: 'official.product.id', value: 'x' }]
+    .filter(f => /^official\.inventory\.\d+\.id$/.test(f.id)).map(f => [f.value, f.id.replace(/\.id$/, '')]));
+  assert.deepEqual([...scope], [['pcx', 'official.inventory.3']]);
+});
+
+test('o ledger do verificador lista o mesmo estoque que a IA vê (sem veículo não ofertável)', () => {
+  const ledger = slice('salesDialogueFactLedger');
+  assert.match(ledger, /inventory: inventorySnapshot\.filter\(p => p\.offerable !== false && !\['sold'/);
+});
+
+test('o contrato de resposta ensina a citar o veículo do anúncio pelo fact_scope', () => {
+  assert.match(core, /fact_id: \{ type: 'STRING', description: 'Id exato de um fato do fact_ledger\. Ao nomear um veículo de official_facts\.referral\.ad_vehicles, use o fact_scope/);
+});
