@@ -1,3 +1,4 @@
+import { technicalEventPresentation } from './technicalEventPresentation.js';
 import { asObject } from '../../utils/asObject.js';
 import { formatDate } from '../../utils/dateFormatting.js';
 import { applyConversationLifecycle } from './conversationLifecycle.js';
@@ -74,7 +75,8 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
       const msg = {
         from: isOperator ? 'agent' : event.sender_type === 'system' ? 'system' : 'ai',
         sent_by: event.sent_by_user || (isOperator ? 'Operador' : null),
-        text: visibleText || event.response_text || '',
+        text: technicalEventPresentation(event)?.title || visibleText || event.response_text || '',
+        systemEvent: technicalEventPresentation(event),
         at,
         status: event.delivery_status,
         media,
@@ -97,6 +99,7 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
           ...newMessages[existingMsgIndex],
           status: event.delivery_status || newMessages[existingMsgIndex].status,
           text: msg.text || newMessages[existingMsgIndex].text,
+          systemEvent: msg.systemEvent || newMessages[existingMsgIndex].systemEvent,
           media: mergedMedia,
           audioTranscription: audioTranscription || newMessages[existingMsgIndex].audioTranscription || null,
           location: (location || newMessages[existingMsgIndex].location) ? {

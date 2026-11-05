@@ -451,19 +451,55 @@ const configuredLimit = Number(tenantSettings.gemini_daily_limit || tenantSettin
 const hasDailyLimit = Number.isFinite(configuredLimit) && configuredLimit > 0;
 const dailyLimit = hasDailyLimit ? configuredLimit : 0;
 let usedToday = 0;
-try {
-  const data = $getWorkflowStaticData('global');
-  usedToday = Number(data['gemini_whatsapp_' + $json.tenant_slug + '_' + todayKey()] || 0);
-} catch (error) {}
 const forceMock = tenantAiMode === 'mock' || tenantAiDisabled || paymentSignalDetected;
 const catalogBlocked = tenantCatalogMode && !serviceCatalogOk;
-const aiAllowed = Boolean(conversationStateOk && !catalogBlocked && globalGeminiEnabled && !forceMock && (!hasDailyLimit || usedToday < dailyLimit));
+const preAllowed = Boolean(conversationStateOk && !catalogBlocked && globalGeminiEnabled && !forceMock);
+// Durable reservation (same RPC/controller as the CORE): per-tenant daily budget and, when
+// configured, the shared RPM/TPM/RPD controller. Fails closed to the existing no-Gemini reply.
+let geminiLease = null;
+let quotaDenied = '';
+if (preAllowed) {
+  const rateScope = String(env('GEMINI_RATE_SCOPE', '')).trim();
+  const limitOf = (name) => Number(env(name, '0'));
+  const distributed = /^[a-zA-Z0-9._:-]{1,120}$/.test(rateScope)
+    && ['GEMINI_MAX_RPM', 'GEMINI_MAX_TPM', 'GEMINI_MAX_RPD'].every((name) => Number.isFinite(limitOf(name)) && limitOf(name) > 0);
+  const rateRequired = String(env('GEMINI_RATE_CONTROL_REQUIRED', 'false')).toLowerCase() === 'true';
+  const reserveModel = String(whatsappAiModel || 'models/gemini-2.5-flash').replace(/^models\//, '');
+  const leaseId = 'jiw:' + String($json.tenant_slug || tenantId) + ':' + Date.now() + ':' + Math.random().toString(36).slice(2, 10);
+  const leaseTtlMs = Math.max(20000, Math.min(Number(env('GEMINI_LEASE_TTL_MS', '30000')) || 30000, 120000));
+  const estimatedTokens = Math.max(1, Math.ceil((String(systemMessage).length + message.length) / 3.5)
+    + Math.max(1, Number(whatsappAiOptions?.maxOutputTokens || tenantAgent.max_tokens || 1024)));
+  try {
+    if (rateRequired && !distributed) throw new Error('distributed_controller_not_configured');
+    if (!tenantId || !supabaseUrl || !serviceKey) throw new Error('tenant_budget_context_missing');
+    const reserved = await this.helpers.httpRequest({
+      method: 'POST', url: supabaseUrl + '/rest/v1/rpc/magia_gemini_reserve', headers, json: true, timeout: 5000,
+      body: {
+        p_tenant_id: tenantId, p_daily_limit: hasDailyLimit ? Math.trunc(dailyLimit) : 0, p_model: reserveModel,
+        p_lease_id: leaseId, p_estimated_tokens: estimatedTokens,
+        ...(distributed ? {
+          p_scope: rateScope, p_max_concurrent: Math.max(1, Math.min(Number(env('GEMINI_MAX_CONCURRENT_CALLS', '2')) || 2, 20)),
+          p_max_rpm: limitOf('GEMINI_MAX_RPM'), p_max_tpm: limitOf('GEMINI_MAX_TPM'), p_max_rpd: limitOf('GEMINI_MAX_RPD'),
+          p_lease_ttl_ms: leaseTtlMs,
+          p_probe_cooldown_ms: Math.max(1000, Math.min(Number(env('GEMINI_CIRCUIT_COOLDOWN_MS', '30000')) || 30000, 300000)),
+        } : {}),
+      },
+    });
+    if (reserved && Number.isFinite(Number(reserved.tenant_used))) usedToday = Number(reserved.tenant_used);
+    if (!reserved || reserved.allowed !== true) quotaDenied = String(reserved?.reason || 'unavailable').slice(0, 60);
+    else if (distributed) geminiLease = { scope: rateScope, model: reserveModel, lease_id: leaseId };
+  } catch (error) {
+    const known = ['distributed_controller_not_configured', 'tenant_budget_context_missing'];
+    quotaDenied = known.includes(error?.message) ? error.message : 'controller_unavailable';
+  }
+}
+const aiAllowed = preAllowed && !quotaDenied;
 const aiBlockReason = !conversationStateOk ? 'conversation_state_unavailable' : catalogBlocked ? 'service_catalog_unavailable' : !globalGeminiEnabled
   ? 'gemini_disabled_by_env'
   : forceMock
     ? (paymentSignalDetected ? 'payment_signal' : 'tenant_ai_disabled_or_mock')
-    : hasDailyLimit && usedToday >= dailyLimit
-      ? 'daily_limit_reached'
+    : quotaDenied
+      ? (quotaDenied === 'tenant_daily_limit_exceeded' ? 'daily_limit_reached' : 'gemini_quota_' + quotaDenied)
       : '';
 
 const promptText = 'Cliente: ' + $json.contactName
@@ -510,6 +546,6 @@ return { json: {
   avatarUrl: contactAvatar.avatarUrl,
   payment_signal_detected: paymentSignalDetected,
   payment_signal_ack_message: tenantSettings.payment_signal_ack_message || paymentSettings.ack_message || 'Ta bom! Vou confirmar aqui, um momento.',
-  ai_allowed: aiAllowed, ai_block_reason: aiBlockReason,
+  ai_allowed: aiAllowed, ai_block_reason: aiBlockReason, gemini_lease: geminiLease,
   gemini_daily_limit: dailyLimit, gemini_used_today_before_request: usedToday,
 } };

@@ -105,6 +105,7 @@ const safeChat = String(input.remoteJid || '').replace(/[^a-zA-Z0-9._-]/g, '_');
 const safeMessageId = messageId.replace(/[^a-zA-Z0-9._-]/g, '_');
 const base = {
   ...descriptor,
+  origin: input.is_manual_whatsapp_outbound ? 'whatsapp_fromMe' : 'inbound',
   bucket,
   storagePath: [String(input.tenant_slug || '').replace(/[^a-zA-Z0-9_-]/g, ''), 'whatsapp', safeChat, `${safeMessageId}.${extensionFor(descriptor.kind, descriptor.mimeType, descriptor.fileName)}`].join('/'),
   encoding: 'binary',
@@ -117,29 +118,44 @@ function failed(status, error) {
 
 if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/.test(bucket)) return failed('storage_error', 'media_storage_bucket_invalid');
 if (!allowedMime(descriptor.kind, descriptor.mimeType)) return failed('unsupported', 'media_format_unsupported');
-if (descriptor.size > limit) return failed('skipped_too_large', 'media_too_large');
+if (descriptor.size > limit) return failed('too_large', 'media_too_large');
+
+function downloadFailure(error) {
+  const status = Number(error?.statusCode || error?.status || error?.response?.status || 0);
+  if (status === 401 || status === 403) return 'evolution_auth_failed';
+  if ([408, 425, 429, 500, 502, 503, 504].includes(status) || /timeout|timed out|econnreset|socket|temporar|rate.?limit/i.test(String(error?.message || error || ''))) return 'evolution_download_transient';
+  return 'evolution_download_failed';
+}
 
 let downloaded;
+let downloadError = null;
 try {
   const suffix = String(input.tenant_slug || '').toUpperCase().replace(/[^A-Z0-9]/g, '_');
-  const response = await this.helpers.httpRequest({
+  const request = {
     method: 'POST',
     url: String($env[`EVOLUTION_API_URL_${suffix}`] || '').replace(/\/$/, '') + '/chat/getBase64FromMediaMessage/' + encodeURIComponent(String(input.instance || $env[`EVOLUTION_INSTANCE_${suffix}`] || '')),
     headers: { apikey: $env[`EVOLUTION_API_KEY_${suffix}`], 'Content-Type': 'application/json' },
-    body: { message: { key: { id: messageId, remoteJid: input.remoteJid, fromMe: false } }, convertToMp4: false },
-    json: true,
-    timeout: 30000,
-  });
-  downloaded = response || {};
+    body: { message: { key: { id: messageId, remoteJid: input.remoteJid, fromMe: Boolean(input.is_manual_whatsapp_outbound) } }, convertToMp4: false },
+    json: true, timeout: 30000,
+  };
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try { downloaded = await this.helpers.httpRequest(request); break; }
+    catch (error) {
+      downloadError = error;
+      if (attempt === 2 || downloadFailure(error) !== 'evolution_download_transient') break;
+    }
+  }
 } catch (error) {
-  return failed('unavailable', 'media_download_failed');
+  downloadError = error;
 }
+if (!downloaded) return failed('download_failed', downloadFailure(downloadError));
 
 try {
   const mimeType = String(downloaded.mimetype || downloaded.mimeType || descriptor.mimeType).split(';')[0].trim().toLowerCase();
   const base64 = String(downloaded.base64 || '').replace(/^data:[^,]+;base64,/, '');
   if (!allowedMime(descriptor.kind, mimeType)) throw new Error('media_format_unsupported');
-  if (!base64 || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) throw new Error('media_invalid_base64');
+  if (!base64) throw new Error('media_payload_missing');
+  if (base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) throw new Error('media_invalid_base64');
   const bytes = Buffer.from(base64, 'base64');
   if (!bytes.length) throw new Error('media_payload_empty');
   if (bytes.length > limit) throw new Error('media_too_large');
@@ -152,5 +168,5 @@ try {
   };
 } catch (error) {
   const code = String(error?.message || '');
-  return failed(code === 'media_too_large' ? 'skipped_too_large' : code === 'media_magic_mismatch' || code === 'media_format_unsupported' ? 'unsupported' : 'storage_error', code || 'media_prepare_failed');
+  return failed(code === 'media_too_large' ? 'too_large' : code === 'media_payload_missing' ? 'missing_binary' : code === 'media_magic_mismatch' || code === 'media_format_unsupported' ? 'unsupported' : 'storage_error', code || 'media_prepare_failed');
 }

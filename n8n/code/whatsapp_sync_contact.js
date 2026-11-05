@@ -12,22 +12,72 @@ function normalizeWhatsappHandle(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
   const bare = raw.replace(/:(\d+)(?=@)/, '');
+  if (/@lid$/i.test(bare)) return bare;
   const digits = bare.replace(/@(s\.whatsapp\.net|c\.us)$/i, '').replace(/\D/g, '');
   return digits.length >= 8 ? `${digits}@s.whatsapp.net` : bare;
 }
-function usefulName(value, phone = '') {
+const KNOWN_TENANT_BUSINESS_PATTERNS = {
+  wesley_automoveis: [
+    /^(?:g[eê]nesis|wesley)\s*(?:autom[oó]veis|ve[ií]culos|multimarcas|motors|auto)\b/i,
+    /^(?:g[eê]nesis\s+autom[oó]veis|wesley\s+autom[oó]veis|wesley_automoveis)$/i,
+  ],
+  '74b57037-9349-4a9e-889c-b65fb63c983a': [
+    /^(?:g[eê]nesis|wesley)\s*(?:autom[oó]veis|ve[ií]culos|multimarcas|motors|auto)\b/i,
+    /^(?:g[eê]nesis\s+autom[oó]veis|wesley\s+autom[oó]veis|wesley_automoveis)$/i,
+  ],
+  clinica_nubia_oficial: [
+    /^(?:cl[ií]nica\s+n[uú]bia(?:\s+oficial)?|n[uú]bia\s+oficial|clinica_nubia_oficial)$/i,
+  ],
+  royal_4x4: [
+    /^royal\s+4x4(?:\s+ve[ií]culos)?$/i,
+  ],
+};
+
+const GENERIC_SYSTEM_ROLES = /^(?:atendente|operador|operadora|suporte|sac|central(?:\s+de\s+atendimento)?|sistema|administrador|admin|bot|robo|noria)$/i;
+
+function isBusinessOrTenantName(candidate, slug = '', inst = '') {
+  const trimmed = String(candidate || '').trim();
+  if (!trimmed) return false;
+  const norm = trimmed.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (GENERIC_SYSTEM_ROLES.test(norm)) return true;
+
+  const slugNorm = String(slug || '').trim().toLowerCase();
+  const instNorm = String(inst || '').trim().toLowerCase();
+
+  if (slugNorm && (norm === slugNorm || norm === slugNorm.replace(/_/g, ' '))) return true;
+  if (instNorm && (norm === instNorm || norm === instNorm.replace(/_/g, ' '))) return true;
+
+  if (slugNorm) {
+    const patterns = KNOWN_TENANT_BUSINESS_PATTERNS[slugNorm];
+    if (patterns && patterns.some((re) => re.test(trimmed))) return true;
+  }
+  if (instNorm) {
+    const patterns = KNOWN_TENANT_BUSINESS_PATTERNS[instNorm];
+    if (patterns && patterns.some((re) => re.test(trimmed))) return true;
+  }
+
+  if (slugNorm || instNorm) {
+    if (/\b(?:atendimento|assistente\s+virtual|inteligencia\s+artificial)\b/i.test(norm)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function usefulName(value, phone = '', context = {}) {
   const name = String(value || '').trim();
   if (!name) return false;
   const normalized = name.toLowerCase();
   if (/^(?:unknown|undefined|null|n\/a|na)$/i.test(name)) return false;
-  if (/^\+?\d+(?:@(s\.whatsapp\.net|c\.us))?$/i.test(name) || /@(s\.whatsapp\.net|c\.us|g\.us)$/i.test(name)) return false;
+  if (/^\+?\d+(?:@(s\.whatsapp\.net|c\.us))?$/i.test(name) || /@(s\.whatsapp\.net|c\.us|g\.us|lid|broadcast)$/i.test(name)) return false;
   if (/^[\s._\-–—]+$/u.test(name)) return false;
   const digits = name.replace(/\D/g, '');
   const phoneDigits = String(phone || '').replace(/\D/g, '');
   if ((digits.length >= 8 && digits === name.replace(/\D/g, '')) || (phoneDigits && digits === phoneDigits)) return false;
+  if (isBusinessOrTenantName(name, context.tenant_slug || context.tenantSlug, context.instance)) return false;
   // Emoji-only push names are intentional WhatsApp display names. Punctuation-only
   // markers are rejected above, while names need either a letter or a pictogram.
-  return /\p{L}|\p{Extended_Pictographic}/u.test(normalized);
+  return /\p{L}|\p{Extended_Pictographic}/u.test(name);
 }
 function profilePictureFromPayload(payload) {
   const source = objectValue(payload);
@@ -84,9 +134,18 @@ async function syncWhatsappContact() {
     });
     let contact = Array.isArray(rows) ? rows[0] || null : null;
     const hasDuplicates = Array.isArray(rows) && rows.length > 1;
-    const incomingName = usefulName(candidateName, phone) ? candidateName : null;
+    const isOutbound = Boolean(input.is_manual_whatsapp_outbound || input.fromMe || input.direction === 'outbound');
+    const candidateName = isOutbound ? '' : String(input.contactName || '').trim();
+    const incomingName = usefulName(candidateName, phone, input) ? candidateName : null;
 
     let metadata = objectValue(contact?.metadata);
+    // v2.1.3: never trust the legacy Evolution isSaved marker as an owner-saved proof.
+    if (metadata.whatsapp_owner_saved_source === 'evolution_findContacts:isSaved') {
+      metadata = { ...metadata };
+      delete metadata.whatsapp_owner_saved;
+      delete metadata.whatsapp_owner_saved_source;
+      delete metadata.whatsapp_owner_saved_at;
+    }
     isOwnerSaved = metadata.whatsapp_owner_saved === true;
     ownerSavedSource = metadata.whatsapp_owner_saved_source || null;
 
@@ -108,8 +167,14 @@ async function syncWhatsappContact() {
       }
     }
 
+    async function resolveOwnerSavedSource(tenantId, rawPhone) {
+      // Only authoritative sources may suppress AI. Evolution findContacts/isSaved
+      // means the instance knows the contact; it does NOT prove the owner saved it.
+      return await checkOwnerSavedFromDb.call(this, tenantId, rawPhone);
+    }
+
     if (!contact) {
-      const excludedSource = await checkOwnerSavedFromDb.call(this, tenantId, phone || handle);
+      const excludedSource = await resolveOwnerSavedSource.call(this, tenantId, phone || handle);
       if (excludedSource) {
         isOwnerSaved = true;
         ownerSavedSource = excludedSource;
@@ -132,7 +197,7 @@ async function syncWhatsappContact() {
       }
       if (!contact) throw new Error('contact_create_unavailable');
     } else if (!isOwnerSaved) {
-      const excludedSource = await checkOwnerSavedFromDb.call(this, tenantId, phone || contact.phone || handle);
+      const excludedSource = await resolveOwnerSavedSource.call(this, tenantId, phone || contact.phone || handle);
       if (excludedSource) {
         isOwnerSaved = true;
         ownerSavedSource = excludedSource;
@@ -154,7 +219,16 @@ async function syncWhatsappContact() {
     sync.owner_saved_source = ownerSavedSource;
 
     const currentName = String(contact.name || '').trim();
-    const chosenName = usefulName(currentName, contact.phone || phone) ? currentName : incomingName;
+    const currentIsUseful = usefulName(currentName, contact.phone || phone, input);
+    const incomingIsUseful = Boolean(incomingName);
+    let chosenName = currentName;
+    if (!currentIsUseful && incomingIsUseful) {
+      chosenName = incomingName;
+    } else if (currentIsUseful) {
+      chosenName = currentName;
+    } else {
+      chosenName = incomingName || null;
+    }
     const identityPatch = {
       phone: phone || contact.phone || null,
       external_handle: handle,

@@ -189,3 +189,102 @@ test('reescrita rejeitada: bloqueio preservado, sem envio, sem transferência in
   assert.ok(!outbound.handoff, 'nenhum handoff inventado');
   assert.equal(world.tables.sales_leads[0]?.ai_locked ?? false, false);
 });
+
+// Mecânica de recuperação de um veredito semântico SIMULADO. Não chama Gemini real.
+async function semanticRecovery({ repeatUnsupported = false, auditUnavailable = false, topic = 'other', reauditUnavailable = false } = {}) {
+  const rejected = 'Isso mesmo, ele é recuperado de financiamento.';
+  const repaired = 'Essa informação eu não tenho confirmada agora.';
+  const responseContract = text => contract({ answers: [{ request_id: 'request_1', excerpt: text }] });
+  const scenario = { name: 'semantic-recovery', turns: [{ text: 'É recuperado de financiamento?', gemini: {
+    reply: rejected, response_contract: { ...responseContract(rejected), fact_evidence_mode: 'semantic' },
+    semantic_intent: { primary_intent: 'other', topics: ['other'] },
+    dialogue_plan: { requests: [{ id: 'request_1', topic }] },
+  } }], auditor_responses: [] };
+  let audits = 0, repairs = 0;
+  const result = await ex.runScenario(scenario, {
+    mode: 'fixtures', geminiKey: null, settings: ex.loadSettings(), inventory: fixtures.inventory,
+    geminiOverride: (request, schema) => {
+      if (schema.properties?.segments) {
+        audits++;
+        if (auditUnavailable || (reauditUnavailable && audits > 1)) throw new Error('SEMANTIC_AUDIT_UNAVAILABLE');
+        const data = JSON.parse(request.contents[0].parts[0].text);
+        return body({ scope_key: data.scope_key, complete: true, segments: [{ text: data.reply,
+          kind: audits === 1 || repeatUnsupported ? 'unsupported' : 'non_factual', evidence: [] }] });
+      }
+      if (schema.properties?.reply && !schema.properties?.semantic_intent) {
+        repairs++;
+        return body({ reply: repeatUnsupported ? rejected : repaired,
+          response_contract: responseContract(repeatUnsupported ? rejected : repaired) });
+      }
+      return undefined;
+    },
+  });
+  return { world: result.world, outbound: salesOutbound(result.world), alert: operatorAlert(result.world), audits, repairs, repaired };
+}
+
+test('afirmação sem suporte semântico recebe uma única reescrita e nova auditoria antes do envio', async () => {
+  const { world, outbound, repairs, audits, repaired } = await semanticRecovery();
+  assert.equal(repairs, 1, 'uma única candidata de recuperação');
+  assert.equal(audits, 2, 'a resposta nova também passa pelo auditor independente');
+  assert.equal(outbound.message_text, repaired);
+  assert.equal(outbound.raw_payload.dialogue_repair.status, 'accepted');
+  assert.equal(world.log.simulated_sends.length, 1);
+});
+
+test('nova afirmação sem prova continua bloqueada após uma única recuperação semântica', async () => {
+  const { world, alert, repairs, audits } = await semanticRecovery({ repeatUnsupported: true });
+  assert.equal(repairs, 1);
+  assert.equal(audits, 2);
+  assertSilentForOperator(world, alert, /SEMANTIC_FACT_UNSUPPORTED/);
+});
+
+test('auditor indisponível não inicia reescrita nem autoriza envio', async () => {
+  const { world, alert, repairs, audits } = await semanticRecovery({ auditUnavailable: true });
+  assert.equal(repairs, 0);
+  assert.equal(audits, 1);
+  assertSilentForOperator(world, alert, /SEMANTIC_FACT_AUDIT_UNAVAILABLE/);
+});
+
+test('recuperação semântica aceita apenas falta de suporte; contradição e prova inválida continuam retidas', async () => {
+  const { salesIssuesRepairable } = await engine(['salesIssuesRepairable']);
+  assert.equal(salesIssuesRepairable(['SEMANTIC_FACT_UNSUPPORTED', 'UNSUPPORTED_SEMANTIC_CLAIM']), true);
+  for (const issue of ['SEMANTIC_FACT_CONTRADICTED', 'SEMANTIC_FACT_UNCERTAIN', 'SEMANTIC_FACT_AUDIT_UNAVAILABLE', 'SEMANTIC_SOURCE_MISMATCH', 'INVALID_SEMANTIC_EVIDENCE']) {
+    assert.equal(salesIssuesRepairable([issue]), false, issue);
+  }
+});
+
+test('foto marcada como enviada antes da confirmação recebe a reescrita auditada (produção 24/10 19:44, Onix)', async () => {
+  const { salesIssuesRepairable } = await engine(['salesIssuesRepairable']);
+  assert.equal(salesIssuesRepairable(['UNCONFIRMED_PHOTO_DELIVERY']), true);
+  assert.equal(salesIssuesRepairable(['UNCONFIRMED_PHOTO_DELIVERY', 'SEMANTIC_FACT_CONTRADICTED']), false);
+  const src = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), 'utf8');
+  const repair = src.slice(src.indexOf('async function salesRepairRejectedDialogue('), src.indexOf('async function salesAuditPrimaryDialogue('));
+  assert.match(repair, /UNCONFIRMED_PHOTO_DELIVERY:[^']*photo_sent=false/);
+});
+
+test('fato declarado em trecho que o auditor julgou não factual é falta de prova: recebe a mesma reescrita auditada', async () => {
+  // Produção 24/10 14:03: "O Nissan Versa SL 2013 é uma ótima escolha." trazia modelo e ano dentro de uma opinião.
+  const { salesIssuesRepairable } = await engine(['salesIssuesRepairable']);
+  assert.equal(salesIssuesRepairable(['FACT_CLASSIFIED_AS_NON_FACTUAL', 'UNSUPPORTED_SEMANTIC_CLAIM']), true);
+  assert.equal(salesIssuesRepairable(['FACT_CLASSIFIED_AS_NON_FACTUAL', 'SEMANTIC_FACT_CONTRADICTED']), false);
+  const src = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), 'utf8');
+  const repair = src.slice(src.indexOf('async function salesRepairRejectedDialogue('), src.indexOf('async function salesAuditPrimaryDialogue('));
+  assert.match(repair, /FACT_CLASSIFIED_AS_NON_FACTUAL/, 'a reescrita recebe orientação para esse caso');
+  assert.match(repair, /semanticRejection = issues\.some\([^)]*FACT_CLASSIFIED_AS_NON_FACTUAL/, 'a nova candidata continua em auditoria semântica');
+});
+
+test('reescrita não pode trocar semantic por standard para pular a nova auditoria', async () => {
+  const { world, repairs, audits, outbound } = await semanticRecovery({ topic: 'price' });
+  assert.equal(repairs, 1);
+  assert.equal(audits, 2, 'mesmo um contrato standard da reescrita precisa de verificação semântica');
+  assert.equal(outbound.raw_payload.dialogue_repair.status, 'accepted');
+  assert.equal(world.log.simulated_sends.length, 1);
+});
+
+test('falha do auditor da nova candidata mantém o bloqueio sem envio nem nova reescrita', async () => {
+  const { world, repairs, audits, alert, outbound } = await semanticRecovery({ topic: 'price', reauditUnavailable: true });
+  assert.equal(repairs, 1);
+  assert.equal(audits, 2);
+  assert.equal(outbound.raw_payload.dialogue_repair.status, 'needs_human_review');
+  assertSilentForOperator(world, alert, /SEMANTIC_FACT_UNSUPPORTED/);
+});

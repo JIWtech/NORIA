@@ -250,7 +250,7 @@ test('split seller details are accepted and excluded brands are not registered',
   assert.equal(r.saved[0].p_register,false);assert.match(r.sent[0],/nao se enquadra/);
 });
 test('inventory typed numbers are preserved, duplicate identities fail closed',()=>{
-  const context=vm.createContext({tenantSlug:'sales',normalizeText:v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase()});
+  const context=vm.createContext({tenantSlug:'sales',tenantBusinessRules:{modules:{}},normalizeText:v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase()});
   vm.runInContext(fs.readFileSync(path.join(root,'n8n/code/whatsapp_sales.js'),'utf8'),context);
   const rows=context.salesParseInventory(stock);assert.equal(rows.length,6);assert.equal(rows[4].price_cents,4298000);
   assert.equal(context.salesAmount('Entrada de R$ 12.894,00'),1289400);
@@ -267,11 +267,12 @@ test('pending onboarded channel cannot enter legacy fallback; existing legacy te
   const env={SUPABASE_URL:'https://db.test',SUPABASE_SERVICE_ROLE_KEY:'fake'};
   const helpers={httpRequest:async({url})=>url.includes('/channels?')?[{status:'pending',config:{onboarding_package:'wesley'}}]:[]};
   await assert.rejects(selector.call({helpers},input,env),/do not use fallback/);
-  helpers.httpRequest=async({url})=>url.includes('/channels?')?[]:url.includes('/tenants?')?[{id:'legacy',status:'active'}]:[{settings:{}}];
+  // The selector reads tenant and routing settings in one request (tenant_settings embedded, routing fields only).
+  helpers.httpRequest=async({url})=>url.includes('/channels?')?[]:[{id:'legacy',status:'active',tenant_settings:[{}]}];
   const legacy=await selector.call({helpers},input,env);assert.equal(legacy.json.use_conversation_core,false);
-  helpers.httpRequest=async({url})=>url.includes('/tenants?')?[{id:'sales',status:'active'}]:[{settings:{contact_exclusion_enabled:true}}];
+  helpers.httpRequest=async()=>[{id:'sales',status:'active',tenant_settings:[{exclusion:true}]}];
   await assert.rejects(selector.call({helpers},{...input,tenant_resolution:{source:'channels.external_id'}},env),/legacy fallback blocked/);
-  helpers.httpRequest=async({url})=>url.includes('/tenants?')?[{id:'sales',status:'active'}]:[{settings:{conversation_capability:'sales_v1',whatsapp_processing_mode:'conversation_core_v1'}}];
+  helpers.httpRequest=async()=>[{id:'sales',status:'active',tenant_settings:[{capability:'sales_v1',mode:'conversation_core_v1'}]}];
   const commercial=await selector.call({helpers},{...input,tenant_slug:'sales',tenant_resolution:{source:'channels.external_id'}},env);
   assert.equal(commercial.json.core_sales,true);
 });

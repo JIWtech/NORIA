@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { PGlite } = require(path.join(process.env.MAGIA_TEST_MODULES || path.join(require('node:os').tmpdir(), 'magia-diag-tools/node_modules'), '@electric-sql/pglite'));
+const { PGlite } = require(path.join(process.env.MAGIA_TEST_MODULES || path.join(__dirname, '../app/node_modules'), '@electric-sql/pglite'));
 const patch = fs.readFileSync(path.join(__dirname, '../clients/clinica_nubia_oficial/07_nome_nb_bronze.sql'), 'utf8');
 
 test('NB Bronze patch preserves custom settings, isolates tenant and is repeatable', async () => {

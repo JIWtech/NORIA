@@ -5,10 +5,12 @@ function env(name, fallback = '') {
 }
 function suffix(value) { return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '_'); }
 function trimText(value, limit = 900) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
+// The generator may decline (action skip): an empty reply is never sent. The old shape ({reply}) still sends.
 function parseReply(value) {
   const text = String(value || '').trim();
   try {
     const parsed = JSON.parse(text);
+    if (parsed.action === 'skip') return '';
     return trimText(parsed.reply || parsed.text || '');
   } catch (_) {
     const match = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
@@ -26,9 +28,47 @@ const headers = { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey, 'Co
 const rpc = (name, payload) => request.call(this, 'POST', supabaseUrl + '/rest/v1/rpc/' + name, headers, payload);
 const get = path => request.call(this, 'GET', supabaseUrl + '/rest/v1/' + path, headers);
 const post = (path, body) => request.call(this, 'POST', supabaseUrl + '/rest/v1/' + path, { ...headers, Prefer: 'return=representation' }, body);
+const patch = (path, body) => request.call(this, 'PATCH', supabaseUrl + '/rest/v1/' + path, { ...headers, Prefer: 'return=representation' }, body);
 
 async function finish(job, status, eventId = null, error = '') {
   return rpc('magia_finish_followup_job', { p_job: job.id, p_lease: job.lease_token, p_status: status, p_event: eventId, p_error: error });
+}
+
+// No follow-up is sent inside the quiet window, in the tenant's time zone: 21:00-06:00 by default,
+// settings.follow_up_quiet_hours = { start: 'HH:MM', end: 'HH:MM' } overrides it. A job claimed inside
+// the window goes back to pending, due when the window ends; nothing is generated or sent.
+const DEFAULT_FOLLOW_UP_QUIET_HOURS = { start: '21:00', end: '06:00' };
+function clockMinutes(value) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value || '').trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+function localMinutes(now, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+  return Number(parts.find(part => part.type === 'hour').value) * 60 + Number(parts.find(part => part.type === 'minute').value);
+}
+function quietWindowEnd(settings, now = new Date()) {
+  const configured = settings.follow_up_quiet_hours;
+  const custom = [clockMinutes(configured?.start), clockMinutes(configured?.end)];
+  const [start, end] = custom.every(value => value !== null) ? custom
+    : [clockMinutes(DEFAULT_FOLLOW_UP_QUIET_HOURS.start), clockMinutes(DEFAULT_FOLLOW_UP_QUIET_HOURS.end)];
+  if (start === end) return null;
+  let current;
+  try { current = localMinutes(now, String(settings.timezone || '').trim() || 'America/Sao_Paulo'); }
+  catch (_) { current = localMinutes(now, 'America/Sao_Paulo'); }
+  const inside = start < end ? current >= start && current < end : current >= start || current < end;
+  if (!inside) return null;
+  const due = new Date(now.getTime() + ((end - current + 1440) % 1440) * 60000);
+  due.setUTCSeconds(0, 0);
+  return due;
+}
+async function deferForQuietHours(job, settings) {
+  const due = quietWindowEnd(settings);
+  if (!due) return null;
+  const rows = await patch('follow_up_jobs?id=eq.' + encodeURIComponent(job.id) + '&lease_token=eq.' + encodeURIComponent(job.lease_token)
+    + '&status=eq.processing', { status: 'pending', due_at: due.toISOString(), lease_token: null, locked_until: null,
+      error: 'quiet_hours_deferred', updated_at: new Date().toISOString() });
+  if (!Array.isArray(rows) || rows.length !== 1) throw new Error('FOLLOW_UP_QUIET_HOURS_DEFER_FAILED');
+  return due;
 }
 
 async function conversationChanged(job) {
@@ -41,6 +81,14 @@ async function conversationChanged(job) {
   return Array.isArray(rows) && rows.some(row =>
     (row.direction === 'inbound' && row.sender_type === 'contact') || row.handoff === true
     || row.service === 'conversation_closed' || row.ai_provider === 'conversation_closed');
+}
+
+// The reply the job is anchored to carries the customer's validated end of conversation (CORE grounding).
+async function customerEnded(job) {
+  const rows = await get('channel_events?select=raw_payload&id=eq.' + encodeURIComponent(job.anchor_event_id)
+    + '&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
+  const value = rows?.[0]?.raw_payload?.grounding?.customer_disposition?.value;
+  return ['closed', 'declined', 'deferred'].includes(value) ? value : '';
 }
 
 async function hasFutureAppointment(job) {
@@ -129,19 +177,22 @@ async function generate(job, settings, history) {
     mode: 'follow_up', step: job.step_key, objective: job.objective, contact_name: job.contact_name || '',
     conversation: history.map(row => ({ direction: row.direction, text: row.message_text, at: row.created_at })),
     rules: [
+      'Este envio e uma retomada da conversa, horas depois: nao responda a ultima mensagem como se fosse agora.',
+      'Nunca escreva despedida ou agradecimento (por nada, obrigada pela preferencia, tenha um otimo dia): isso nao e retomada.',
+      'Se o cliente encerrou, recusou ou disse que volta depois, ou se nao houver o que retomar, retorne action skip com reply vazio.',
       'Escreva uma unica mensagem curta, em portugues do Brasil.',
       'Respeite integralmente a personalidade, fatos e limites do system prompt.',
       'Nao invente preco, disponibilidade, desconto, endereco ou pagamento.',
       'Nao diga que o cliente sumiu e nao mencione tempo de espera.',
-      'Nao envie se a conversa exigir humano, pagamento, cancelamento ou remarcacao.',
-      'Retorne JSON com apenas a chave reply.'
+      'Nao envie se a conversa exigir humano, pagamento, cancelamento ou remarcacao: retorne action skip.',
+      'Retorne JSON com action (send ou skip) e reply.'
     ],
   };
   const geminiPayload = {
       system_instruction: { parts: [{ text: prompt }] },
       contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
       generationConfig: { temperature: 0.35, maxOutputTokens: 500, responseMimeType: 'application/json',
-        responseSchema: { type: 'OBJECT', properties: { reply: { type: 'STRING' } }, required: ['reply'] } },
+        responseSchema: { type: 'OBJECT', properties: { action: { type: 'STRING', enum: ['send', 'skip'] }, reply: { type: 'STRING' } }, required: ['action', 'reply'] } },
   };
   const geminiLease = await reserveGeminiFollowUp(job, settings, model, geminiPayload);
   let body;
@@ -157,7 +208,8 @@ async function generate(job, settings, history) {
   if (!candidate || candidate.finishReason !== 'STOP') throw new Error('Gemini nao concluiu o follow-up');
   const text = candidate.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('') || '';
   const reply = parseReply(text);
-  if (!reply || reply.length > 900 || /\[HUMANO_SOLICITADO\]|\[ACAO:/i.test(reply)) throw new Error('Resposta de follow-up invalida');
+  if (!reply) return { skip: true, model, usage: body.usageMetadata || {} };
+  if (reply.length > 900 || /\[HUMANO_SOLICITADO\]|\[ACAO:/i.test(reply)) throw new Error('Resposta de follow-up invalida');
   return { reply, model, usage: body.usageMetadata || {} };
 }
 
@@ -169,6 +221,11 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     const settingsRows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
     const settings = settingsRows?.[0]?.settings || {};
     const sales = settings.conversation_capability === 'sales_v1';
+    const quietUntil = await deferForQuietHours(job, settings);
+    if (quietUntil) {
+      outcome.push({ id: job.id, status: 'deferred', reason: 'quiet_hours', due_at: quietUntil.toISOString() });
+      continue;
+    }
     if (!await protectedEligibility(job, settings)) {
       await finish(job, 'cancelled', null, 'contact_or_sales_blocked');
       outcome.push({ id: job.id, status: 'cancelled', reason: 'contact_or_sales_blocked' });
@@ -177,6 +234,12 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     if (await conversationChanged(job)) {
       await finish(job, 'cancelled', null, 'conversation_control_changed');
       outcome.push({ id: job.id, status: 'cancelled' });
+      continue;
+    }
+    const ended = await customerEnded(job);
+    if (ended) {
+      await finish(job, 'cancelled', null, 'customer_' + ended);
+      outcome.push({ id: job.id, status: 'cancelled', reason: 'customer_' + ended });
       continue;
     }
     if (!sales && await hasFutureAppointment(job)) {
@@ -195,6 +258,11 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     if (!channel?.external_id) throw new Error('Canal WhatsApp ativo nao encontrado');
     const generated = sales ? salesFollowUp(job, settings)
       : await generate.call(this, job, settings, Array.isArray(history) ? history.reverse() : []);
+    if (generated.skip) {
+      await finish(job, 'cancelled', null, 'follow_up_not_applicable');
+      outcome.push({ id: job.id, status: 'cancelled', reason: 'follow_up_not_applicable' });
+      continue;
+    }
     if (await conversationChanged(job)) {
       await finish(job, 'cancelled', null, 'conversation_control_changed_before_send');
       outcome.push({ id: job.id, status: 'cancelled' });
@@ -206,13 +274,19 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
       continue;
     }
     const tenantSuffix = suffix(job.tenant_slug);
-    const base = (env('EVOLUTION_API_URL_' + tenantSuffix) || env('EVOLUTION_API_URL') || '').replace(/\/$/, '');
-    const key = env('EVOLUTION_API_KEY_' + tenantSuffix) || env('EVOLUTION_API_KEY');
-    const instance = env('EVOLUTION_INSTANCE_' + tenantSuffix) || channel.external_id;
-    if (!base || !key || !instance || (channel?.external_id && instance !== channel.external_id)) throw new Error('Credenciais Evolution do tenant nao configuradas');
+    const base = env('EVOLUTION_API_URL_' + tenantSuffix).replace(/\/$/, '');
+    const key = env('EVOLUTION_API_KEY_' + tenantSuffix);
+    const instance = env('EVOLUTION_INSTANCE_' + tenantSuffix);
+    if (!base || !key || instance !== channel.external_id) throw new Error('Credenciais Evolution do tenant nao configuradas');
     if (!await protectedEligibility(job, settings)) {
       await finish(job, 'cancelled', null, 'contact_or_sales_blocked_before_send');
       outcome.push({ id: job.id, status: 'cancelled', reason: 'contact_or_sales_blocked_before_send' });
+      continue;
+    }
+    // The window may have started while the message was being prepared.
+    const quietBeforeSend = await deferForQuietHours(job, settings);
+    if (quietBeforeSend) {
+      outcome.push({ id: job.id, status: 'deferred', reason: 'quiet_hours', due_at: quietBeforeSend.toISOString() });
       continue;
     }
     sendAttempted = true;

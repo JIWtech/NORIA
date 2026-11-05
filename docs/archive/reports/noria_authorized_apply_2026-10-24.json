@@ -1,0 +1,68 @@
+{
+  "authorized_by_user": "ok, pode aplicar todas as correçoes.",
+  "scope": [
+    "storage tenant scope RLS",
+    "CORE motor",
+    "Genesis EXT",
+    "CORE entry",
+    "Genesis prompt",
+    "Nubia prompt",
+    "local frontend fixes and dependency patches"
+  ],
+  "storage_migration": {
+    "version": "20261024025505",
+    "name": "channel_media_exact_tenant_scope"
+  },
+  "prompts": [
+    {
+      "slug": "wesley_automoveis",
+      "md5": "27c031b5858c0c141588d4205b63143b"
+    },
+    {
+      "slug": "clinica_nubia_oficial",
+      "md5": "d7601f67881365a8ba2bd463d99a6321"
+    }
+  ],
+  "workflows": {
+    "mlKNPv862H2g3Gap": {
+      "before": "a2b2d99e-01ae-458c-80b0-7a1229bc51f0",
+      "active": "9d9455db-33b0-40c0-be38-24ee44115706"
+    },
+    "fXGorIlPbyf9Qtsp": {
+      "before": "29e1b312-3c67-4361-9dee-3598858f0507",
+      "active": "201abb2b-e872-461e-924d-e0544bf20b8e"
+    },
+    "3N5oN6sxtir9lFrA": {
+      "before": "1bf7b6c2-f419-4ff7-a878-0520843d1a69",
+      "active": "2772a573-24cb-480f-ba81-9e06c0d02158"
+    }
+  },
+  "local_core_sha256": "99289e1a319da66569ffdea413bac3e84dc102d8fca5bea951d39ea4667324f9",
+  "local_ext_sha256": "3fffdf4d39074c3857d0269fd1c4ce5d011ff32f619007c7e995eaa3059de663",
+  "backups": "C:/Users/jvsbj/AppData/Local/Temp/noria_authorized_apply_20261023",
+  "verification": {
+    "active_version_nodes_match": true,
+    "settings_preserved": true,
+    "prompt_md5_match": true,
+    "storage_policy_hash": "d31b073c9fb579edc31df2082a3013f8",
+    "lifecycle_ready": true
+  },
+  "frontend": {
+    "workspace_applied": true,
+    "build_passed": true,
+    "remote_deployment": "not identified; awaiting hosting destination"
+  },
+  "excluded_actions": [
+    "No queue release or replay",
+    "No real WhatsApp validation send",
+    "No paid Gemini validation call",
+    "No Royal activation",
+    "No Nubia v2 cutover",
+    "No Git branch promotion"
+  ],
+  "limitations": {
+    "app_preexisting_failures": 11,
+    "legacy_core_sales_preexisting_failures": 72,
+    "offline_tests_do_not_prove_model_semantics": true
+  }
+}

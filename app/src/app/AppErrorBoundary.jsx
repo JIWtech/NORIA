@@ -1,3 +1,4 @@
+import { userFacingError } from '../utils/userFacingError.js';
 import React from 'react';
 
 export class AppErrorBoundary extends React.Component {
@@ -20,7 +21,7 @@ export class AppErrorBoundary extends React.Component {
       <main className="auth-page auth-loading-page">
         <section className="auth-loading-card" role="alert">
           <h1 className="auth-loading-title">Não foi possível abrir o painel</h1>
-          <p className="muted">{this.state.error.message || 'Erro inesperado ao carregar a tela.'}</p>
+          <p className="muted">{userFacingError(this.state.error, 'Erro inesperado ao carregar a tela.')}</p>
           <button className="primary-button" type="button" onClick={() => window.location.reload()}>
             Tentar novamente
           </button>

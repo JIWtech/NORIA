@@ -27,11 +27,11 @@ import './styles/pages/conversations-responsive.css';
 
 import './styles/pages/auth.css';
 import './styles/pages/kanban.css';
-import './styles/pages/broadcasts.css';
 
 import './styles/pages/appointments.css';
 import './styles/pages/agents.css';
 import './styles/pages/settings.css';
+import './styles/pages/broadcasts.css';
 import './styles/components/modals.css';
 
 import './styles/layout/responsive-global.css';

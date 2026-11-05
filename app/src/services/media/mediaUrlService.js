@@ -9,8 +9,12 @@ const SIGNED_URL_RETRY_DELAY_MS = 300;
 const NEGATIVE_CACHE_TTL_MS = 300_000; // 5 minutos para arquivos não encontrados
 const mediaObjectUrlCache = new Map();
 const mediaUrlRequestCache = new Map();
+const invalidatedMediaRequests = new WeakSet();
+let mediaCacheEpoch = 0;
 
 export function clearMediaUrlCache() {
+  mediaCacheEpoch += 1;
+  for (const request of mediaUrlRequestCache.values()) invalidatedMediaRequests.add(request);
   mediaObjectUrlCache.clear();
   mediaUrlRequestCache.clear();
 }
@@ -154,6 +158,7 @@ async function resolveStoredMediaUrl(media, supabase) {
 export async function resolveSingleMediaUrl(media, supabase, { force = false } = {}) {
   if (!media?.bucket || !media?.storagePath || !supabase) return '';
   const key = `${media.bucket}:${media.storagePath}`;
+  const epoch = mediaCacheEpoch;
 
   if (force) {
     invalidateMediaUrl(key);
@@ -181,6 +186,7 @@ export async function resolveSingleMediaUrl(media, supabase, { force = false } =
   } finally {
     if (mediaUrlRequestCache.get(key) === request) mediaUrlRequestCache.delete(key);
   }
+  if (epoch !== mediaCacheEpoch || invalidatedMediaRequests.has(request)) return '';
 
   const resolvedUrl = typeof result === 'string' ? result : (result?.url || '');
   const resultError = typeof result === 'object' ? result?.error : null;
@@ -201,6 +207,7 @@ export async function resolveSingleMediaUrl(media, supabase, { force = false } =
 export async function enrichMediaUrls(events, supabase, { cacheOnly = false } = {}) {
   if (!Array.isArray(events) || !events.length || !supabase) return events || [];
   const targets = new Map();
+  const epoch = mediaCacheEpoch;
 
   for (const event of events) {
     const payload = asObject(event?.raw_payload);
@@ -215,6 +222,7 @@ export async function enrichMediaUrls(events, supabase, { cacheOnly = false } = 
 
   const mediaUrls = new Map();
   await mapWithConcurrency([...targets.entries()], MEDIA_SIGNING_CONCURRENCY, async ([key, media]) => {
+    if (epoch !== mediaCacheEpoch) return;
     const cached = mediaObjectUrlCache.get(key);
     const cachedUrl = typeof cached === 'string'
       ? cached
@@ -239,6 +247,7 @@ export async function enrichMediaUrls(events, supabase, { cacheOnly = false } = 
     } finally {
       if (mediaUrlRequestCache.get(key) === request) mediaUrlRequestCache.delete(key);
     }
+    if (epoch !== mediaCacheEpoch || invalidatedMediaRequests.has(request)) return;
 
     const resolvedUrl = typeof result === 'string' ? result : (result?.url || '');
     const resultError = typeof result === 'object' ? result?.error : null;
@@ -251,12 +260,13 @@ export async function enrichMediaUrls(events, supabase, { cacheOnly = false } = 
       mediaObjectUrlCache.set(key, { url: '', error: true, code: 'not_found', expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS });
     }
   });
+  if (epoch !== mediaCacheEpoch) return events;
 
   return events.map((event) => {
     const payload = asObject(event?.raw_payload);
     const media = normalizeMedia(payload, event) || asObject(payload.media);
     const url = mediaUrls.get(`${media.bucket}:${media.storagePath}`);
-    if (!url) return event;
+    if (!url || getMediaUrlFromCache(media.bucket, media.storagePath) !== url) return event;
     const updatedPayload = {
       ...payload,
       media: { ...media, url, status: 'stored' },
@@ -278,6 +288,8 @@ export async function enrichMediaUrls(events, supabase, { cacheOnly = false } = 
 export function invalidateMediaUrl(bucketOrKey, storagePath) {
   if (!bucketOrKey) return;
   const key = storagePath ? `${bucketOrKey}:${storagePath}` : bucketOrKey;
+  const pending = mediaUrlRequestCache.get(key);
+  if (pending) invalidatedMediaRequests.add(pending);
   mediaObjectUrlCache.delete(key);
   mediaUrlRequestCache.delete(key);
 }

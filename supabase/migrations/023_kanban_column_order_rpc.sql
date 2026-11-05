@@ -46,10 +46,9 @@ begin
   ) or exists (
     select 1
     from jsonb_to_recordset(p_positions) as item(automation_key text, position integer)
-    full join public.kanban_columns column_row
-      on column_row.tenant_id = p_tenant_id
-      and column_row.board_id = p_board_id
-      and column_row.automation_key = item.automation_key
+    full join (select id,automation_key from public.kanban_columns
+      where tenant_id = p_tenant_id and board_id = p_board_id) column_row
+      on column_row.automation_key = item.automation_key
     where item.automation_key is null or column_row.id is null
   ) then
     raise exception 'Invalid Kanban column order';

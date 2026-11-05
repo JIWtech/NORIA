@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { clearMediaUrlCache } from '../media/mediaUrlService.js';
 
 const runtimeEnv = (typeof import.meta !== 'undefined' && import.meta.env) || {};
 const supabaseUrl = runtimeEnv.VITE_SUPABASE_URL || '';
@@ -9,6 +10,13 @@ const requireAuth = configuredRequireAuth === undefined
   : String(configuredRequireAuth).toLowerCase() === 'true';
 
 let client = null;
+let mediaSessionUserId;
+
+function synchronizeMediaSession(session, event) {
+  const userId = session?.user?.id || null;
+  if (event === 'SIGNED_OUT' || userId !== mediaSessionUserId) clearMediaUrlCache();
+  mediaSessionUserId = userId;
+}
 
 export function isAuthRequired() {
   return requireAuth;
@@ -36,6 +44,7 @@ export async function getCurrentSession() {
   const supabase = getAuthClient();
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
+  synchronizeMediaSession(data.session);
   return data.session || null;
 }
 
@@ -48,6 +57,7 @@ export async function getValidatedSession({ forceRefresh = false } = {}) {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
   let session = data.session || null;
+  synchronizeMediaSession(session);
   if (!session) return null;
   if (!forceRefresh) {
     const { error } = await supabase.auth.getUser(session.access_token);
@@ -61,13 +71,17 @@ export async function getValidatedSession({ forceRefresh = false } = {}) {
   // The server no longer knows this session: clear local state so the UI
   // returns to sign-in instead of repeating a rejected request.
   await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+  synchronizeMediaSession(null, 'SIGNED_OUT');
   return null;
 }
 
 export function subscribeToAuthState(callback) {
   const supabase = getAuthClient();
   if (!supabase) return () => {};
-  const { data } = supabase.auth.onAuthStateChange((event, session) => callback(session, event));
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    synchronizeMediaSession(session, event);
+    callback(session, event);
+  });
   return () => data.subscription.unsubscribe();
 }
 
@@ -76,6 +90,7 @@ export async function signInWithPassword(email, password) {
   if (!supabase) throw new Error('Supabase Auth nao configurado');
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
+  synchronizeMediaSession(data.session);
   return data.session;
 }
 
@@ -112,6 +127,7 @@ export async function createTenantOnboarding({
 }
 
 export async function signOut() {
+  synchronizeMediaSession(null, 'SIGNED_OUT');
   const supabase = getAuthClient();
   if (!supabase) return;
   await supabase.auth.signOut();

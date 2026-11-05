@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const prepareCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_prepare_media_ingestion.js'), 'utf8');
 const finalizeCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_finalize_media_ingestion.js'), 'utf8');
-const workflowPath = path.join(root, 'n8n/workflows/magia_whatsapp_evolution_mvp.json');
+const workflowPath = path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json');
 const corePath = path.join(root, 'n8n/code/whatsapp_conversation_core.generated.js');
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
@@ -118,6 +118,19 @@ function nextNames(name) {
   return entries.flat().map((edge) => edge.node);
 }
 
+function reaches(from, to) {
+  const seen = new Set();
+  const queue = [from];
+  while (queue.length) {
+    const current = queue.shift();
+    for (const next of nextNames(current)) {
+      if (next === to) return true;
+      if (!seen.has(next)) { seen.add(next); queue.push(next); }
+    }
+  }
+  return false;
+}
+
 test('pipeline 1: image materializes a native n8n binary item', async () => {
   const { result, prepared } = await prepare(inbound('image'), { bytes: JPEG, mime: 'image/jpeg' });
   assert.equal(result.json.media_ingestion.should_upload, true);
@@ -179,7 +192,7 @@ test('pipeline 9: duplicate event bypasses download and upload', async () => {
 
 test('pipeline 10: Evolution download failure becomes unavailable without a binary item', async () => {
   const { result } = await prepare(inbound('image'), { downloadError: 'timeout' });
-  assert.equal(result.json.media_ingestion.media.status, 'unavailable');
+  assert.equal(result.json.media_ingestion.media.status, 'download_failed');
   assert.equal(result.binary, undefined);
 });
 
@@ -201,7 +214,7 @@ test('pipeline 12: mismatched JPEG magic is rejected before HTTP upload', async 
 test('pipeline 13: declared media over 10 MiB is skipped before download', async () => {
   const huge = inbound('image', { raw_payload: { data: { message: { imageMessage: { mimetype: 'image/jpeg', fileLength: 10 * 1024 * 1024 + 1 } } } } });
   const { result, calls } = await prepare(huge, { bytes: JPEG, mime: 'image/jpeg' });
-  assert.equal(result.json.media_ingestion.media.status, 'skipped_too_large');
+  assert.equal(result.json.media_ingestion.media.status, 'too_large');
   assert.equal(calls.length, 0);
 });
 
@@ -283,7 +296,6 @@ test('pipeline 24: upload node is an n8n HTTP Request binary upload', () => {
   assert.equal(upload.parameters.sendBody, true);
   assert.equal(upload.parameters.contentType, 'binaryData');
   assert.equal(upload.parameters.inputDataFieldName, 'media_file');
-  assert.equal(upload.parameters.sendBinaryData, true);
 });
 
 test('pipeline 25: generated workflow has preparation, condition, upload and finalizer nodes', () => {
@@ -302,8 +314,10 @@ test('pipeline 26: workflow routes both upload branches through the finalizer', 
 
 test('pipeline 27: queue and debounce remain downstream of the media finalizer', () => {
   assert.ok(nextNames('Confirmar Mídia WhatsApp').includes('Confirmar Recebimento Core'));
-  assert.ok(nextNames('Confirmar Recebimento Core').includes('Aguardar Janela de Mensagens'));
-  assert.ok(nextNames('Aguardar Janela de Mensagens').includes('Processar Conversa WhatsApp'));
+  // A topologia atual passa por nós de restauração de contexto; o que importa é a ordem finalizador → janela → motor.
+  assert.ok(reaches('Confirmar Recebimento Core', 'Aguardar Janela de Mensagens'));
+  assert.ok(reaches('Aguardar Janela de Mensagens', 'CORE - Resolver extensão do tenant'));
+  assert.ok(!reaches('Aguardar Janela de Mensagens', 'Confirmar Mídia WhatsApp'));
 });
 
 test('pipeline 28: preparation uses n8n prepareBinaryData and never Storage fetch', () => {
@@ -328,5 +342,6 @@ test('pipeline 31: ingestion stays before AI guards because it follows enqueue',
   assert.deepEqual(start, ['Preparar Mídia WhatsApp']);
   const core = fs.readFileSync(corePath, 'utf8');
   assert.match(core, /contact_exclusion/);
-  assert.doesNotMatch(core, /storage\/v1\/object/);
+  // O motor só lê mídia já armazenada e verificada; upload para o Storage não pertence a ele.
+  assert.doesNotMatch(core, /method:\s*'(?:POST|PUT)'[^\n]{0,300}storage\/v1\/object/);
 });

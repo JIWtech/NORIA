@@ -70,3 +70,18 @@ test('a decisão do EXT diferencia entrada declarada de limiar de temperatura e 
   const optional = await decide('oi', null, { required: false });
   assert.ok(JSON.stringify(required).includes('deposit') && JSON.stringify(required) !== JSON.stringify(optional), 'a exigência de entrada vem só da configuração');
 });
+
+test('commercial.decide não substitui a entrada validada por um segundo parsing da conversa', async () => {
+  const text = 'Tenho 20 mil de entrada';
+  const kept = await decide(text, 1000000);
+  assert.equal(kept.commercial_state.deposit_cents, 1000000);
+  assert.equal(kept.lead_classification.deposit_cents, 1000000);
+  assert.equal((await decide(text, null)).commercial_state.deposit_cents, null, 'texto sozinho não cria valor comercial');
+  assert.equal((await decide(text, 0)).commercial_state.deposit_cents, 0, 'zero validado não é substituído pelo parser');
+});
+
+test('commercial.decide descarta valor monetário estruturalmente inválido sem reconstruí-lo pelo texto', async () => {
+  for (const invalid of [-1, 1.5, '1000000', Number.MAX_SAFE_INTEGER + 1]) {
+    assert.equal((await decide('Tenho 20 mil de entrada', invalid)).commercial_state.deposit_cents, null);
+  }
+});

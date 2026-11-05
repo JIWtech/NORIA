@@ -225,7 +225,13 @@ function tableRequest(world, method, table, searchParams, body) {
   const rows = world.tables[table];
   const { filters, limit } = parseFilter(searchParams);
   const matches = rows.filter(row => filters.every(test => test(row)));
-  if (method === 'GET') return limit ? matches.slice(0, limit) : matches;
+  if (method === 'GET') {
+    const found = limit ? matches.slice(0, limit) : matches;
+    // PostgREST JSON-path projection ("alias:column->key"), as the lean identity read uses; plain selects return the whole row.
+    const projection = String(searchParams.get('select') || '').split(',').map(item => /^([a-z_]+):([a-z_]+)->([a-z_]+)$/.exec(item)).filter(Boolean);
+    if (projection.length === 0) return found;
+    return found.map(row => Object.fromEntries(projection.map(([, alias, column, key]) => [alias, row[column]?.[key] ?? null])));
+  }
   if (method === 'POST') {
     const inserted = (Array.isArray(body) ? body : [body]).map(item => ({ id: 'sim-' + table + '-' + (++world.seq), created_at: new Date().toISOString(), ...item }));
     rows.push(...inserted);

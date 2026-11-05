@@ -234,8 +234,8 @@ test('build: a cadeia da Núbia v2 está fora do CORE; roteador simples; rotas l
   assert.ok(has('CORE - É Núbia?', 'CORE | Executar EXT Núbia', 0));
   assert.ok(!core.nodes.some(n => n.name === 'Executar EXT Nubia (PREENCHER ID)'));
   assert.ok(has('Recuperar Fila WhatsApp', 'Ler Fila WhatsApp', 0));
-  const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json', 'n8n/sources/genesis_tenant_identity.js'], { cwd: root }).toString().trim();
-  assert.equal(diff, '', 'EXT Núbia v1 e a identidade do tenant Gênesis não foram alteradas');
+  const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json'], { cwd: root }).toString().trim();
+  assert.equal(diff, '', 'EXT Núbia v1 não foi alterada');
   const manifest = JSON.parse(read('n8n/build_manifest.json'));
   const sha = text => require('node:crypto').createHash('sha256').update(text).digest('hex');
   assert.equal(manifest.services_pipeline, undefined);

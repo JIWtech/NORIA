@@ -1,7 +1,10 @@
 'use strict';
 
-// 21/10 21h35: "peugeout" passou como marca comprável porque o estado tinha só a menção, com erro de
-// digitação, e a marca vazia. A marca recusada é lida de marca, modelo e menção, tolerando erros pequenos.
+// 21/10 21h35: "peugeout" passou como marca comprável porque o estado tinha só a menção, com erro de digitação,
+// e a marca vazia. CONTRATO ATUAL (mesclado com o trabalho do arywnz, 05/11): quem interpreta e canoniza a marca é o
+// Gemini (semantic_intent), e a EXT só compara, de forma exata e sem acento, a marca ESTRUTURADA com a lista recusada.
+// A tolerância a erro de digitação saiu do código: "peugeout" vira "Peugeot" na camada semântica. Ver também
+// scripts/test_genesis_purchase_brand_authority.cjs.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -21,11 +24,16 @@ for (const name of ['normalizeText', 'editDistance', 'rejectedBrandOf']) {
 }
 const rejected = ['Peugeot', 'Citroen', 'Ford', 'Renault'];
 
-test('marca recusada é reconhecida na menção, com acento ou erro de digitação', () => {
-  for (const mention of ['peugeout', 'pegeot', 'Peugeot 208', 'citroem c3', 'Citroën C4', 'ford ka', 'renaut sandero']) {
-    assert.ok(ctx.rejectedBrandOf({ raw_mention: mention }, rejected), mention);
+test('marca recusada é reconhecida pela marca estruturada, sem acento e sem diferença de caixa', () => {
+  for (const brand of ['Peugeot', 'PEUGEOT', 'peugeot', 'Citroën', 'citroen', 'Ford', 'Renault']) {
+    assert.ok(ctx.rejectedBrandOf({ brand, model: 'Modelo' }, rejected), brand);
   }
-  assert.ok(ctx.rejectedBrandOf({ brand: 'Peugeot', model: '208' }, rejected));
+});
+
+test('menção solta com erro de digitação não vira marca por distância de edição', () => {
+  for (const mention of ['peugeout', 'pegeot', 'citroem c3', 'renaut sandero']) {
+    assert.equal(ctx.rejectedBrandOf({ raw_mention: mention }, rejected), null, mention);
+  }
 });
 
 test('outras marcas e modelos comuns não são confundidos com marca recusada', () => {

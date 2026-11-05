@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertCircle,
@@ -244,7 +245,7 @@ export function Kanban({
       setKanbanActionStatus('Sinal confirmado e mensagem enviada ao cliente.');
       await onChanged?.();
     } catch (error) {
-      setKanbanActionStatus(error.message || 'Nao foi possivel confirmar o sinal.');
+      setKanbanActionStatus(userFacingError(error, 'Nao foi possivel confirmar o sinal.'));
     } finally {
       setConfirmingCardId('');
     }

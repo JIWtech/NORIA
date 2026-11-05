@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const root=path.resolve(__dirname,'..'),source=fs.readFileSync(root+'/n8n/sources/noria_core.js','utf8'),ts=require(root+'/app/node_modules/typescript');
 const ast=ts.createSourceFile('core.js',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
 const functions=ast.statements.filter(ts.isFunctionDeclaration).map(n=>n.getText(ast)).join('\n');
-function harness(tenantSlug='wesley_automoveis'){const c={tenantSlug,console,Date,URL,Map,Set,JSON,Intl,turn:{messages:[]}};vm.createContext(c);vm.runInContext(functions,c);c.salesClassifyImages=async()=>[];return c;}
+function harness(tenantSlug='wesley_automoveis'){const c={tenantSlug,tenantBusinessRules:{modules:tenantSlug==='wesley_automoveis'?{dialogue:{contract:'noria_sales_dialogue_v1'}}:{}},console,Date,URL,Map,Set,JSON,Intl,turn:{messages:[]}};vm.createContext(c);vm.runInContext(functions,c);c.salesClassifyImages=async()=>[];return c;}
 const person={name:'Maria de Souza',cpf:'52998224725',cnh:'12345678901',birth_date:'1990-05-16'};
 async function media(text,lead=null){const c=harness();c.turn.messages=[{event_id:'m1',text}];return c.salesReadMedia({},[],lead);}
 test('data de revisão não se torna nascimento',async()=>assert.equal((await media('A revisão foi feita em 2020-01-20')).length,0));

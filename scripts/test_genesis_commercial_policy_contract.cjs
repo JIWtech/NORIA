@@ -27,7 +27,9 @@ const settings = {
 async function identity(input = {}) {
   const request = async ({ url }) => {
     if (url.includes('tenants?')) return [{ id: tenantId, slug: 'wesley_automoveis', status: 'active' }];
-    if (url.includes('tenant_settings?')) return [{ settings }];
+    // A consulta atual usa aliases de settings->campo: a API devolve os campos
+    // projetados diretamente, sem o envelope { settings } da consulta antiga.
+    if (url.includes('tenant_settings?')) return [{ ...settings }];
     if (url.includes('channels?')) return [{ external_id: 'genesis-instance', status: 'active' }];
     throw new Error('unexpected request');
   };

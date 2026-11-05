@@ -1,8 +1,10 @@
 'use strict';
 
 // 21/10 22h19 ("tornadão"): "A Honda Tornado 300L 2025 está por R$ 28.980,00, com 4.500 km rodados."
-// O auditor comprovou preço e km, mas marcou como "unsupported" os trechos de ligação "A Honda Tornado
-// 300L 2025 está por " e ", com ". Trecho que só identifica o veículo comprovado e liga fatos não é afirmação.
+// O auditor comprovou preço e km, mas marcou como "unsupported" os trechos de ligação "A Honda Tornado 300L 2025
+// está por " e ", com ". CONTRATO ATUAL (mesclado com o trabalho do arywnz, 05/11): o incidente é resolvido na origem,
+// pedindo ao auditor que mantenha a proposição factual inteira num único segmento. O CORE NÃO promove mais trechos
+// rejeitados por reconhecer o veículo ou palavras de ligação (ver scripts/test_dialogue_audit_business_claims.cjs).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -39,9 +41,20 @@ const real = [
   { kind: 'non_factual', text: '. Quer saber mais detalhes dela?', evidence: [] },
 ];
 
-test('trechos de ligação com a identidade do veículo comprovado não reprovam a resposta', () => {
-  const issues = ctx.salesValidateSemanticEvidence(report(real), 'k', reply, claims, sources);
+test('proposição inteira num único segmento comprovado não reprova a resposta', () => {
+  const whole = [
+    { kind: 'supported_fact', text: 'A Honda Tornado 300L 2025 está por R$ 28.980,00, com 4.500 km rodados', evidence: [
+      { fact_id: sources[0].fact_id, source_value: '2898000', source_product_id: TORNADO },
+      { fact_id: sources[1].fact_id, source_value: '4500', source_product_id: TORNADO }] },
+    { kind: 'non_factual', text: '. Quer saber mais detalhes dela?', evidence: [] },
+  ];
+  const issues = ctx.salesValidateSemanticEvidence(report(whole), 'k', reply, claims, sources);
   assert.equal(issues.length, 0, JSON.stringify(issues));
+});
+
+test('trechos de ligação reprovados pelo auditor não são promovidos pelo CORE', () => {
+  const issues = ctx.salesValidateSemanticEvidence(report(real), 'k', reply, claims, sources);
+  assert.ok(issues.includes('SEMANTIC_FACT_UNSUPPORTED'), JSON.stringify(issues));
 });
 
 test('trecho "unsupported" com afirmação continua reprovando', () => {

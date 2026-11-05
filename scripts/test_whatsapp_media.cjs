@@ -42,6 +42,8 @@ async function context(message, { history = [], boundary = null, environment = e
   const fn = new AsyncFunction('$json', '$env', '$getWorkflowStaticData', contextCode);
   const json = { tenant_slug: tenant, remoteJid: chat, messageText: message, raw_payload: { apikey: 'do-not-persist' } };
   const httpRequest = async ({ url }) => {
+    // Reserva de cota do Gemini (mesma RPC do motor): liberada nestes cenários.
+    if (url.endsWith('/rest/v1/rpc/magia_gemini_reserve')) return { allowed: true, tenant_used: 0 };
     assert.ok(url.includes(tenant) || url.includes('tenant-test') || url.includes('evolution.example'));
     if (url.includes('/channel_events?') && url.includes('&or=')) {
       assert.ok(url.includes('&channel_type=eq.whatsapp'));
@@ -242,11 +244,13 @@ test('media sender uses tenant credentials and records partial failures without 
   assert.deepEqual(result.json.product_media_delivery.sent.map((x) => x.status), ['accepted', 'failed', 'accepted']);
 });
 test('generated workflow embeds exactly the tested source', () => {
-  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/magia_whatsapp_evolution_mvp.json'), 'utf8'));
-  assert.equal(w.nodes.find((n) => n.name === 'Preparar Contexto JIW').parameters.jsCode, contextCode.trimEnd());
-  assert.equal(w.nodes.find((n) => n.name === 'Preparar Evento Enviado').parameters.jsCode, sentCode.trimEnd());
-  assert.equal(w.nodes.find((n) => n.name === 'Enviar Fotos do Catalogo').parameters.jsCode, mediaCode.trimEnd());
-  assert.equal(w.nodes.find((n) => n.name === 'Sincronizar Contato WhatsApp').parameters.jsCode, syncContactCode.trimEnd());
+  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const embedded = (name) => w.nodes.find((n) => n.name === name).parameters.jsCode.replace(/\r\n/g, '\n').trimEnd();
+  const tested = (code) => code.replace(/\r\n/g, '\n').trimEnd();
+  assert.equal(embedded('Preparar Contexto JIW'), tested(contextCode));
+  assert.equal(embedded('Preparar Evento Enviado'), tested(sentCode));
+  assert.equal(embedded('Enviar Fotos do Catalogo'), tested(mediaCode));
+  assert.equal(embedded('Sincronizar Contato WhatsApp'), tested(syncContactCode));
   for (const node of w.nodes.filter((n) => n.type === 'n8n-nodes-base.code')) new AsyncFunction(node.parameters.jsCode);
 });
 
@@ -295,7 +299,7 @@ test('pre-send guard discards replies generated before closing and permits curre
   assert.equal(failed.json.should_send_response, false);
 });
 test('workflow uses the computed Redis key and all sends pass through the session guard', () => {
-  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/magia_whatsapp_evolution_mvp.json'), 'utf8'));
+  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
   assert.equal(w.nodes.find((n) => n.name === 'Memoria Redis da Conversa').parameters.sessionKey, '={{ $json.memory_session_key }}');
   assert.equal(w.connections['Restaurar Contexto para Envio'].main[0][0].node, 'Validar Sessao Antes do Envio');
   assert.equal(w.connections['Sessao ainda ativa?'].main[1][0].node, 'Responder Resposta Cancelada');

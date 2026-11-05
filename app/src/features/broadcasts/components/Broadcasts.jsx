@@ -1,3 +1,4 @@
+import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Clock3,
@@ -9,7 +10,6 @@ import {
   RotateCcw,
   CheckCircle2,
   Upload,
-  FileSpreadsheet,
   Download,
   MessagesSquare,
   ClipboardPaste,
@@ -135,7 +135,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       }
     } catch (error) {
       setImportSummary(null);
-      setStatus(error.message || 'Nao foi possivel importar a planilha.', 'error');
+      setStatus(userFacingError(error, 'Nao foi possivel importar a planilha.'), 'error');
     }
   }
 
@@ -281,7 +281,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`Retomada concluída: ${counters.sent} enviados, ${counters.failed} falhas${counters.unknown ? `, ${counters.unknown} incertos` : ''}.`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Falha ao retomar campanha.', 'error');
+      setStatus(userFacingError(error, 'Falha ao retomar campanha.'), 'error');
     } finally {
       setBusy(false);
       abortControllerRef.current = null;
@@ -305,7 +305,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res.cancelled_recipients || 0} pendentes cancelados).`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Erro ao cancelar campanha.', 'error');
+      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -328,7 +328,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(`${unknownList.length} envio(s) incertos reconciliados como ${targetStatus === RECIPIENT_STATUS.SENT ? 'enviados' : 'falha'}.`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(error.message || 'Falha ao reconciliar envios incertos.', 'error');
+      setStatus(userFacingError(error, 'Falha ao reconciliar envios incertos.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -398,7 +398,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           status: CAMPAIGN_STATUS.PARTIAL_ERROR,
         }).catch(() => {});
       }
-      setStatus(error.message || 'Falha ao executar disparo.', 'error');
+      setStatus(userFacingError(error, 'Falha ao executar disparo.'), 'error');
     } finally {
       setBusy(false);
       abortControllerRef.current = null;
@@ -426,8 +426,9 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             </strong>
             <CampaignProgress campaign={recoverableCampaign} />
             <p>
-              Quem já recebeu nunca recebe de novo.
-              {recoverableHasUnknown && ` ${recoverableCampaign.unknown_count} envio(s) incerto(s) não são reenviados automaticamente, para evitar mensagem duplicada no WhatsApp.`}
+              {recoverableHasUnknown
+                ? 'Envios incertos não são reenviados, para evitar mensagem duplicada.'
+                : 'Quem já recebeu não recebe de novo.'}
             </p>
           </div>
           <div className="bc-recover-actions">
@@ -457,17 +458,8 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       <div className="bc-layout">
         <section className="bc-card bc-audience" aria-labelledby="bc-audience-title">
           <header className="bc-head">
-            <span className="bc-step" aria-hidden="true">1</span>
-            <div className="bc-head-text">
-              <h2 id="bc-audience-title">Público</h2>
-              <p>
-                <strong>{selectedContacts.length}</strong> de {allContacts.length} contato{allContacts.length === 1 ? '' : 's'} selecionado{selectedContacts.length === 1 ? '' : 's'}
-              </p>
-            </div>
-            <div className="bc-head-actions">
-              <button type="button" className="bc-text-btn" onClick={toggleAllVisibleContacts} disabled={!visibleContacts.length}>{allVisibleSelected ? 'Desmarcar visíveis' : 'Selecionar visíveis'}</button>
-              {selectedContacts.length > 0 && <button type="button" className="bc-text-btn is-muted" onClick={clearSelectedContacts}>Limpar</button>}
-            </div>
+            <h2 id="bc-audience-title">Público</h2>
+            <span className="bc-count"><strong>{selectedContacts.length}</strong> de {allContacts.length} selecionado{selectedContacts.length === 1 ? '' : 's'}</span>
           </header>
 
           <div
@@ -479,18 +471,15 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <input ref={fileInputRef} type="file" accept={SUPPORTED_CONTACT_FORMATS + ',.vcard,.htm,.xlsx'} hidden onChange={handleFile} />
             <span className="bc-drop-icon" aria-hidden="true"><Upload size={18} /></span>
             <div className="bc-drop-text">
-              <p>
-                Arraste uma lista de contatos ou{' '}
-                <button type="button" className="bc-link" onClick={() => fileInputRef.current?.click()} disabled={busy}>escolha um arquivo</button>
-              </p>
-              <span>CSV, TSV, TXT, JSON, VCF, HTML, XLSX ou ODS</span>
+              <p>Importe uma planilha de contatos</p>
+              <span>Arraste o arquivo aqui · CSV, XLSX, TXT, VCF e outros · <button type="button" className="bc-link" onClick={downloadTemplate}><Download size={12} />Baixar modelo</button></span>
             </div>
-            <button type="button" className="bc-link bc-template" onClick={downloadTemplate}><Download size={13} />Baixar modelo</button>
+            <button type="button" className="secondary-button bc-drop-btn" onClick={() => fileInputRef.current?.click()} disabled={busy}>Escolher arquivo</button>
           </div>
 
           <div className="bc-tools">
-            <button type="button" className="bc-chip" onClick={() => setPasteOpen((value) => !value)} aria-expanded={pasteOpen}><ClipboardPaste size={13} />Colar lista</button>
-            {conversations.length > 0 && <button type="button" className="bc-chip" onClick={addRecentContacts} disabled={busy}><MessagesSquare size={13} />Conversas recentes</button>}
+            <button type="button" className="bc-chip" onClick={() => setPasteOpen((value) => !value)} aria-expanded={pasteOpen}><ClipboardPaste size={14} />Colar lista</button>
+            {conversations.length > 0 && <button type="button" className="bc-chip" onClick={addRecentContacts} disabled={busy}><MessagesSquare size={14} />Conversas recentes</button>}
             {stages.length > 0 && (
               <div className="bc-stage-pick">
                 <select className="bc-select" value={stageFilter} onChange={(event) => { setStageFilter(event.target.value); }} aria-label="Adicionar contatos de uma etapa do quadro">
@@ -520,7 +509,11 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <button type="button" aria-label="Dispensar resumo" onClick={() => setImportSummary(null)}><X size={13} /></button>
           </div>}
 
-          <label className="bc-search"><Search size={15} aria-hidden="true" /><input value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="Buscar por nome ou telefone" aria-label="Buscar contatos" /></label>
+          <div className="bc-list-bar">
+            <label className="bc-search"><Search size={15} aria-hidden="true" /><input value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="Buscar por nome ou telefone" aria-label="Buscar contatos" /></label>
+            <button type="button" className="bc-text-btn" onClick={toggleAllVisibleContacts} disabled={!visibleContacts.length}>{allVisibleSelected ? 'Desmarcar todos' : 'Selecionar todos'}</button>
+            {selectedContacts.length > 0 && <button type="button" className="bc-text-btn is-muted" onClick={clearSelectedContacts}>Limpar</button>}
+          </div>
 
           <ul className="bc-list">
             {!ready ? [1, 2, 3, 4].map((i) => <li className="bc-row" key={i}><SkeletonBlock width="16px" height="16px" style={{ borderRadius: '4px' }} /><SkeletonBlock width="30px" height="30px" style={{ borderRadius: '50%' }} /><div style={{ flex: 1 }}><SkeletonLine width="120px" /><SkeletonLine width="90px" style={{ marginTop: '4px' }} /></div></li>) : <>
@@ -534,7 +527,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                   <input type="checkbox" checked={isOn} onChange={() => toggleContact(key)} />
                   <ContactAvatar name={name} avatarUrl={contact.avatarUrl} className="bc-avatar" />
                   <span className="bc-row-text"><strong>{name}</strong><small>{phone}</small></span>
-                  <span className={`broadcast-channel-icon ${getChannelClass(channel)}`} title={channel}><ChannelIcon channel={channel} size={15} /></span>
+                  <span className={`bc-channel-badge bc-tone-${channelTone(channel)}`} title={channel}><ChannelIcon channel={channel} size={15} /></span>
                 </label></li>;
               })}
               {!visibleContacts.length && <li className="bc-empty">
@@ -548,19 +541,13 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
 
         <section className="bc-card bc-compose" aria-labelledby="bc-compose-title">
           <header className="bc-head">
-            <span className="bc-step" aria-hidden="true">2</span>
-            <div className="bc-head-text">
-              <h2 id="bc-compose-title">Mensagem</h2>
-              <p>O mesmo texto vai para todos os selecionados.</p>
-            </div>
+            <h2 id="bc-compose-title">Mensagem</h2>
+            {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
           </header>
 
           <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
-            <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={7} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem do disparo…" />
+            <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={6} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem que todos vão receber…" />
             <div className="bc-message-foot">
-              {hasChannel
-                ? <span className={`bc-channel-tag ${getChannelClass(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={13} />{channelLabel}</span>
-                : <span className="bc-channel-tag is-missing">Sem canal habilitado</span>}
               <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
             </div>
           </div>
@@ -568,34 +555,22 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
 
           {messageText.trim() && (
-            <div className="bc-preview" aria-label="Prévia da mensagem">
-              <span className="bc-preview-label">Prévia</span>
-              <div className="bc-preview-bubble">{messageText}</div>
-            </div>
+            <figure className="bc-preview" aria-label="Prévia da mensagem">
+              <figcaption>Prévia</figcaption>
+              <p className="bc-bubble">{messageText}</p>
+            </figure>
           )}
 
-          <details className="bc-name">
-            <summary>Dar um nome à campanha</summary>
-            <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder="Se vazio, usa “Disparo” com a data de hoje" aria-label="Nome da campanha" />
-          </details>
+          <label className="bc-field">
+            <span>Nome da campanha <em>opcional</em></span>
+            <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
+          </label>
 
-          <div className="bc-send">
-            <ul className="bc-send-facts">
-              <li className={selectedContacts.length ? '' : 'is-missing'}>
-                <UsersRound size={14} aria-hidden="true" />
-                {selectedContacts.length
-                  ? <><strong>{selectedContacts.length}</strong> destinatário{selectedContacts.length === 1 ? '' : 's'}</>
-                  : 'Nenhum destinatário'}
-              </li>
-              <li className={messageText.trim() ? '' : 'is-missing'}>
-                <MessagesSquare size={14} aria-hidden="true" />
-                {messageText.trim() ? 'Mensagem pronta' : 'Mensagem vazia'}
-              </li>
-            </ul>
-            <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
-              {busy ? <><Loader2 size={15} className="bc-spin" /> Enviando…</> : <><Send size={15} /> Enviar disparo</>}
-            </button>
-          </div>
+          <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
+            {busy
+              ? <><Loader2 size={16} className="bc-spin" /> Enviando…</>
+              : <><Send size={16} /> {selectedContacts.length ? `Enviar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
+          </button>
           {status.message && (
             <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
               {status.tone === 'error' ? <AlertTriangle size={14} aria-hidden="true" />
@@ -610,13 +585,15 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
 
       <section className="bc-card bc-history" aria-labelledby="bc-history-title">
         <header className="bc-head">
-          <span className="bc-step" aria-hidden="true">3</span>
-          <div className="bc-head-text">
-            <h2 id="bc-history-title">Histórico</h2>
-            <p>{campaigns.length ? `${campaigns.length} campanha${campaigns.length === 1 ? '' : 's'}` : 'Campanhas já enviadas'}</p>
-          </div>
+          <h2 id="bc-history-title">Histórico</h2>
+          {campaigns.length > 0 && <span className="bc-count">{campaigns.length} campanha{campaigns.length === 1 ? '' : 's'}</span>}
         </header>
         <div className="bc-campaigns">
+          {campaigns.length > 0 && (
+            <div className="bc-campaign bc-campaign-head" aria-hidden="true">
+              <span>Campanha</span><span>Status</span><span>Data</span><span>Resultado</span>
+            </div>
+          )}
           {!ready ? [1, 2].map((i) => <article className="bc-campaign" key={i} style={{ pointerEvents: 'none' }}><SkeletonLine width="140px" /><SkeletonLine width="100%" style={{ marginTop: '10px' }} /></article>) : <>
             {campaigns.map((campaign) => {
               const date = campaign.sent_at || campaign.created_at;
@@ -624,10 +601,8 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
               const presentation = CAMPAIGN_STATUS_PRESENTATION[campaign.status] || CAMPAIGN_STATUS_PRESENTATION.sending;
               return (
                 <article className="bc-campaign" key={campaign.id}>
-                  <header>
-                    <strong title={campaign.name}>{campaign.name}</strong>
-                    <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
-                  </header>
+                  <strong className="bc-campaign-name" title={campaign.name}>{campaign.name}</strong>
+                  <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
                   <span className="bc-campaign-date">{metadata}</span>
                   <CampaignProgress campaign={campaign} />
                 </article>
@@ -643,6 +618,11 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       </section>
     </section>
   );
+}
+
+// Tom do canal para Disparos. Evita as classes globais channel-* (settings.css), que desenham badges quadrados.
+function channelTone(channel) {
+  return getChannelClass(channel).replace('channel-', '') || 'webchat';
 }
 
 // Limites de texto por mensagem documentados pelas APIs de cada canal.

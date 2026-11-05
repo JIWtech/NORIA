@@ -45,5 +45,7 @@ test('sem foto enviada, ou foto de veículo fora do estoque, não há último ve
 
 test('o contexto do modelo e a instrução usam o último veículo fotografado', () => {
   assert.match(source, /last_photo_sent: salesLastPhotoSent\(history, inventory\)/);
-  assert.match(source, /last_photo_sent é o veículo da última foto enviada nesta sessão/);
+  // A instrução é dado da EXT (modules.dialogue.instructions), não mais texto fixo do CORE.
+  const extension = fs.readFileSync(path.join(root, 'n8n/sources/genesis_extension.js'), 'utf8');
+  assert.match(extension, /last_photo_sent é o veículo da última foto enviada nesta sessão/);
 });

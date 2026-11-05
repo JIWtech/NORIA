@@ -13,6 +13,10 @@ const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA
 const normalizer = workflow.nodes.find(node => node.name === 'Normalizar Entrada WhatsApp');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const run = new AsyncFunction('$json', '$env', '$vars', normalizer.parameters.jsCode);
+// O normalizador resolve o canal no cadastro antes de decidir (falha fechada sem credenciais): simulamos só essa leitura.
+const env = { SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'service-key' };
+const channelRows = [{ external_id: 'wesley-carros', status: 'active', config: {}, tenants: { slug: 'wesley_automoveis', status: 'active' } }];
+const context = { helpers: { httpRequest: async () => channelRows } };
 
 const inbound = (message, extra = {}) => ({
   event: 'messages.upsert', instance: 'wesley-carros',
@@ -20,26 +24,26 @@ const inbound = (message, extra = {}) => ({
 });
 
 test('reação do cliente não é processada', async () => {
-  const out = await run.call({}, inbound({ reactionMessage: { key: { id: 'x' }, text: '👍' } }, { data: { messageType: 'reactionMessage' } }), {}, {});
+  const out = await run.call(context, inbound({ reactionMessage: { key: { id: 'x' }, text: '👍' } }, { data: { messageType: 'reactionMessage' } }), env, {});
   assert.equal(out.json.shouldProcess, false);
   assert.equal(out.json.ignoredReason, 'non_conversational_message');
 });
 
 test('reação do atendente pelo celular não vira resposta manual', async () => {
-  const out = await run.call({}, inbound({ reactionMessage: { key: { id: 'x' }, text: '❤️' } }, { key: { fromMe: true }, data: { messageType: 'reactionMessage' } }), {}, {});
+  const out = await run.call(context, inbound({ reactionMessage: { key: { id: 'x' }, text: '❤️' } }, { key: { fromMe: true }, data: { messageType: 'reactionMessage' } }), env, {});
   assert.equal(out.json.shouldProcess, false);
 });
 
 test('apagamento/edição (protocolMessage) e voto de enquete não são processados', async () => {
   for (const [type, message] of [['protocolMessage', { protocolMessage: { type: 0 } }], ['pollUpdateMessage', { pollUpdateMessage: {} }]]) {
-    const out = await run.call({}, inbound(message, { data: { messageType: type } }), {}, {});
+    const out = await run.call(context, inbound(message, { data: { messageType: type } }), env, {});
     assert.equal(out.json.shouldProcess, false, type);
   }
 });
 
 test('texto, figurinha e mídia continuam sendo processados', async () => {
   for (const [type, message] of [['conversation', { conversation: 'Tem foto?' }], ['stickerMessage', { stickerMessage: {} }], ['imageMessage', { imageMessage: { caption: '' } }]]) {
-    const out = await run.call({}, inbound(message, { data: { messageType: type } }), {}, {});
+    const out = await run.call(context, inbound(message, { data: { messageType: type } }), env, {});
     assert.equal(out.json.shouldProcess, true, type);
   }
 });

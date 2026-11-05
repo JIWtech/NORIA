@@ -76,14 +76,8 @@ if (!tenantId || !eventId || !externalMessageId || !chatId) {
       method: 'POST',
       url: base + '/rest/v1/rpc/magia_confirm_whatsapp_media',
       headers: { apikey: serviceKey, Authorization: 'Bearer ' + serviceKey, 'Content-Type': 'application/json' },
-      body: {
-        p_tenant: tenantId,
-        p_event: eventId,
-        p_channel: 'whatsapp',
-        p_conversation: chatId,
-        p_external_message: externalMessageId,
-        p_media: media,
-      },
+      body: { p_tenant: tenantId, p_event: eventId, p_channel: 'whatsapp', p_conversation: chatId,
+        p_external_message: externalMessageId, p_media: media },
       json: true,
       timeout: 10000,
     });

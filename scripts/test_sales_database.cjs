@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {PGlite}=require(path.join(process.env.MAGIA_TEST_MODULES||path.join(require('node:os').tmpdir(),'magia-diag-tools/node_modules'),'@electric-sql/pglite'));
+const {PGlite}=require(path.join(process.env.MAGIA_TEST_MODULES||path.join(__dirname, '../app/node_modules'),'@electric-sql/pglite'));
 const read=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
 const tid='11111111-1111-1111-1111-111111111111',other='22222222-2222-2222-2222-222222222222';
 const owner='8fb2bc06-94d5-4abe-83b2-1aed41a346ae',token='33333333-3333-3333-3333-333333333333';

@@ -1,11 +1,3 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const root = path.resolve(__dirname, '..');
-const workflowPath = path.join(root, 'n8n/workflows/magia_whatsapp_follow_up.json');
-const sourcePath = path.join(root, 'n8n/code/whatsapp_follow_up_dispatch.js');
-const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
-const node = workflow.nodes.find(item => item.name === 'Processar Follow-ups');
-if (!node) throw new Error('Follow-up processing node not found');
-node.parameters.jsCode = fs.readFileSync(sourcePath, 'utf8').trimEnd();
-fs.writeFileSync(workflowPath, JSON.stringify(workflow, null, 2) + '\n');
-console.log('Built WhatsApp follow-up workflow.');
+// Entrada de compatibilidade: o follow-up agora pertence ao workflow CORE compartilhado.
+// O gerador canônico injeta a fonte e mantém o manifesto e os demais artefatos consistentes.
+require('./build_noria_workflows.cjs');

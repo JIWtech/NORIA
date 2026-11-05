@@ -12,6 +12,7 @@ const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_id
 let coreCode = fs.readFileSync(coreSourcePath, 'utf8');
 const extCode = fs.readFileSync(extSourcePath, 'utf8');
 const genesisIdentityCode = fs.readFileSync(genesisIdentitySourcePath, 'utf8');
+const intakeNormalizerCode = fs.readFileSync(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js'), 'utf8').trimEnd();
 // The Núbia v2 EXT remains an isolated, inactive workflow for future work; it is no longer embedded in the CORE.
 const nubiaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/nubia_extension.js'), 'utf8');
 // Router of the live CORE: legacy tenants route without any database read. The services-pipeline router
@@ -22,6 +23,8 @@ const routerSourceCode = fs.readFileSync(coreRouterSourcePath, 'utf8').replace(/
 // leftovers (expired leases, retries), so a longer interval cuts idle executions without changing the happy path.
 const RECOVERY_TRIGGER_SECONDS = 30;
 const recoveryCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_recover_core.js'), 'utf8').replace(/\r\n/g, '\n');
+// The follow-up dispatcher ("Processar Follow-ups") is projected from its source, so the CORE never drifts from it.
+const followUpDispatchCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_follow_up_dispatch.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const routerCode = fs.readFileSync(path.join(root, 'n8n/code/command_router.js'), 'utf8').replace(/\r\n/g, '\n');
 const routerInsertStart = routerCode.indexOf('  async function insertEvent(event) {');
 const routerInsertEnd = routerCode.indexOf('  async function loadTenantSettings(', routerInsertStart);
@@ -31,13 +34,22 @@ const routerInsertCode = routerCode.slice(routerInsertStart, routerInsertEnd).tr
 // 2. Compute SHA-256 hashes and build metadata
 const extSha256 = crypto.createHash('sha256').update(extCode).digest('hex');
 const now = new Date();
-const todayStr = now.toISOString().slice(0, 10).replace(/-/g, '_');
-const coreRevision = `conversation_core_v2_1_34_core_ext_decision_identity_${todayStr}`;
-const builtAt = now.toISOString();
 
 // To avoid circular hash dependency, compute coreSha256 over canonical code with fixed placeholder
 const normalizedForHash = coreCode.replace(/const coreBuildMetadata = \{[\s\S]*?\};/, 'const coreBuildMetadata = { revision: "", built_at: "", core_sha256: "", ext_sha256: "" };');
 const coreSha256 = crypto.createHash('sha256').update(normalizedForHash).digest('hex');
+// Rebuilding unchanged engine sources must not change bytes just because the
+// clock moved. Keep the original timestamp/revision only for the same CORE+EXT.
+// Other artifacts keep their own source hashes in the manifest below.
+const previousMetadata = /const coreBuildMetadata = \{[\s\S]*?\};/.exec(coreCode)?.[0] || '';
+const previousFields = Object.fromEntries([...previousMetadata.matchAll(/(revision|built_at|core_sha256|ext_sha256):\s*['"]([^'"]*)['"]/g)]
+  .map(match => [match[1], match[2]]));
+const revisionPrefix = 'conversation_core_v2_1_34_core_ext_decision_identity_';
+const previousDate = Number.isFinite(Date.parse(previousFields.built_at)) ? new Date(previousFields.built_at).toISOString() : null;
+const reuseMetadata = previousFields.core_sha256 === coreSha256 && previousFields.ext_sha256 === extSha256
+  && previousDate && previousFields.revision === revisionPrefix + previousDate.slice(0, 10).replace(/-/g, '_');
+const builtAt = reuseMetadata ? previousFields.built_at : now.toISOString();
+const coreRevision = reuseMetadata ? previousFields.revision : revisionPrefix + builtAt.slice(0, 10).replace(/-/g, '_');
 
 const updatedMetadataBlock = `const coreBuildMetadata = {
   revision: '${coreRevision}',
@@ -56,6 +68,7 @@ new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', genesisIde
 new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', nubiaExtCode);
 new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', routerSourceCode);
 new AsyncFunction('$env', '$getWorkflowStaticData', recoveryCode);
+new AsyncFunction('$env', followUpDispatchCode);
 new AsyncFunction('$json', '$env', '$vars', routerCode);
 
 // 4. Update workflow JSON files
@@ -408,7 +421,10 @@ for (const [source, file, prefix, code] of targets) {
   const target = path.join(root, 'n8n/workflows', file);
   const workflow = JSON.parse(fs.readFileSync(target, 'utf8'));
   if (prefix !== null) {
-    const nodes = workflow.nodes.filter(n => n.name === prefix || n.name.startsWith(prefix));
+    // Prefer the exact node name: phase-specific nodes may share the logical
+    // prefix (for example "... | Fase") and must not make the target ambiguous.
+    const exactNodes = workflow.nodes.filter(n => n.name === prefix);
+    const nodes = exactNodes.length ? exactNodes : workflow.nodes.filter(n => n.name.startsWith(prefix));
     if (nodes.length !== 1) throw new Error('AMBIGUOUS_WORKFLOW_NODE: ' + prefix);
     nodes[0].parameters.jsCode = code;
   }
@@ -421,6 +437,10 @@ for (const [source, file, prefix, code] of targets) {
 
   // If shared core workflow, also update the intake node 'Registrar Mensagem na Fila'
   if (source === 'noria_core.js') {
+    const normalizerNode = workflow.nodes.find(n => n.name === 'Normalizar Entrada WhatsApp');
+    if (!normalizerNode) throw new Error('MISSING_INTAKE_NORMALIZER_NODE');
+    new AsyncFunction('$json', '$env', intakeNormalizerCode);
+    normalizerNode.parameters.jsCode = intakeNormalizerCode;
     // Project only this helper: the existing embedded router has independent
     // local changes and must not be replaced wholesale with another version.
     const commandNode = workflow.nodes.find(n => n.name === 'Executar Comando1');
@@ -433,6 +453,9 @@ for (const [source, file, prefix, code] of targets) {
     const recoveryNode = workflow.nodes.find(n => n.name === 'Ler Fila WhatsApp');
     if (!recoveryNode || recoveryNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_TURN_RECOVERY_NODE');
     recoveryNode.parameters.jsCode = recoveryCode;
+    const followUpNode = workflow.nodes.find(n => n.name === 'Processar Follow-ups');
+    if (!followUpNode || followUpNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_FOLLOW_UP_DISPATCH_NODE');
+    followUpNode.parameters.jsCode = followUpDispatchCode;
     const recoveryTrigger = workflow.nodes.find(n => n.name === 'Recuperar Fila WhatsApp');
     if (!recoveryTrigger || recoveryTrigger.type !== 'n8n-nodes-base.scheduleTrigger') throw new Error('MISSING_TURN_RECOVERY_TRIGGER');
     recoveryTrigger.parameters.rule = { interval: [{ field: 'seconds', secondsInterval: RECOVERY_TRIGGER_SECONDS }] };
@@ -465,7 +488,7 @@ const ts = require('../app/node_modules/typescript');
 const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const sales = ast.statements
   .filter(ts.isFunctionDeclaration)
-  .filter(n => /^(sales|runSales|executeCommercial|commercialResult)/.test(n.name.text))
+  .filter(n => /^(sales|runSales|executeCommercial|commercialResult)/.test(n.name.text) || n.name.text === 'modelOutputDiagnostic')
   .map(n => n.getText(ast))
   .join('\n\n');
 fs.writeFileSync(path.join(root, 'n8n/code/whatsapp_sales.js'), '// NORIA sales source projection; canonical source: n8n/sources/noria_core.js\n' + sales + '\n');
@@ -488,6 +511,7 @@ const manifest = {
   // The EXT identity node filters runtime flags before the policy executes.
   // Its changes must be distinguishable from an unchanged commercial policy.
   ext_identity_sha256: crypto.createHash('sha256').update(genesisIdentityCode).digest('hex'),
+  intake_normalizer_sha256: crypto.createHash('sha256').update(intakeNormalizerCode).digest('hex'),
   ext_bundle_sha256: crypto.createHash('sha256').update(JSON.stringify({
     identity: genesisIdentityCode, policy: extCode,
   })).digest('hex'),
@@ -500,6 +524,7 @@ const manifest = {
     'n8n/sources/noria_core.js',
     'n8n/sources/genesis_extension.js',
     'n8n/sources/genesis_tenant_identity.js',
+    'n8n/sources/whatsapp_normalize_entry.js',
     'n8n/sources/nubia_extension.js',
     'n8n/sources/noria_router_core.js',
     'n8n/workflows/' + NUBIA_EXT_WORKFLOW_FILE,
@@ -509,6 +534,7 @@ const manifest = {
     'n8n/code/whatsapp_conversation_core.generated.js',
     'n8n/code/whatsapp_sales.js',
     'n8n/code/whatsapp_recover_core.js',
+    'n8n/code/whatsapp_follow_up_dispatch.js',
     'n8n/code/command_router.js',
     'scripts/turn_queue_operational_bridge.cjs',
   ],

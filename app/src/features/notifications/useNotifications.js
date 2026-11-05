@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { inboxRpc, notificationError, validateInboxPage, validateInboxRead } from './notificationService.js';
+import { fetchHumanReplies, inboxRpc, notificationError, validateInboxPage, validateInboxRead } from './notificationService.js';
 
 const PAGE_SIZE = 30;
 const POLL_MS = 30000;
@@ -7,7 +7,7 @@ const POLL_MS = 30000;
 // This state is owned by the bell, not App: polling cannot remount conversation
 // media or replace the conversation data. The keyed parent fences tenant/user.
 export function useNotifications(tenantId, userId) {
-  const [state, setState] = useState({ items: [], unread: null, loading: true, error: '', hasMore: false, isOlderPage: false });
+  const [state, setState] = useState({ items: [], replies: null, checkedAt: 0, unread: null, loading: true, error: '', hasMore: false, isOlderPage: false });
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const active = useRef(false);
@@ -21,9 +21,12 @@ export function useNotifications(tenantId, userId) {
     }, request.current.signal), tenantId, PAGE_SIZE);
     if (page.has_more && !page.items.length) throw new Error('INBOX_INVALID_CURSOR');
     if (!active.current) return;
+    // Read-only and fail-soft: null keeps the original notices when replies cannot be confirmed.
+    const replies = await fetchHumanReplies(tenantId, page.items, request.current.signal);
+    if (!active.current) return;
     cursor.current = pageCursor;
     // Only the current bounded page is retained/refreshed, never the full history.
-    setState({ items: page.items, unread: page.unread_count, hasMore: page.has_more,
+    setState({ items: page.items, replies, checkedAt: Date.now(), unread: page.unread_count, hasMore: page.has_more,
       isOlderPage: Boolean(pageCursor.p_before_id), loading: false, error: '' });
   }, [tenantId]);
 
