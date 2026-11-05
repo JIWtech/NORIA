@@ -159,21 +159,16 @@ async function consumeOne(cfg, fetchFn = fetch) {
   // A new revision/expired lease may refuse this ack. Reclaim, never resolve a turn.
   return { count: 1, acknowledged: ack.acknowledged === true };
 }
-async function main() {
-  const mode = process.argv[2];
-  const cfg = configFor(mode);
-  if (process.argv.includes('--check-config')) { process.stdout.write('Configuration structure OK; no network calls made.\n'); return; }
-  if (mode === 'consumer') {
-    do {
-      try { await consumeOne(cfg); } catch (error) {
-        if (process.argv.includes('--once') || error.message === 'DATABASE_PRINCIPAL_REJECTED') throw error;
-        process.stderr.write('TURN_ALERT_DELIVERY_PENDING\n');
-      }
-      if (process.argv.includes('--once')) return;
-      await new Promise(resolve => setTimeout(resolve, cfg.pollMs));
-    } while (true);
-  }
-  const server = http.createServer(async (req, res) => {
+const INGRESS_REJECTION_CODES = new Set(['PROVIDER_AUTH_REJECTED', 'INGRESS_SIGNATURE_REQUIRED', 'INGRESS_SIGNATURE_INVALID',
+  'INGRESS_ENVELOPE_INVALID', 'INGRESS_INSTANCE_MISMATCH', 'INGRESS_ATTESTATION_REJECTED', 'INGRESS_FORWARD_FAILED', 'INGRESS_BODY_LIMIT',
+  'INGRESS_PRINCIPAL_LOGIN_REJECTED', 'INGRESS_PRINCIPAL_SESSION_INVALID', 'SCOPED_PRINCIPAL_TOKEN_EXPIRED',
+  'DATABASE_PRINCIPAL_REJECTED', 'DATABASE_RPC_REJECTED']);
+// Só códigos fixos vão ao log: texto livre de erro pode trazer URL com segredo ou trecho da mensagem do cliente.
+function ingressRejectionCode(error) {
+  return INGRESS_REJECTION_CODES.has(error?.message) ? error.message : 'INGRESS_INTERNAL_ERROR';
+}
+function createIngressServer(cfg, log = line => process.stderr.write(line + '\n')) {
+  return http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/healthz') {
       res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"listening"}'); return;
     }
@@ -189,12 +184,28 @@ async function main() {
       const signature = cfg.providerToken ? providerSignature(cfg, body, req.headers.authorization) : req.headers['x-noria-signature'];
       await relayIngress(cfg, body, signature);
       res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"accepted":true}');
-    } catch {
+    } catch (error) {
+      log('INGRESS_REJECTED code=' + ingressRejectionCode(error) + ' instance=' + cfg.instance);
       // Never acknowledge a failed attestation/forward as successful ingestion.
       res.writeHead(502, { 'Content-Type': 'application/json' }).end('{"accepted":false}');
     }
   });
-  server.listen(cfg.port, cfg.bind);
 }
-module.exports = { configFor, authenticateEnvelope, relayIngress, consumeOne, principalToken, providerSignature };
+async function main() {
+  const mode = process.argv[2];
+  const cfg = configFor(mode);
+  if (process.argv.includes('--check-config')) { process.stdout.write('Configuration structure OK; no network calls made.\n'); return; }
+  if (mode === 'consumer') {
+    do {
+      try { await consumeOne(cfg); } catch (error) {
+        if (process.argv.includes('--once') || error.message === 'DATABASE_PRINCIPAL_REJECTED') throw error;
+        process.stderr.write('TURN_ALERT_DELIVERY_PENDING\n');
+      }
+      if (process.argv.includes('--once')) return;
+      await new Promise(resolve => setTimeout(resolve, cfg.pollMs));
+    } while (true);
+  }
+  createIngressServer(cfg).listen(cfg.port, cfg.bind);
+}
+module.exports = { configFor, authenticateEnvelope, relayIngress, consumeOne, principalToken, providerSignature, createIngressServer, ingressRejectionCode };
 if (require.main === module) main().catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });

@@ -19,7 +19,7 @@
   "recovery_sha256": "f2a3c0afadfcd61bfa2b57b96ee5e01653fa63554abba48ef5c1c3ee16e2ba21",
   "recovery_trigger_seconds": 30,
   "control_origin_adapter_sha256": "a1ad08d1e95826cefaf15ca738fa5418f29725938624ee6b24972cfc10524c40",
-  "operations_bridge_sha256": "c2115d9dcfb100861a6915598ebb8b605edf119a52d34473119c06c7f9dc46fe",
+  "operations_bridge_sha256": "d7507cc1d07138cdeda321b201a965a5aec31b0691f1c14ee88aea5f6f1a13ec",
   "artifacts": [
     "n8n/sources/noria_core.js",
     "n8n/sources/genesis_extension.js",
