@@ -84,9 +84,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_10_29',
-  built_at: '2026-10-29T11:40:17.914Z',
-  core_sha256: 'e2f7a569863d75bdabae9ec86d2e68e927e786b71dd6ed9a3dd1510fb75c4d36',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_05',
+  built_at: '2026-11-05T16:41:47.035Z',
+  core_sha256: 'c145667cfa627e6fa02bb9a8edf179dec3a71749ac28c9151e0e8642206caf91',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -148,6 +148,18 @@ function salesSafeFailureDiagnostics(error, phase) {
   const diagnostic = error?.diagnostic && typeof error.diagnostic === 'object'
     ? error.diagnostic : httpSafeDiagnostic(error, { operation: phase });
   return { ...diagnostic, phase, operation: diagnostic.operation || phase };
+}
+
+// A turn whose messages were ALL sent before the limit (settings.stale_message_max_age_hours, default 6) arrived late, e.g.
+// delivered in bulk after a WhatsApp reconnect. An unknown send time is never stale: the customer is served.
+function turnStaleMessages(messages = [], settings = {}, now = Date.now()) {
+  const stamps = (Array.isArray(messages) ? messages : []).map(item => Number(item?.raw?.message_timestamp));
+  if (!stamps.length || stamps.some(stamp => !Number.isFinite(stamp) || stamp <= 0)) return null;
+  const configured = Number(settings?.stale_message_max_age_hours);
+  const limitHours = Number.isFinite(configured) && configured > 0 ? configured : 6;
+  const newest = Math.max(...stamps) * 1000;
+  const ageHours = (now - newest) / 3600000;
+  return ageHours > limitHours ? { newest_at: new Date(newest).toISOString(), age_hours: Math.round(ageHours * 10) / 10, limit_hours: limitHours } : null;
 }
 
 // Provider pressure before any send is transient for the turn: the queue retries it with the tenant's persisted
@@ -14427,6 +14439,16 @@ async function runTurn() {
     await cancelPendingFollowUps(context, 'validated_non_customer');
     await saveEvent(event); await complete('done');
     return { ok: true, skipped: true, reason: 'validated_non_customer' };
+  }
+
+  // Delivered far too late (e.g. after a WhatsApp reconnect): recorded for the team, no automatic reply and no follow-up.
+  const staleTurn = noriaPhase === 'finalize' ? null : turnStaleMessages(turn.messages, settings);
+  if (staleTurn) {
+    if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
+    Object.assign(event, { ai_provider: 'stale_message_suppression', service: 'stale_message', handoff: false,
+      raw_payload: { ...(event.raw_payload || {}), ai_suppressed: true, ai_suppressed_reason: 'stale_message', stale_message: staleTurn } });
+    await saveEvent(event); await complete('done');
+    return { ok: true, skipped: true, reason: 'stale_message' };
   }
 
   const contact = await loadContact(context);
