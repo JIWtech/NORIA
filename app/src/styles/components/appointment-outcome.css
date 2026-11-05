@@ -1,0 +1,64 @@
+/* Desfecho de agendamento ("Compareceu" / "Cliente não veio") e selo de sinal obrigatório.
+   Só aparece em tenants com settings.appointment_outcome_tracking = true. */
+
+.deposit-required-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 3px 8px;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.appointment-outcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.outcome-button {
+  flex: 1 1 0;
+  min-height: 32px;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 7px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.outcome-button.attended {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.14);
+  color: #86efac;
+}
+
+.outcome-button.no-show {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+}
+
+.outcome-button:hover:not(:disabled) {
+  color: #ffffff;
+  filter: brightness(1.15);
+}
+
+.outcome-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

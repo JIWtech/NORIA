@@ -3,10 +3,13 @@ import {
   Building2,
   CalendarCheck,
   CalendarDays,
+  Check,
+  CircleDollarSign,
   Clock3,
   MapPin,
   MessageCircle,
   UserRound,
+  UserX,
 } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { PanelTitle } from '../../../components/ui/PanelTitle';
@@ -19,9 +22,14 @@ import {
   loadAppointmentScheduling,
   saveAppointment,
 } from '../../../dataService';
+import { availableOutcomes, isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
+import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { groupAppointmentsByDay } from '../utils/appointmentHelpers';
+import { useDepositRequired } from '../utils/useDepositRequired';
 
-export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true }) {
+export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false }) {
+  const [outcomeBusyId, setOutcomeBusyId] = useState('');
+  const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', appointments);
   const [schedule, setSchedule] = useState(null);
   const [unitId, setUnitId] = useState('');
   const [serviceId, setServiceId] = useState('');
@@ -69,6 +77,25 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
   }, [initialData]);
 
   const grouped = useMemo(() => groupAppointmentsByDay(appointments), [appointments]);
+
+  async function handleOutcome(appointment, outcome) {
+    if (outcomeBusyId) return;
+    const message = outcome === 'no_show'
+      ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
+      : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
+    if (!window.confirm(message)) return;
+    setOutcomeBusyId(appointment.id);
+    setStatus('');
+    try {
+      await markAppointmentOutcome(appointment.id, outcome);
+      setStatus(outcome === 'no_show' ? 'Falta registrada e conversa encerrada.' : 'Comparecimento registrado.');
+      await onChanged?.();
+    } catch (error) {
+      setStatus(error.message || 'Não foi possível registrar o desfecho.');
+    } finally {
+      setOutcomeBusyId('');
+    }
+  }
 
   function pickConversation(value) {
     setSelectedConversationId(value);
@@ -209,6 +236,42 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                           <span className="appointment-location-meta"><MapPin size={14} />{appointment.unitName}</span>
                         )}
                         {appointment.notes && <p className="appointment-card-notes">{appointment.notes}</p>}
+                        {outcomeTracking && isDepositRequired(depositIndex, appointment.channelType, appointment.externalConversationId) && (
+                          <span
+                            className="deposit-required-badge"
+                            title="Este cliente faltou a um agendamento. Novos agendamentos exigem sinal de 50% via Pix."
+                          >
+                            <CircleDollarSign size={12} /> Sinal obrigatório
+                          </span>
+                        )}
+                        {outcomeTracking && availableOutcomes(appointment).length > 0 && (
+                          <div className="appointment-outcome-actions">
+                            {availableOutcomes(appointment).includes('attended') && (
+                              <button
+                                type="button"
+                                className="outcome-button attended"
+                                disabled={Boolean(outcomeBusyId)}
+                                onClick={() => handleOutcome(appointment, 'attended')}
+                                title="Registrar que o cliente compareceu"
+                              >
+                                <Check size={13} />
+                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Compareceu'}
+                              </button>
+                            )}
+                            {availableOutcomes(appointment).includes('no_show') && (
+                              <button
+                                type="button"
+                                className="outcome-button no-show"
+                                disabled={Boolean(outcomeBusyId)}
+                                onClick={() => handleOutcome(appointment, 'no_show')}
+                                title="Registrar que o cliente não veio e encerrar a conversa"
+                              >
+                                <UserX size={13} />
+                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Cliente não veio'}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </article>
                   ))}

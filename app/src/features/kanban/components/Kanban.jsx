@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarCheck,
   CalendarDays,
+  CalendarX2,
   CarFront,
   Check,
   CheckCircle2,
@@ -18,6 +19,7 @@ import {
   Search,
   Sparkles,
   UserRound,
+  UserX,
   Wrench,
 } from 'lucide-react';
 import { SiInstagram, SiTelegram, SiWhatsapp } from 'react-icons/si';
@@ -40,6 +42,13 @@ import {
   orderKanbanColumnsForTenant,
   validateKanbanOrderProposal,
 } from '../../../dataService';
+import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
+import { useDepositRequired } from '../../appointments/utils/useDepositRequired';
+import {
+  availableOutcomes,
+  isDepositRequired,
+  isOutcomeTrackingEnabled,
+} from '../../../services/appointments/appointmentOutcome.js';
 
 import {
   applyKanbanFlowOrder,
@@ -76,7 +85,11 @@ export function Kanban({
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCardId, setCopiedCardId] = useState(null);
   const [confirmingCardId, setConfirmingCardId] = useState('');
+  const [outcomeCardId, setOutcomeCardId] = useState('');
   const [kanbanActionStatus, setKanbanActionStatus] = useState('');
+  // Recurso por tenant (settings.appointment_outcome_tracking): os demais clientes não veem nada novo.
+  const outcomeTracking = isOutcomeTrackingEnabled(tenantSettings);
+  const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', kanbanColumns);
   const [draggingCardId, setDraggingCardId] = useState(null);
   const [dragOverColumnId, setDragOverColumnId] = useState(null);
   const [activeColumnId, setActiveColumnId] = useState('');
@@ -236,6 +249,28 @@ export function Kanban({
       setConfirmingCardId('');
     }
   }
+  const cardOutcomes = (card) => (outcomeTracking && card?.appointmentId
+    ? availableOutcomes({ startsAt: card.appointmentStartsAt, status: card.appointmentStatus })
+    : []);
+
+  async function handleMarkOutcome(card, outcome) {
+    if (!card?.appointmentId || outcomeCardId) return;
+    const message = outcome === 'no_show'
+      ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
+      : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
+    if (!window.confirm(message)) return;
+    setOutcomeCardId(card.id);
+    setKanbanActionStatus('');
+    try {
+      await markAppointmentOutcome(card.appointmentId, outcome);
+      setKanbanActionStatus(outcome === 'no_show' ? 'Falta registrada e conversa encerrada.' : 'Comparecimento registrado.');
+      await onChanged?.();
+    } catch (error) {
+      setKanbanActionStatus(error.message || 'Não foi possível registrar o desfecho.');
+    } finally {
+      setOutcomeCardId('');
+    }
+  }
   const getChannelClass = (type = 'telegram') => {
     const norm = String(type).toLowerCase();
     if (norm.includes('whats')) return 'channel-whatsapp';
@@ -260,6 +295,9 @@ export function Kanban({
     if (/sales_qualifying/.test(key)) return { tone: getStageTone('sales_qualifying'), shortLabel: navigationLabel || 'Qualificação IA', description: 'IA coletando informações comerciais.', Icon: Bot };
     if (/sales_new/.test(key)) return { tone: getStageTone('sales_new'), shortLabel: navigationLabel || 'Novos contatos', description: 'Novos contatos aguardando qualificação.', Icon: MessageCircle };
 
+    if (/nao[_\s-]?compareceu/.test(key)) {
+      return { tone: 'slate', shortLabel: 'Não compareceu', description: 'Clientes que faltaram ao agendamento.', Icon: CalendarX2 };
+    }
     if (/finalizada/.test(key)) {
       return { tone: 'green', shortLabel: 'Finalizadas', description: 'Atendimentos concluídos.', Icon: CheckCircle2 };
     }
@@ -705,6 +743,50 @@ export function Kanban({
                                   <ExternalLink size={12} />
                                 </a>
                               </div>
+                            </div>
+                          )}
+
+                          {outcomeTracking && isDepositRequired(depositIndex, card.channelType, card.externalConversationId) && (
+                            <span
+                              className="deposit-required-badge"
+                              title="Este cliente faltou a um agendamento. Novos agendamentos exigem sinal de 50% via Pix."
+                            >
+                              <CircleDollarSign size={12} /> Sinal obrigatório
+                            </span>
+                          )}
+
+                          {cardOutcomes(card).length > 0 && (
+                            <div className="appointment-outcome-actions">
+                              {cardOutcomes(card).includes('attended') && (
+                                <button
+                                  type="button"
+                                  className="outcome-button attended"
+                                  disabled={Boolean(outcomeCardId)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleMarkOutcome(card, 'attended');
+                                  }}
+                                  title="Registrar que o cliente compareceu"
+                                >
+                                  <Check size={13} />
+                                  {outcomeCardId === card.id ? 'Salvando...' : 'Compareceu'}
+                                </button>
+                              )}
+                              {cardOutcomes(card).includes('no_show') && (
+                                <button
+                                  type="button"
+                                  className="outcome-button no-show"
+                                  disabled={Boolean(outcomeCardId)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleMarkOutcome(card, 'no_show');
+                                  }}
+                                  title="Registrar que o cliente não veio e encerrar a conversa"
+                                >
+                                  <UserX size={13} />
+                                  {outcomeCardId === card.id ? 'Salvando...' : 'Cliente não veio'}
+                                </button>
+                              )}
                             </div>
                           )}
 

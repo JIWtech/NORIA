@@ -29,6 +29,7 @@ function statusAppointmentLabel(status) {
   const labels = {
     scheduled: 'Agendado', confirmed: 'Confirmado', pending_payment: 'Aguardando sinal', done: 'Concluido',
     cancelled: 'Cancelado', payment_reported: 'Pagamento informado', aguardando_verificacao: 'Pagamento informado',
+    no_show: 'Não compareceu', completed: 'Compareceu',
   };
   return labels[status] || status || 'Agendado';
 }

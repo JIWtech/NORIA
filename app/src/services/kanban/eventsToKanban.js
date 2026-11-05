@@ -305,9 +305,12 @@ export function eventsToKanban(
       value: 'Agenda',
       owner: appointment.statusLabel,
       appointmentStatus: appointment.status,
+      appointmentStartsAt: appointment.startsAt,
       appointmentMetadata: appointment.raw?.metadata || {},
       externalConversationId: appointment.externalConversationId,
-      targetColumnId: appointment.status === 'payment_reported' ? 'verificar_sinal' : 'agendamentos',
+      // 'nao_compareceu' só existe em quadros que a criaram; nos demais o cartão cai em 'agendamentos' (fallback abaixo).
+      targetColumnId: appointment.status === 'payment_reported' ? 'verificar_sinal'
+        : appointment.status === 'no_show' ? 'nao_compareceu' : 'agendamentos',
       actionType: appointment.status === 'payment_reported' ? 'confirm_signal' : '',
       aiReason: appointment.status === 'payment_reported'
         ? 'Sinal informado. Aguardando verificação humana.'
@@ -381,6 +384,7 @@ function enrichCardWithAppointment(card, appointmentCard) {
     ...card,
     appointmentId: appointmentCard.appointmentId,
     appointmentStatus: appointmentCard.appointmentStatus,
+    appointmentStartsAt: appointmentCard.appointmentStartsAt,
     appointmentMetadata: appointmentCard.appointmentMetadata,
     actionType: appointmentCard.actionType || card.actionType,
     hasSchedulingLink: card.hasSchedulingLink || appointmentCard.targetColumnId === 'agendamentos',
@@ -582,7 +586,12 @@ function pickColumn(stage, handoff, messageText = '', context = {}) {
 
   if (manualTarget) return [manualTarget];
 
-  if (isKanbanClosed(event, norm)) return ['finalizadas', 'conversas_andamento'];
+  if (isKanbanClosed(event, norm)) {
+    // Encerramento por "cliente não veio": coluna própria quando o quadro a tem; senão, Finalizadas como sempre.
+    return event?.raw_payload?.close_reason === 'no_show'
+      ? ['nao_compareceu', 'finalizadas', 'conversas_andamento']
+      : ['finalizadas', 'conversas_andamento'];
+  }
   if (isKanbanPaymentSignal(event, norm)) return ['verificar_sinal', 'aguardando_humano', 'conversas_humanos'];
   if (norm === 'Produtos apresentados') return ['produtos_apresentados', 'conversas_andamento'];
   if (norm === 'Interesse em compra') return ['interesse_compra', 'conversas_andamento'];

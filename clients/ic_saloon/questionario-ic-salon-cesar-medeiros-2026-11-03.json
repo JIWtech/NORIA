@@ -1,0 +1,1331 @@
+{
+  "contract": "noria_onboarding_form_v1",
+  "review_required": true,
+  "review_note": "Rascunho gerado pelo questionário. Nada deve ser aplicado no Supabase sem revisão da equipe NORIA e aprovação do salão.",
+  "generated_at": "2026-11-03T14:03:30.266Z",
+  "filled_by": {
+    "nome": "Cesar Medeiros",
+    "funcao": "ADM",
+    "data": "2026-11-03",
+    "aprovador": "Italo Cesar"
+  },
+  "approval": {
+    "pendencias": "",
+    "responsavel": "Cesar Medeiros",
+    "data": ""
+  },
+  "known_facts": [
+    "Salão: I&C Salon | Cidade Jardim. Endereço: Av. das Acácias, 209 – Cidade Jardim. Telefone/WhatsApp: (22) 99963-3775.",
+    "Apresentação da IA: “Oi, tudo bem? Sou nova na equipe, com quem eu falo? Como posso ajudar você hoje?”. Atendimento humanizado e próximo.",
+    "Em mensagens genéricas, a IA cumprimenta, se apresenta, pergunta o nome e qual serviço a cliente procura. Não envia o catálogo completo de cara.",
+    "Equipe de 4 profissionais (entre eles César e Ítalo), cada um com a própria agenda. Os profissionais não acessam o sistema: a gestão repassa cancelamentos e mudanças.",
+    "O salão não faz: unha de gel, acrigel, fibra, postiça ou “realista”, henna na sobrancelha e pacote de Dia da Noiva. Maquiagem e penteado são oferecidos, mesmo fora do panfleto.",
+    "Química e mechas têm preço “a partir de”. O valor final só pode subir, nunca baixar, depois da avaliação presencial.",
+    "Preço justo pela balança: o valor depende da quantidade de produto usada (3 medidas), não só do comprimento. Um cabelo longo com pouco volume pode pagar menos que um curto muito volumoso.",
+    "A avaliação é presencial e gratuita, e não é feita por foto. Sempre há teste de mechas antes.",
+    "Mechas: 4 a 5 horas, meio período, só 1 profissional faz e não cabem duas no mesmo turno. A IA pré-agenda e a equipe confirma.",
+    "Orçamento de mechas: perguntar o tipo e a última química, explicar a balança, informar o “a partir de”, enviar foto de antes e depois e convidar para a avaliação.",
+    "Cliente indecisa: perguntar como é o cabelo hoje e se tem referência, e convidar para avaliação presencial.",
+    "Unhas: antes de passar preço ou horário, a IA pergunta se é só mão, só pé ou pé e mão (cada opção ocupa um tempo diferente).",
+    "A IA informa o preço no Pix/dinheiro e só fala do valor no crédito se a cliente perguntar. Ex.: pé e mão R$ 57,00 no Pix/dinheiro.",
+    "A IA nunca oferece desconto: destaca a qualidade e explica que o valor já é o diferenciado para Pix/dinheiro.",
+    "Sinal: o 1º agendamento não tem sinal. Quem faltou ou desmarcou em cima da hora paga 50% via Pix para reagendar. Comparecendo, volta ao normal. Vale para todos os serviços.",
+    "Menores só são atendidos com o pai ou a mãe. A IA não pergunta idade nem data de nascimento."
+  ],
+  "known_facts_corrections": "O número do endereço, 207. Favor alterar e incluir Loja 4",
+  "tenant": {
+    "name": "I&C Salon",
+    "suggested_slug": "ic_salon",
+    "industry": "Salão de beleza, estética e bem-estar",
+    "segment": "aesthetic_clinic",
+    "capability": "standard",
+    "tone": "friendly",
+    "persona_name": null,
+    "greeting": "Oi, tudo bem? Sou nova na equipe, com quem eu falo? Como posso ajudar você hoje?",
+    "emoji_policy": "Ainda não definido",
+    "avoid_terms": "Girias evitar todas",
+    "never_ask": [
+      "idade",
+      "data de nascimento"
+    ]
+  },
+  "channel": {
+    "type": "whatsapp",
+    "phone": "5522999633775",
+    "operators": "Cesar"
+  },
+  "responsibilities": {
+    "Responde o WhatsApp hoje": "Cesar",
+    "Confere pré-agendamentos de mechas e química": "Cesar",
+    "Confere o Pix do sinal": "Italo",
+    "Marca faltas no sistema": "Cesar",
+    "Atualiza bloqueios da agenda (folgas, férias)": "Cesar",
+    "Recebe reclamações": "Cesar",
+    "Aprova mudanças de preço e regras": "Cesar"
+  },
+  "business_facts": {
+    "name": "I&C Salon",
+    "locations": [
+      {
+        "id": "cidade_jardim",
+        "name": "I&C Salon Cidade Jardim",
+        "address": "Av. das Acácias, 209 - Cidade Jardim",
+        "address_complement": null,
+        "reference": "Em frente a praça de esportes, ao lado da açaiteria Jardins",
+        "access": "Sim",
+        "verified": false,
+        "verified_source": "Instagram + questionário de onboarding (pendente de conferência)"
+      }
+    ],
+    "hours": {
+      "weekly": {
+        "Segunda": "Fechado",
+        "Terça": "9:00 as 18:00",
+        "Quarta": "9:00 as 18:00",
+        "Quinta": "9:00 as 18:00",
+        "Sexta": "9:00 as 18:00",
+        "Sábado": "9:00 as 18:00",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "highlight_shifts": "Manha e tarde",
+      "booking_window": "Nao ha antecedência minima para marcação, se houver horario disponível, pode haver marcacao. E ate 45 dias a frente"
+    },
+    "not_offered": [
+      "Unha de gel",
+      "Acrigel",
+      "Fibra",
+      "Unha postiça",
+      "Unha realista",
+      "Henna na sobrancelha",
+      "Pacote Dia da Noiva"
+    ],
+    "not_offered_alternative": "O serviços semelhantes existentes no salao",
+    "products": {
+      "sells": "Não",
+      "details": null
+    },
+    "evaluation": {
+      "free_in_person_no_photo": true,
+      "final_price_only_up": true,
+      "scale_measures": null,
+      "highlight_test": "O teste precisa ser aprovado antes  da marcação, assim que aprovado será agendado a mecha\n\nTempo em media 30min",
+      "ai_can_book": "Sim, a IA agenda a avaliação"
+    },
+    "chemistry": {
+      "min_interval": null,
+      "recent_chemistry_behavior": "Solicitar visita ao salao, para avaliação humana",
+      "incompatibilities": [
+        {
+          "service_a": "Mechas e progressiva",
+          "service_b": "Progressiva e coloracao",
+          "rule": "Não podem no mesmo dia",
+          "detail": "Dependerá  da estrutura de cada cabelo",
+          "explanation": null
+        }
+      ]
+    },
+    "media": {
+      "before_after_when": "Sempre que a cliente perguntar de um serviço marcado na 4.2.6",
+      "consent": null
+    },
+    "payment": {
+      "methods": [
+        "Dinheiro",
+        "Pix",
+        "Cartão de crédito"
+      ],
+      "debit": "Aceita, com o valor do crédito",
+      "mention_credit_only_if_asked": true,
+      "credit_rule": "Acréscimo percentual sobre o valor do Pix",
+      "credit_percent": "A partir de 2x, valor calculado no juros da máquina.",
+      "installments": "Sim, ate 10x, conforme taxa da maquina",
+      "pix": "Pix cnpj 30361600000146 - Italo Cesar dos Santos Ribeiro",
+      "discounts": "never"
+    },
+    "deposit_policy": {
+      "rule": "1º agendamento sem sinal; após falta ou desmarcação em cima da hora, reagendamento exige 50% via Pix; comparecendo, volta ao normal.",
+      "late_cancel_window": null,
+      "no_show_marked_by": "Cesar",
+      "repeat_no_show": "Caso retorne o cliente a remarcação,  cobre novamente e soma com o valor anterior para abater no serviço, caso falte novamente...o valor é perdido.",
+      "base_for_from_prices": null,
+      "verification_trigger": "Envio do comprovante",
+      "verifier": "Italo"
+    },
+    "cancellation": {
+      "late_tolerance": "15 min - o cliente corre o risco de nao ter o atendimento de todo servico, caso seja mais de um. Ou cancelamento  do atendimento ( caso devera ser avaliado)",
+      "ai_can_reschedule": "Sim, dentro das regras",
+      "salon_cancel_message": "Favor sugerir mensagem para gente",
+      "internal_notice_by_management": true
+    }
+  },
+  "catalog": [
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_mechas_loiras",
+      "category": "Cabelo",
+      "name": "Mechas loiras",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "4 a 5 horas (meio período)",
+        "booking_block": "4 a 5 horas (meio período)",
+        "evaluation": "required",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": true,
+        "ai_notes": "Perguntar o tipo de mecha e há quanto tempo fez a última química. Sempre é feito teste de mechas antes.",
+        "professionals": [
+          "Ítalo"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_morena_iluminada",
+      "category": "Cabelo",
+      "name": "Morena iluminada",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "4 a 5 horas (meio período)",
+        "booking_block": "4 a 5 horas (meio período)",
+        "evaluation": "required",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": true,
+        "ai_notes": "Perguntar o tipo de mecha e há quanto tempo fez a última química. Sempre é feito teste de mechas antes.",
+        "professionals": [
+          "Ítalo"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_coloracao",
+      "category": "Cabelo",
+      "name": "Coloração",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:30h com escova, sem escova 1h",
+        "booking_block": "1:30h com escova, sem escova 1h",
+        "evaluation": "required",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Ítalo",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_progressiva",
+      "category": "Cabelo",
+      "name": "Progressiva",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "Minimo 3h",
+        "booking_block": "Minimo 3h",
+        "evaluation": "required",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "César",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_realinhamento_capilar",
+      "category": "Cabelo",
+      "name": "Realinhamento capilar",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "Minimo 3h",
+        "booking_block": "Minimo 3h",
+        "evaluation": "required",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "César",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_corte",
+      "category": "Cabelo",
+      "name": "Corte",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1h",
+        "booking_block": "1h",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Ítalo"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_escova",
+      "category": "Cabelo",
+      "name": "Escova",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "Minimo 30min",
+        "booking_block": "Minimo 30min",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Rose",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_terapia_capilar",
+      "category": "Cabelo",
+      "name": "Terapia capilar",
+      "description": "Atendimento personalizado",
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:30h",
+        "booking_block": "1:30h",
+        "evaluation": "required",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Ítalo"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_cronograma_capilar",
+      "category": "Cabelo",
+      "name": "Cronograma capilar",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": "A partir de (valor a definir)",
+      "active": true,
+      "metadata": {
+        "price_type": "from",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:20",
+        "booking_block": "1:20",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Ítalo",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_limpeza_de_pele",
+      "category": "Estética e corpo",
+      "name": "Limpeza de pele",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:30",
+        "booking_block": "1:30",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": []
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_drenagem",
+      "category": "Estética e corpo",
+      "name": "Drenagem",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "2h",
+        "booking_block": "2h",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": []
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_massagem_modeladora",
+      "category": "Estética e corpo",
+      "name": "Massagem modeladora",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "2h",
+        "booking_block": "2h",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": []
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_massagem_relaxante",
+      "category": "Estética e corpo",
+      "name": "Massagem relaxante",
+      "description": null,
+      "billing_unit": "servico",
+      "price": null,
+      "notes": null,
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": null,
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "2H",
+        "booking_block": "2H",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": []
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_design_de_sobrancelha",
+      "category": "Sobrancelha",
+      "name": "Design de sobrancelha",
+      "description": "Somente design (o salão não faz henna).",
+      "billing_unit": "servico",
+      "price": 40,
+      "notes": "40,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "40,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "30min",
+        "booking_block": "30min",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "César",
+          "Elisa"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_mao_tradicional",
+      "category": "Unhas",
+      "name": "Mão tradicional",
+      "description": "Cutilagem e esmaltação tradicional.",
+      "billing_unit": "servico",
+      "price": 33,
+      "notes": "33,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "33,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "35min",
+        "booking_block": "35min",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": true,
+        "ai_notes": "Perguntar se é só mão, só pé ou pé e mão.",
+        "professionals": [
+          "Rose"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_pe_tradicional",
+      "category": "Unhas",
+      "name": "Pé tradicional",
+      "description": "Cutilagem e esmaltação tradicional.",
+      "billing_unit": "servico",
+      "price": 35,
+      "notes": "35,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "35,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "40min",
+        "booking_block": "40min",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": true,
+        "ai_notes": "Perguntar se é só mão, só pé ou pé e mão.",
+        "professionals": [
+          "Rose"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_pe_e_mao_tradicional",
+      "category": "Unhas",
+      "name": "Pé e mão tradicional",
+      "description": null,
+      "billing_unit": "servico",
+      "price": 57,
+      "notes": "R$ 57,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "R$ 57,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:10h",
+        "booking_block": "1:10h",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": "Perguntar se é só mão, só pé ou pé e mão.",
+        "professionals": [
+          "Rose"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_spa_dos_pes",
+      "category": "Unhas",
+      "name": "Spa dos pés",
+      "description": null,
+      "billing_unit": "servico",
+      "price": 84,
+      "notes": "84,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "84,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:00h",
+        "booking_block": "1:00h",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Rose"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_plastica_dos_pes",
+      "category": "Unhas",
+      "name": "Plástica dos pés",
+      "description": null,
+      "billing_unit": "servico",
+      "price": 75,
+      "notes": "75,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "75,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:00",
+        "booking_block": "1:00",
+        "evaluation": "none",
+        "booking_mode": "ai_direct",
+        "before_after_photo": false,
+        "ai_notes": null,
+        "professionals": [
+          "Rose"
+        ]
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_maquiagem",
+      "category": "Maquiagem e penteado",
+      "name": "Maquiagem",
+      "description": null,
+      "billing_unit": "servico",
+      "price": 180,
+      "notes": "180,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "180,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "1:30h",
+        "booking_block": "1:30h",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": true,
+        "ai_notes": null,
+        "professionals": []
+      }
+    },
+    {
+      "external_source": "questionario_onboarding",
+      "external_id": "servico_penteado",
+      "category": "Maquiagem e penteado",
+      "name": "Penteado",
+      "description": null,
+      "billing_unit": "servico",
+      "price": 180,
+      "notes": "180,00",
+      "active": true,
+      "metadata": {
+        "price_type": "fixed",
+        "price_pix_raw": "180,00",
+        "price_credit": null,
+        "price_credit_raw": null,
+        "duration": "2h",
+        "booking_block": "2h",
+        "evaluation": "none",
+        "booking_mode": "ai_prebook_team_confirms",
+        "before_after_photo": false,
+        "ai_notes": "Ja vem com o cabelo escovado, ou sera preparando antes no salao? ",
+        "professionals": []
+      }
+    }
+  ],
+  "professionals": [
+    {
+      "name": "César",
+      "services": [
+        "Progressiva",
+        "Realinhamento capilar",
+        "Design de sobrancelha"
+      ],
+      "schedule": {
+        "Segunda": "Fechado",
+        "Terça": "9:00 as 18:00h",
+        "Quarta": "9:00 as 18:00h",
+        "Quinta": "9:00 as 18:00h",
+        "Sexta": "9:00 as 18:00h",
+        "Sábado": "9:00 as 18:00h",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "panel_access": false
+    },
+    {
+      "name": "Ítalo",
+      "services": [
+        "Mechas loiras",
+        "Morena iluminada",
+        "Coloração",
+        "Corte",
+        "Terapia capilar",
+        "Cronograma capilar"
+      ],
+      "schedule": {
+        "Segunda": "Fechado",
+        "Terça": "9:00 as 18:00h",
+        "Quarta": "9:00 as 18:00h",
+        "Quinta": "9:00 as 18:00h",
+        "Sexta": "9:00 as 18:00h",
+        "Sábado": "9:00 as 18:00h",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "panel_access": false
+    },
+    {
+      "name": "Rose",
+      "services": [
+        "Escova",
+        "Mão tradicional",
+        "Pé tradicional",
+        "Pé e mão tradicional",
+        "Spa dos pés",
+        "Plástica dos pés"
+      ],
+      "schedule": {
+        "Segunda": "Fechado",
+        "Terça": "9:00 as 18:00h",
+        "Quarta": "9:00 as 18:00h",
+        "Quinta": "9:00 as 18:00h",
+        "Sexta": "9:00 as 18:00h",
+        "Sábado": "9:00 as 18:00h",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "panel_access": false
+    },
+    {
+      "name": "Elisa",
+      "services": [
+        "Coloração",
+        "Progressiva",
+        "Realinhamento capilar",
+        "Escova",
+        "Cronograma capilar",
+        "Design de sobrancelha"
+      ],
+      "schedule": {
+        "Segunda": "Fechado",
+        "Terça": "9:30 as 18:00h",
+        "Quarta": "9:30 as 18:00h",
+        "Quinta": "9:30 as 18:00h",
+        "Sexta": "9:30 as 18:00h",
+        "Sábado": "9:30 as 18:00h",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "panel_access": false
+    }
+  ],
+  "scheduling": {
+    "team_size": 4,
+    "client_picks_professional": "Sim, quando houver vaga; senão a IA oferece outro",
+    "blocks_managed_by": "Cesar",
+    "service_resources_draft": {
+      "servico_mechas_loiras": [
+        "Ítalo"
+      ],
+      "servico_morena_iluminada": [
+        "Ítalo"
+      ],
+      "servico_coloracao": [
+        "Ítalo",
+        "Elisa"
+      ],
+      "servico_progressiva": [
+        "César",
+        "Elisa"
+      ],
+      "servico_realinhamento_capilar": [
+        "César",
+        "Elisa"
+      ],
+      "servico_corte": [
+        "Ítalo"
+      ],
+      "servico_escova": [
+        "Rose",
+        "Elisa"
+      ],
+      "servico_terapia_capilar": [
+        "Ítalo"
+      ],
+      "servico_cronograma_capilar": [
+        "Ítalo",
+        "Elisa"
+      ],
+      "servico_limpeza_de_pele": [],
+      "servico_drenagem": [],
+      "servico_massagem_modeladora": [],
+      "servico_massagem_relaxante": [],
+      "servico_design_de_sobrancelha": [
+        "César",
+        "Elisa"
+      ],
+      "servico_mao_tradicional": [
+        "Rose"
+      ],
+      "servico_pe_tradicional": [
+        "Rose"
+      ],
+      "servico_pe_e_mao_tradicional": [
+        "Rose"
+      ],
+      "servico_spa_dos_pes": [
+        "Rose"
+      ],
+      "servico_plastica_dos_pes": [
+        "Rose"
+      ],
+      "servico_maquiagem": [],
+      "servico_penteado": []
+    },
+    "extra_required_fields": [
+      "Sobrenome",
+      "Se é a primeira vez no salão",
+      "Telefone de contato, se for outro"
+    ],
+    "minors_notice": "Em toda confirmação de agendamento",
+    "customer_confirms_summary": "Ainda não definido",
+    "booked_message": null,
+    "human_review": {
+      "reviewer": "Cesar",
+      "response_time": null,
+      "waiting_message": null
+    },
+    "no_slot": "Oferecer outros horários do mesmo profissional",
+    "waitlist": {
+      "exists": "Sim",
+      "rules": "Caso haja desistência, o ofertado o horario vago"
+    },
+    "multi_service": "Calcular o tempo de cada serviço e otimizar o atendimento para os servicos que poder ser feitos feitos simultaneamente. E os que nao dao para fazer ao mesmo tempo encaixar dentro do tempo de atendimento",
+    "third_party": {
+      "allowed": "Ainda não definido",
+      "data": null
+    },
+    "reminder": {
+      "enabled": "Sim",
+      "lead": "24h"
+    }
+  },
+  "scenarios": {
+    "9.1.1": {
+      "situation": "“Não vou conseguir ir hoje.” (poucas horas antes do horário)",
+      "answer": "Informar que um responsável ira entrar em contato",
+      "route": "Encaminhar para a equipe"
+    },
+    "9.1.2": {
+      "situation": "A cliente reclama do resultado de um procedimento.",
+      "answer": "Falar com profissional",
+      "route": "Encaminhar para a equipe"
+    },
+    "9.1.3": {
+      "situation": "A cliente relata irritação, alergia ou queda de cabelo depois de um procedimento.",
+      "answer": "Falar com profissional",
+      "route": "Encaminhar para a equipe"
+    },
+    "9.1.4": {
+      "situation": "A IA não entendeu um áudio ou uma mensagem.",
+      "answer": null,
+      "route": "Encaminhar para a equipe"
+    }
+  },
+  "handoff": {
+    "triggers": [
+      "Cliente pediu uma pessoa",
+      "Reclamação",
+      "Reação ou problema após procedimento"
+    ],
+    "message": null,
+    "return_to_ai_by": null,
+    "complaints_owner": "Cesar"
+  },
+  "kanban": {
+    "custom": false,
+    "columns": [
+      {
+        "name": "Conversas IA",
+        "automation_key": "conversas_ia"
+      },
+      {
+        "name": "Aguardando humano",
+        "automation_key": "aguardando_humano"
+      },
+      {
+        "name": "Verificar Sinal",
+        "automation_key": "verificar_sinal"
+      },
+      {
+        "name": "Em atendimento humano",
+        "automation_key": "com_humano"
+      },
+      {
+        "name": "Agendamentos",
+        "automation_key": "agendamentos"
+      },
+      {
+        "name": "Finalizadas",
+        "automation_key": "finalizadas"
+      },
+      {
+        "name": "Conversas abandonadas",
+        "automation_key": "conversas_abandonadas"
+      },
+      {
+        "name": "Follow Ups",
+        "automation_key": "follow_ups"
+      }
+    ]
+  },
+  "automation": {
+    "audio_enabled": "Sim",
+    "contact_exclusion": {
+      "enabled": "Ainda não definido",
+      "list_raw": null
+    },
+    "maintenance_reminders": {
+      "enabled": "Ainda não definido",
+      "rules": null
+    },
+    "broadcasts": {
+      "enabled": "Sim",
+      "rules": null
+    },
+    "closing_message": null
+  },
+  "validation": {
+    "faq": "Horario disponivel\nSe abre segunda-feira\nSe aplicamos coloracao, caso cliente traga",
+    "forbidden_errors": "Marcar cliente no mesmo horario para o mesmo profissional",
+    "approver": "Cesar",
+    "test_cases": null
+  },
+  "raw_state": {
+    "answers": {
+      "4.2.1": [
+        "Mechas loiras",
+        "Morena iluminada",
+        "Coloração",
+        "Progressiva",
+        "Realinhamento capilar",
+        "Escova",
+        "Cronograma capilar"
+      ],
+      "4.2.2": [
+        "Mechas loiras",
+        "Morena iluminada",
+        "Coloração",
+        "Progressiva",
+        "Realinhamento capilar",
+        "Terapia capilar"
+      ],
+      "4.2.4": [
+        "Mechas loiras",
+        "Morena iluminada",
+        "Progressiva",
+        "Realinhamento capilar",
+        "Limpeza de pele",
+        "Drenagem",
+        "Massagem modeladora",
+        "Massagem relaxante",
+        "Maquiagem",
+        "Penteado"
+      ],
+      "4.2.6": [
+        "Mechas loiras",
+        "Morena iluminada",
+        "Mão tradicional",
+        "Pé tradicional",
+        "Maquiagem"
+      ],
+      "1.1.1": "O número do endereço, 207. Favor alterar e incluir Loja 4",
+      "2.1.2": "Ainda não definido",
+      "2.1.3": "Girias evitar todas",
+      "3.1.2": "Em frente a praça de esportes, ao lado da açaiteria Jardins",
+      "3.1.3": "Sim",
+      "3.2.1": {
+        "Segunda": "Fechado",
+        "Terça": "9:00 as 18:00",
+        "Quarta": "9:00 as 18:00",
+        "Quinta": "9:00 as 18:00",
+        "Sexta": "9:00 as 18:00",
+        "Sábado": "9:00 as 18:00",
+        "Domingo": "Fechado",
+        "Feriados": "Fechado"
+      },
+      "3.2.2": "Manha e tarde",
+      "3.2.3": "Nao ha antecedência minima para marcação, se houver horario disponível, pode haver marcacao. E ate 45 dias a frente",
+      "4.1.1": "O serviços semelhantes existentes no salao",
+      "4.1.2": "Não",
+      "4.1.3": "Acréscimo percentual sobre o valor do Pix",
+      "4.1.3a": "A partir de 2x, valor calculado no juros da máquina.",
+      "5.1.1": "Sim, quando houver vaga; senão a IA oferece outro",
+      "5.1.2": {
+        "Responde o WhatsApp hoje": "Cesar",
+        "Confere pré-agendamentos de mechas e química": "Cesar",
+        "Confere o Pix do sinal": "Italo",
+        "Marca faltas no sistema": "Cesar",
+        "Atualiza bloqueios da agenda (folgas, férias)": "Cesar",
+        "Recebe reclamações": "Cesar",
+        "Aprova mudanças de preço e regras": "Cesar"
+      },
+      "6.1.2": "O teste precisa ser aprovado antes  da marcação, assim que aprovado será agendado a mecha\n\nTempo em media 30min",
+      "6.1.3": "Sim, a IA agenda a avaliação",
+      "6.2.2": "Solicitar visita ao salao, para avaliação humana",
+      "6.4.1": "Sempre que a cliente perguntar de um serviço marcado na 4.2.6",
+      "6.4.1__other": "Na mostrar rosto no antes e depois",
+      "7.1.1": [
+        "Sobrenome",
+        "Se é a primeira vez no salão",
+        "Telefone de contato, se for outro"
+      ],
+      "7.1.2": "Em toda confirmação de agendamento",
+      "7.1.3": "Ainda não definido",
+      "7.2.1": "Oferecer outros horários do mesmo profissional",
+      "7.2.2": "Sim",
+      "7.2.2a": "Caso haja desistência, o ofertado o horario vago",
+      "7.2.3": "Calcular o tempo de cada serviço e otimizar o atendimento para os servicos que poder ser feitos feitos simultaneamente. E os que nao dao para fazer ao mesmo tempo encaixar dentro do tempo de atendimento",
+      "7.2.5": "Sim",
+      "7.2.4": "Ainda não definido",
+      "7.2.5a": "24h",
+      "8.1.1": "Aceita, com o valor do crédito",
+      "8.1.2": "Sim, ate 10x, conforme taxa da maquina",
+      "8.1.3": "Pix cnpj 30361600000146 - Italo Cesar dos Santos Ribeiro",
+      "8.2.2": "Caso retorne o cliente a remarcação,  cobre novamente e soma com o valor anterior para abater no serviço, caso falte novamente...o valor é perdido.",
+      "8.2.4": "Envio do comprovante",
+      "8.3.1": "15 min - o cliente corre o risco de nao ter o atendimento de todo servico, caso seja mais de um. Ou cancelamento  do atendimento ( caso devera ser avaliado)",
+      "8.3.2": "Sim, dentro das regras",
+      "8.3.3": "Favor sugerir mensagem para gente",
+      "10.1.1": [
+        "Cliente pediu uma pessoa",
+        "Reclamação",
+        "Reação ou problema após procedimento"
+      ],
+      "10.1.3": "Ainda não definido",
+      "10.2.1": "Sim",
+      "10.2.2": "Ainda não definido",
+      "10.2.3": "Ainda não definido",
+      "10.2.4": "Sim",
+      "10.3.1": "Horario disponivel\nSe abre segunda-feira\nSe aplicamos coloracao, caso cliente traga",
+      "10.3.2": "Marcar cliente no mesmo horario para o mesmo profissional"
+    },
+    "repeaters": {
+      "services": [
+        {
+          "4.3.1": "Mechas loiras",
+          "category": "Cabelo",
+          "4.3.4": "4 a 5 horas (meio período)",
+          "4.3.6": "Perguntar o tipo de mecha e há quanto tempo fez a última química. Sempre é feito teste de mechas antes."
+        },
+        {
+          "4.3.1": "Morena iluminada",
+          "category": "Cabelo",
+          "4.3.4": "4 a 5 horas (meio período)",
+          "4.3.6": "Perguntar o tipo de mecha e há quanto tempo fez a última química. Sempre é feito teste de mechas antes."
+        },
+        {
+          "4.3.1": "Coloração",
+          "category": "Cabelo",
+          "4.3.4": "1:30h com escova, sem escova 1h"
+        },
+        {
+          "4.3.1": "Progressiva",
+          "category": "Cabelo",
+          "4.3.4": "Minimo 3h"
+        },
+        {
+          "4.3.1": "Realinhamento capilar",
+          "category": "Cabelo",
+          "4.3.4": "Minimo 3h"
+        },
+        {
+          "4.3.1": "Corte",
+          "category": "Cabelo",
+          "4.3.4": "1h"
+        },
+        {
+          "4.3.1": "Escova",
+          "category": "Cabelo",
+          "4.3.4": "Minimo 30min"
+        },
+        {
+          "4.3.1": "Terapia capilar",
+          "category": "Cabelo",
+          "4.3.5": "Atendimento personalizado",
+          "4.3.4": "1:30h"
+        },
+        {
+          "4.3.1": "Cronograma capilar",
+          "category": "Cabelo",
+          "4.3.4": "1:20"
+        },
+        {
+          "4.3.1": "Limpeza de pele",
+          "category": "Estética e corpo",
+          "4.3.4": "1:30"
+        },
+        {
+          "4.3.1": "Drenagem",
+          "category": "Estética e corpo",
+          "4.3.4": "2h"
+        },
+        {
+          "4.3.1": "Massagem modeladora",
+          "category": "Estética e corpo",
+          "4.3.4": "2h"
+        },
+        {
+          "4.3.1": "Massagem relaxante",
+          "category": "Estética e corpo",
+          "4.3.4": "2H"
+        },
+        {
+          "4.3.1": "Design de sobrancelha",
+          "category": "Sobrancelha",
+          "4.3.5": "Somente design (o salão não faz henna).",
+          "4.3.2": "40,00",
+          "4.3.4": "30min"
+        },
+        {
+          "4.3.1": "Mão tradicional",
+          "category": "Unhas",
+          "4.3.6": "Perguntar se é só mão, só pé ou pé e mão.",
+          "4.3.5": "Cutilagem e esmaltação tradicional.",
+          "4.3.4": "35min",
+          "4.3.2": "33,00"
+        },
+        {
+          "4.3.1": "Pé tradicional",
+          "category": "Unhas",
+          "4.3.6": "Perguntar se é só mão, só pé ou pé e mão.",
+          "4.3.5": "Cutilagem e esmaltação tradicional.",
+          "4.3.4": "40min",
+          "4.3.2": "35,00"
+        },
+        {
+          "4.3.1": "Pé e mão tradicional",
+          "category": "Unhas",
+          "4.3.6": "Perguntar se é só mão, só pé ou pé e mão.",
+          "4.3.2": "R$ 57,00",
+          "4.3.4": "1:10h"
+        },
+        {
+          "4.3.1": "Spa dos pés",
+          "category": "Unhas",
+          "4.3.2": "84,00",
+          "4.3.4": "1:00h"
+        },
+        {
+          "4.3.1": "Plástica dos pés",
+          "category": "Unhas",
+          "4.3.2": "75,00",
+          "4.3.4": "1:00"
+        },
+        {
+          "4.3.1": "Maquiagem",
+          "category": "Maquiagem e penteado",
+          "4.3.2": "180,00",
+          "4.3.4": "1:30h"
+        },
+        {
+          "4.3.1": "Penteado",
+          "category": "Maquiagem e penteado",
+          "4.3.2": "180,00",
+          "4.3.4": "2h",
+          "4.3.6": "Ja vem com o cabelo escovado, ou sera preparando antes no salao? "
+        }
+      ],
+      "pros": [
+        {
+          "5.2.1": "César",
+          "5.2.2": [
+            "Progressiva",
+            "Realinhamento capilar",
+            "Design de sobrancelha"
+          ],
+          "5.2.3": {
+            "Segunda": "Fechado",
+            "Terça": "9:00 as 18:00h",
+            "Quarta": "9:00 as 18:00h",
+            "Quinta": "9:00 as 18:00h",
+            "Sexta": "9:00 as 18:00h",
+            "Sábado": "9:00 as 18:00h",
+            "Domingo": "Fechado",
+            "Feriados": "Fechado"
+          }
+        },
+        {
+          "5.2.1": "Ítalo",
+          "5.2.2": [
+            "Mechas loiras",
+            "Morena iluminada",
+            "Coloração",
+            "Corte",
+            "Terapia capilar",
+            "Cronograma capilar"
+          ],
+          "5.2.3": {
+            "Segunda": "Fechado",
+            "Terça": "9:00 as 18:00h",
+            "Quarta": "9:00 as 18:00h",
+            "Quinta": "9:00 as 18:00h",
+            "Sexta": "9:00 as 18:00h",
+            "Sábado": "9:00 as 18:00h",
+            "Domingo": "Fechado",
+            "Feriados": "Fechado"
+          }
+        },
+        {
+          "5.2.1": "Rose",
+          "5.2.2": [
+            "Escova",
+            "Mão tradicional",
+            "Pé tradicional",
+            "Pé e mão tradicional",
+            "Spa dos pés",
+            "Plástica dos pés"
+          ],
+          "5.2.3": {
+            "Segunda": "Fechado",
+            "Terça": "9:00 as 18:00h",
+            "Quarta": "9:00 as 18:00h",
+            "Quinta": "9:00 as 18:00h",
+            "Sexta": "9:00 as 18:00h",
+            "Sábado": "9:00 as 18:00h",
+            "Domingo": "Fechado",
+            "Feriados": "Fechado"
+          }
+        },
+        {
+          "5.2.1": "Elisa",
+          "5.2.2": [
+            "Coloração",
+            "Progressiva",
+            "Realinhamento capilar",
+            "Escova",
+            "Cronograma capilar",
+            "Design de sobrancelha"
+          ],
+          "5.2.3": {
+            "Segunda": "Fechado",
+            "Terça": "9:30 as 18:00h",
+            "Quarta": "9:30 as 18:00h",
+            "Quinta": "9:30 as 18:00h",
+            "Sexta": "9:30 as 18:00h",
+            "Sábado": "9:30 as 18:00h",
+            "Domingo": "Fechado",
+            "Feriados": "Fechado"
+          }
+        }
+      ],
+      "incompat": [
+        {
+          "6.3.1": "Mechas e progressiva",
+          "6.3.2": "Progressiva e coloracao",
+          "6.3.3": "Não podem no mesmo dia",
+          "6.3.4": "Dependerá  da estrutura de cada cabelo"
+        }
+      ]
+    },
+    "scenarios": {
+      "9.1.1": {
+        "answer": "Informar que um responsável ira entrar em contato",
+        "route": "Encaminhar para a equipe"
+      },
+      "9.1.2": {
+        "answer": "Falar com profissional",
+        "route": "Encaminhar para a equipe"
+      },
+      "9.1.3": {
+        "answer": "Falar com profissional",
+        "route": "Encaminhar para a equipe"
+      },
+      "9.1.4": {
+        "answer": "",
+        "route": "Encaminhar para a equipe"
+      }
+    },
+    "meta": {
+      "nome": "Cesar Medeiros",
+      "funcao": "ADM",
+      "data": "2026-11-03",
+      "aprovador": "Italo Cesar"
+    },
+    "final": {
+      "pendencias": "",
+      "responsavel": "Cesar Medeiros",
+      "data": ""
+    },
+    "schema": 6
+  }
+}

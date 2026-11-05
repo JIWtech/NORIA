@@ -69,6 +69,7 @@ import { Conversations } from '../features/conversations/components/Conversation
 import { Kanban } from '../features/kanban/components/Kanban';
 import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
+import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
 import { AuthShell } from '../features/auth/components/AuthShell';
 import { LoginPage } from '../features/auth/components/LoginPage';
@@ -1285,6 +1286,7 @@ function App() {
             onChanged={refreshData}
             initialData={prefilledAppointment}
             ready={appDataReady}
+            outcomeTracking={isOutcomeTrackingEnabled(tenantSettings)}
           />
         )}
         {active === 'configuracoes' && (
