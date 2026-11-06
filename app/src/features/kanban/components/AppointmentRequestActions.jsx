@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { sendN8nCommand } from '../../../services/integration.js';
-import { appointmentRequestState } from '../../../services/appointments/appointmentRequest.js';
-import { userFacingError } from '../../../utils/userFacingError.js';
+import { appointmentRequestErrorMessage, appointmentRequestState } from '../../../services/appointments/appointmentRequest.js';
 
 const conflictLine = (item) => `${item.title || 'Agendamento'} (${new Date(item.starts_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })})`;
 
@@ -28,7 +27,7 @@ export function AppointmentRequestActions({ card, tenantSlug, staleHours, onChan
       onStatus?.(success);
       await onChanged?.();
     } catch (error) {
-      onStatus?.(userFacingError(error, failure));
+      onStatus?.(appointmentRequestErrorMessage(error, failure));
       await onChanged?.();
     } finally {
       setBusy('');

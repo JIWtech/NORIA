@@ -1,3 +1,5 @@
+import { userFacingError } from '../../utils/userFacingError.js';
+
 // Pedido de agendamento aguardando confirmação do dono (status pending_confirmation, migração 031).
 // O servidor confere versão e horário de novo: aqui só se decide o que o cartão mostra.
 
@@ -20,6 +22,20 @@ export function appointmentRequestState({ startsAt, metadata } = {}, { now = Dat
     canConfirm: !expired && !uncertain,
     canReject: !uncertain,
   };
+}
+
+// Os motivos de recusa do comando ajudam o dono a decidir; qualquer outro erro continua genérico.
+const REFUSALS = [
+  [/alterado pela cliente/, 'A cliente mudou este pedido. Confira os dados e tente de novo.'],
+  [/alterado por outro operador|alterado simultaneamente/, 'Outra pessoa alterou este pedido. Confira os dados e tente de novo.'],
+  [/entrega (?:nao comprovada|incerta)/i, 'Não deu para comprovar a entrega. Veja no WhatsApp se a mensagem chegou.'],
+  [/horario deste pedido ja passou/, 'O horário deste pedido já passou. Sugira outro horário à cliente.'],
+  [/nao esta mais aguardando confirmacao/, 'Este pedido já foi resolvido.'],
+];
+
+export function appointmentRequestErrorMessage(error, fallback) {
+  const message = String(error?.message || '');
+  return REFUSALS.find(([pattern]) => pattern.test(message))?.[1] || userFacingError(error, fallback);
 }
 
 // A leitura geral para em 200 agendamentos: pedidos abertos entram por consulta própria.

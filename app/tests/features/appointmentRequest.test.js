@@ -4,6 +4,7 @@ import { eventsToKanban } from '../../src/dataService.js';
 import { mapAppointment } from '../../src/services/appointments/appointmentPresentation.js';
 import { availableOutcomes } from '../../src/services/appointments/appointmentOutcome.js';
 import {
+  appointmentRequestErrorMessage,
   appointmentRequestState,
   mergeOpenAppointmentRequests,
 } from '../../src/services/appointments/appointmentRequest.js';
@@ -105,6 +106,18 @@ test('entrega incerta troca os botões pela verificação', () => {
   assert.equal(state.uncertain, true);
   assert.equal(state.canConfirm, false);
   assert.equal(state.canReject, false);
+});
+
+test('o dono entende por que a ação foi recusada, sem ver a mensagem crua do servidor', () => {
+  const fallback = 'Não foi possível confirmar o agendamento.';
+  const message = (text) => appointmentRequestErrorMessage(new Error(text), fallback);
+  assert.match(message('Pedido alterado pela cliente. Atualize o quadro.'), /cliente mudou este pedido/);
+  assert.match(message('Pedido alterado por outro operador. Atualize o quadro.'), /Outra pessoa/);
+  assert.match(message('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.'), /WhatsApp/);
+  assert.match(message('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.'), /WhatsApp/);
+  assert.match(message('O horario deste pedido ja passou'), /já passou/);
+  assert.match(message('Este pedido nao esta mais aguardando confirmacao'), /já foi resolvido/);
+  assert.equal(message('TypeError: fetch failed https://x.test?key=segredo'), fallback);
 });
 
 test('pedidos abertos entram na lista sem duplicar e fora do limite de 200', () => {

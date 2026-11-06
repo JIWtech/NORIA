@@ -1,7 +1,7 @@
 # Plano técnico: coluna "Confirmar agendamento"
 
 Data: 06/11/2026, revisado contra o código e o banco de produção no mesmo dia. Base: `dev` em `18f62cc`.
-Primeiro cliente: I&C Salon (`ic_salon`). Situação: migração 031 e CORE autorizados em 06/11/2026. Banco, CORE, comandos e painel implementados na `dev` local, sem commit. Nada foi aplicado em produção nem publicado. A seção 10 traz o que falta.
+Primeiro cliente: I&C Salon (`ic_salon`). Situação: migração 031 e CORE autorizados em 06/11/2026. Banco, CORE, comandos e painel estão na `dev`, e a migração 031 foi aplicada em produção em 06/11/2026. CORE e painel ainda não foram publicados, e o modo segue desligado. A seção 10 traz o que falta.
 
 ## 1. Objetivo
 
@@ -237,7 +237,7 @@ Cada etapa de código começa pelo teste que falha.
 |---|---|
 | A IA diz "confirmado" em texto livre depois do pedido | Risco residual: o caminho legado não tem auditoria. Reduzido pela regra do prompt e por `pedido_pendente`. Confirmar na homologação |
 | A IA erra dia da semana em texto livre | `received_template` e `confirmation_template` cobrem os dois momentos críticos. O erro de "quinta-feira, 6 de novembro" nas demais respostas segue como correção separada |
-| Cliente fica sem resposta | Pedido não grava `handoff` e usa serviço fora da lista de controle. As funções SQL reais da trava só serão exercidas na homologação |
+| Cliente fica sem resposta | Pedido não grava `handoff` e usa serviço fora da lista de controle. Comprovado com as funções SQL reais em 06/11/2026 |
 | Eco da mensagem do comando trava a IA | Não observado em 7 dias de produção. Conferir no passo 5 da homologação |
 | Mudança no CORE afeta outros clientes | Modo desligado por padrão, restrito ao caminho legado e com teste de não regressão |
 | Aviso de pedido novo não chega | A coluna é a fonte da fila. Não depender de `magia_list_turn_notifications` enquanto o erro 400 estiver aberto |
@@ -254,7 +254,7 @@ Para reverter, rodar um SQL que restaura o prompt anterior e remove `appointment
 
 ## 10. Situação da implementação (06/11/2026)
 
-Feito, sem commit:
+Feito:
 
 - Migração 031 e rollback, com 13 testes em PGlite (`scripts/test_appointment_request.cjs`).
 - CORE, com 18 testes de turno completo (`scripts/test_appointment_request_core.cjs`).
@@ -266,6 +266,11 @@ Falta:
 
 1. Aprovar os textos com o Cesar.
 2. Estabilizar a base: 11 testes do frontend e `scripts/test_confirm_payment_core.cjs` já falhavam antes desta mudança.
-3. Aplicar a migração 031, publicar CORE e painel e rodar o SQL do I&C, nessa ordem, depois de revisão.
-4. Homologar. Ainda não foram exercidas as funções SQL reais da trava, o card em navegador nem o fluxo real no WhatsApp.
+3. Publicar CORE e painel e rodar o SQL do I&C, nessa ordem, depois de revisão. A migração 031 já está aplicada.
+4. Homologar no WhatsApp, que depende da publicação do CORE.
+
+Testado em 06/11/2026:
+
+- Funções reais da trava em produção (`magia_turn_suppression_status` e `magia_turn_control_evidence`), com conversa fictícia e transação revertida: pedido, confirmação e recusa não travam, e o caso de controle com `handoff: true` trava.
+- Componente `Kanban` real no navegador, com dados de teste e envio de comando simulado: os seis estados do card, conflito com segundo clique, recusa de versão antiga, entrega incerta e horário vencido.
 
