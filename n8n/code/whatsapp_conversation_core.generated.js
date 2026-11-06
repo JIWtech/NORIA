@@ -84,10 +84,10 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_05',
-  built_at: '2026-11-05T17:36:43.965Z',
-  core_sha256: 'c145667cfa627e6fa02bb9a8edf179dec3a71749ac28c9151e0e8642206caf91',
-  ext_sha256: 'fec0b6f81bee547857b50ee4798fc6b3b6776c904a93f573cd45cc83bb769e9c',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_06',
+  built_at: '2026-11-06T18:19:35.980Z',
+  core_sha256: 'a8d3891a86b24d6aa5fe5e2deaa08589975f0b307adf29c92c0da96cb30b2185',
+  ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
 let salesInventoryMemo = null;
@@ -1969,7 +1969,7 @@ function appointmentState(rows = [], now = Date.now()) {
   const active = new Set(['scheduled', 'confirmed', 'booked', 'reserved', 'rescheduled', 'pending_payment', 'payment_reported', 'agendado', 'agendada', 'confirmado', 'confirmada']);
   const normalizedRows = rows
     .map((row) => ({ ...row, startsAtMs: Date.parse(row.starts_at || ''), statusKey: normalizeText(row.status || 'scheduled') }))
-    .filter((row) => !cancelled.has(row.statusKey) && Number.isFinite(row.startsAtMs));
+    .filter((row) => !cancelled.has(row.statusKey) && row.statusKey !== 'pending_confirmation' && Number.isFinite(row.startsAtMs));
   const futureConfirmed = normalizedRows
     .filter((row) => row.startsAtMs > now && active.has(row.statusKey))
     .sort((left, right) => left.startsAtMs - right.startsAtMs)[0] || null;
@@ -1986,19 +1986,102 @@ function appointmentState(rows = [], now = Date.now()) {
   };
 }
 
-function parseAppointmentCreationTag(text) {
-  const source = String(text || '').replace(/\[A[C\u00c7][A\u00c3]O\s*:/gi, '[ACAO:');
-  const match = source.match(new RegExp(String.raw`\[(?:A??O|ACAO)\s*:\s*(?:CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)([^\]]*)\]`, 'i'));
-  if (!match) return null;
-
+function appointmentTagDetails(rawTail) {
   const details = {};
-  const tail = String(match[1] || '').replace(/^\s*[|:;,-]\s*/, '');
+  const tail = String(rawTail || '').replace(/^\s*[|:;,-]\s*/, '');
   for (const part of tail.split('|')) {
     const [rawKey, ...rawValueParts] = part.split('=');
     const key = normalizeText(rawKey).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
     const value = rawValueParts.join('=').trim();
     if (key && value) details[key] = value;
   }
+  return details;
+}
+
+// Pedido aguardando confirmação do dono (settings.appointment_request). A intenção é do Gemini; aqui só se lê o formato da tag.
+function parseAppointmentRequestAction(text) {
+  const source = String(text || '').replace(/\[A[C\u00c7][A\u00c3]O\s*:/gi, '[ACAO:');
+  const match = source.match(/\[ACAO:\s*(CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO|ATUALIZAR_PEDIDO|CANCELAR_PEDIDO)([^\]]*)\]/i);
+  if (!match) return null;
+  const kind = { CRIAR_AGENDAMENTO: 'create', AGENDAMENTO_CONFIRMADO: 'forbidden', ATUALIZAR_PEDIDO: 'update', CANCELAR_PEDIDO: 'cancel' }[match[1].toUpperCase()];
+  const details = appointmentTagDetails(match[2]);
+  const services = String(details.servicos || details.servico || details.service || '').split(';').map(item => item.trim()).filter(Boolean);
+  return {
+    kind, services, customerName: details.nome || details.cliente || '', date: details.data || details.date || '',
+    time: details.hora || details.horario || details.time || '', professional: details.profissional || '',
+    firstVisit: details.primeira_vez || '', status: normalizeText(details.status || ''),
+  };
+}
+
+// Só vale no caminho legado: os outros têm autoridade própria sobre reserva. Configuração inválida nunca grava pedido.
+function appointmentRequestConfig(context) {
+  const settings = settingsFor(context);
+  const config = settings.appointment_request;
+  if (config?.mode !== 'operator_confirmation') return null;
+  const valid = ['received_template', 'confirmation_template', 'slot_rejected_template'].every(key => typeof config[key] === 'string' && config[key].trim())
+    && !settings.grounding_mode && settings.noria_turn_pipeline?.enabled !== true && settings.appointment_scheduling?.enabled !== true;
+  return { ...config, valid };
+}
+
+function renderAppointmentRequest(template, appointment, context) {
+  const timeZone = tenantTimeZone(context);
+  const start = new Date(appointment.starts_at);
+  const values = {
+    nome: appointment.contact_name || '',
+    servicos: (appointment.metadata?.services || []).join(' e '),
+    data: new Intl.DateTimeFormat('pt-BR', { timeZone, weekday: 'long', day: 'numeric', month: 'long' }).format(start),
+    hora: new Intl.DateTimeFormat('pt-BR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(start),
+  };
+  const text = String(template).replace(/\{(nome|servicos|data|hora)\}/g, (_, key) => values[key]);
+  if (/[{}]/.test(text) || !text.trim()) throw new Error('APPOINTMENT_REQUEST_TEMPLATE_INVALID');
+  return text.trim();
+}
+
+async function loadOpenAppointmentRequest(context) {
+  const rows = await supabaseGet('/rest/v1/appointments?select=*&tenant_id=eq.' + encodeFilter(context.tenant.id)
+    + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId) + '&status=eq.pending_confirmation&limit=1');
+  if (!Array.isArray(rows)) throw new Error('Appointments unavailable');
+  return rows[0] || null;
+}
+
+async function saveAppointmentRequest(context, action, open) {
+  if (action.kind === 'forbidden' || (action.kind === 'create' && action.status !== 'pending_confirmation')) throw new Error('APPOINTMENT_REQUEST_STATUS_INVALID');
+  if (action.kind === 'update' && !open) throw new Error('APPOINTMENT_REQUEST_NOT_OPEN');
+  const base = action.kind === 'update' ? open.metadata || {} : {};
+  const customerName = action.customerName || base.customer_name || '';
+  const wanted = action.services.length ? action.services : base.services || [];
+  const date = action.date || base.requested_date || '';
+  const time = action.time || base.requested_time || '';
+  const catalog = await supabaseGet('/rest/v1/tenant_service_catalog?select=name,estimated_hours&tenant_id='
+    + 'eq.' + encodeFilter(context.tenant.id) + '&active=eq.true&limit=200');
+  const services = wanted.map(name => catalog.find(item => normalizeText(item.name) === normalizeText(name)));
+  const startsAt = parseAppointmentStartAt(date, time, context);
+  if (!groundingIsFullName(customerName)) throw new Error('APPOINTMENT_FULL_NAME_REQUIRED');
+  if (!services.length || services.some(item => !item) || !startsAt || Date.parse(startsAt) <= Date.now()) throw new Error('Invalid appointment details');
+  // A duração vem do catálogo. Sem ela para algum serviço, o fim fica em aberto e o card avisa.
+  const hours = services.map(item => Number(item.estimated_hours));
+  const knownDuration = services.every(item => item.estimated_hours !== null && item.estimated_hours !== undefined) && hours.every(value => value > 0);
+  const durationMinutes = knownDuration ? Math.round(hours.reduce((sum, value) => sum + value, 0) * 60) : null;
+  const names = services.map(item => item.name);
+  const result = await supabasePost('/rest/v1/rpc/magia_upsert_appointment_request', {
+    p_tenant: context.tenant.id, p_channel: 'whatsapp', p_chat: String(chatId), p_contact: customerName,
+    p_title: names.join(' + ') + ' - ' + customerName, p_starts_at: startsAt,
+    p_ends_at: durationMinutes ? new Date(Date.parse(startsAt) + durationMinutes * 60000).toISOString() : null,
+    p_details: { tenant_slug: tenantSlug, services: names, customer_name: customerName, requested_date: date, requested_time: time,
+      professional: action.professional || base.professional || null, first_visit: action.firstVisit || base.first_visit || null,
+      duration_minutes: durationMinutes, conversation_session_id: turn?.boundary_id || null },
+    p_request: 'turn:' + (turn?.messages?.at(-1)?.event_id || turn?.token || ''),
+  });
+  if (!result?.appointment?.id) throw new Error('Appointment not persisted');
+  return result.appointment;
+}
+
+function parseAppointmentCreationTag(text) {
+  const source = String(text || '').replace(/\[A[C\u00c7][A\u00c3]O\s*:/gi, '[ACAO:');
+  const match = source.match(new RegExp(String.raw`\[(?:A??O|ACAO)\s*:\s*(?:CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)([^\]]*)\]`, 'i'));
+  if (!match) return null;
+
+  const details = appointmentTagDetails(match[1]);
 
   return {
     customerName: details.nome || details.cliente || details.customer_name || '',
@@ -2825,6 +2908,13 @@ async function callGemini(context, classification, fallback, history, catalog, a
       quando: appointmentDateLabel(appointments.passed),
       status: appointments.passed.status || null,
     } : null,
+    pedido_pendente: appointments?.openRequest ? {
+      titulo: appointments.openRequest.title,
+      servicos: appointments.openRequest.metadata?.services || [],
+      data: appointments.openRequest.metadata?.requested_date || null,
+      hora: appointments.openRequest.metadata?.requested_time || null,
+      versao: appointments.openRequest.metadata?.request_version || null,
+    } : undefined,
     encontrado: Boolean(appointments?.rows?.length),
   });
 
@@ -14590,6 +14680,8 @@ async function runTurn() {
 
   const appointmentResult = await loadAppointments(context.tenant.id);
   const appointments = appointmentState(appointmentResult.rows);
+  const requestConfig = appointmentRequestConfig(context);
+  if (requestConfig?.valid) appointments.openRequest = await loadOpenAppointmentRequest(context);
   const catalog = await loadCatalogContext(context);
   if (catalog.error || !catalog.matches?.length) throw new Error('Service catalog unavailable');
   const classification = classify(context);
@@ -14642,7 +14734,37 @@ async function runTurn() {
   const actions = detectActions(responseText);
   const tag = parseAppointmentCreationTag(responseText);
   let creation = null;
-  if (tag) {
+  const requestAction = requestConfig ? parseAppointmentRequestAction(responseText) : null;
+  if (requestAction && !actions.humanRequested && !(actions.complaint && !isBotFrustrationText())) {
+    try {
+      if (!requestConfig.valid) throw new Error('APPOINTMENT_REQUEST_CONFIG_INVALID');
+      if (requestAction.kind === 'cancel') {
+        if (!cleanReplyText(responseText).trim()) throw new Error('APPOINTMENT_REQUEST_EMPTY_REPLY');
+        const cancelled = await supabasePost('/rest/v1/rpc/magia_cancel_appointment_request', { p_tenant: context.tenant.id, p_channel: 'whatsapp',
+          p_chat: String(chatId), p_reason: 'customer_cancelled', p_actor: 'ai' });
+        event.raw_payload.appointment_request = { kind: 'cancel', cancelled: cancelled?.cancelled === true, appointment_id: cancelled?.appointment?.id || null };
+        if (cancelled?.cancelled === true) event.service = 'agendamento_cancelado';
+      } else {
+        const request = await saveAppointmentRequest(context, requestAction, appointments.openRequest);
+        const received = renderAppointmentRequest(requestConfig.received_template, request, context);
+        responseText = received; preserveLiteralReply = true;
+        event.service = 'agendamento_pendente'; event.stage = 'Aguardando confirmação';
+        event.raw_payload.appointment_request = { kind: requestAction.kind, appointment_id: request.id, request_version: request.metadata?.request_version || null };
+      }
+    } catch (error) {
+      const code = supabaseErrorText(error) || String(error?.message || error);
+      event.ai_error = 'appointment_not_created';
+      event.raw_payload.appointment_request = { kind: requestAction.kind, failed: String(code).slice(0, 120) };
+      if (/APPOINTMENT_FULL_NAME_REQUIRED/.test(code)) responseText = 'Qual \u00e9 o seu nome completo, por favor?';
+      else if (/Invalid appointment details|APPOINTMENT_REQUEST_(?:PAST|STATUS_INVALID|NOT_OPEN)/.test(code)) {
+        responseText = 'N\u00e3o consegui registrar esse hor\u00e1rio. Me confirme o servi\u00e7o, a data e o hor\u00e1rio desejados para eu verificar?';
+      } else {
+        // Pedido em envio, configuração inválida ou falha técnica: decide uma pessoa.
+        responseText = sessionHandoffMessage(); preserveLiteralReply = true;
+        event.handoff = true; event.stage = 'Atendimento humano'; event.service = 'atendimento_humano';
+      }
+    }
+  } else if (tag && !requestConfig) {
     try {
       // Require an actual active service, full identity and a valid future date.
       const services = await supabaseGet('/rest/v1/tenant_service_catalog?select=name&tenant_id=eq.'

@@ -212,6 +212,20 @@ async function main(helpers) {
     return 'Reserva confirmada! Recebemos a confirmacao do sinal. A equipe vai seguir com a confirmacao final por aqui.';
   }
 
+  function renderAppointmentRequest(template, row, settings) {
+    const timeZone = String(settings.timezone || 'America/Sao_Paulo');
+    const start = new Date(row.starts_at);
+    const values = {
+      nome: row.contact_name || '',
+      servicos: (row.metadata?.services || []).join(' e '),
+      data: new Intl.DateTimeFormat('pt-BR', { timeZone, weekday: 'long', day: 'numeric', month: 'long' }).format(start),
+      hora: new Intl.DateTimeFormat('pt-BR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(start),
+    };
+    const text = String(template || '').replace(/\{(nome|servicos|data|hora)\}/g, (_, key) => values[key]);
+    if (/[{}]/.test(text) || !text.trim()) throw new Error('Modelo de mensagem invalido. Revise a configuracao do pedido.');
+    return text.trim();
+  }
+
   async function confirmAppointment(tenantId, appointmentId) {
     const { supabaseUrl } = supabaseConfig();
     const rows = await httpJson(
@@ -272,7 +286,7 @@ async function main(helpers) {
   const command = required(input.command, 'command');
   const tenantSlug = required(input.tenant_slug, 'tenant_slug').toLowerCase();
   const payload = input.payload || {};
-  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
+  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
 
   const user = await validateUserSession();
   const tenant = await loadTenant(tenantSlug);
@@ -306,7 +320,7 @@ async function main(helpers) {
     ? String(payload.message_text || 'Atendimento encerrado').trim()
     : command === 'assign_conversation'
       ? String(payload.message_text || 'Conversa atribuida').trim()
-      : command === 'confirm_payment_signal'
+      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)
         ? String(payload.message_text || '').trim()
     : required(payload.message_text, 'payload.message_text');
   const token = tokenFor(tenantSlug, channelType);
@@ -351,6 +365,80 @@ async function main(helpers) {
     };
     const saved = await insertEvent(event);
     return { ok: true, command, tenant_slug: tenantSlug, channel_type: normalizedChannel, command_id: commandId, external_message_id: event.external_message_id, saved };
+  }
+
+  if (command === 'confirm_appointment_request' || command === 'reject_appointment_slot') {
+    const appointmentId = required(payload.appointment_id, 'payload.appointment_id');
+    const isConfirm = command === 'confirm_appointment_request';
+    const settings = await loadTenantSettings(tenant.id);
+    const config = settings.appointment_request;
+    if (config?.mode !== 'operator_confirmation') throw new Error('Confirmacao de agendamento nao esta ativa nesta empresa');
+    if (normalizedChannel !== 'whatsapp') throw new Error('Canal incorreto para este agendamento');
+    const { supabaseUrl } = supabaseConfig();
+    const appointmentPath = supabaseUrl + '/rest/v1/appointments?tenant_id=eq.' + encodeURIComponent(tenant.id)
+      + '&id=eq.' + encodeURIComponent(appointmentId);
+    const openPath = appointmentPath + '&status=eq.pending_confirmation';
+    const rows = await httpJson('GET', appointmentPath + '&select=*', serviceHeaders());
+    const row = rows[0];
+    if (!row || row.channel_type !== normalizedChannel || row.external_conversation_id !== externalConversationId) {
+      throw new Error('Agendamento nao pertence a esta conversa/canal');
+    }
+    if (isConfirm && row.status === 'confirmed') return { ok: true, command, already_confirmed: true, appointment: row };
+    if (row.status !== 'pending_confirmation') throw new Error('Este pedido nao esta mais aguardando confirmacao');
+    const metadata = row.metadata || {};
+
+    // Grava o resultado depois da entrega comprovada. O evento não é de controle: a IA continua na conversa.
+    const finish = async (claimedMetadata, messageId, text) => {
+      const now = new Date().toISOString();
+      const done = messageRef => ({ ...claimedMetadata, confirmation_state: 'sent', confirmation_message_id: messageRef,
+        ...(claimedMetadata.confirmation_action === 'confirm' ? { confirmed_by: user.id, confirmed_at: now }
+          : { cancel_reason: 'slot_rejected', cancelled_by: user.id, cancelled_at: now }) });
+      const isConfirmAction = claimedMetadata.confirmation_action === 'confirm';
+      const updated = await httpJson('PATCH', openPath, serviceHeaders('return=representation'), {
+        status: isConfirmAction ? 'confirmed' : 'cancelled', updated_at: now, metadata: done(messageId) });
+      if (updated.length !== 1) throw new Error('Mensagem enviada, mas registro alterado simultaneamente. Verifique o agendamento.');
+      if (!messageId) return { ok: true, command, appointment: updated[0], resolved: true };
+      const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+        external_conversation_id: externalConversationId, external_message_id: messageId, direction: 'outbound', sender_type: 'system',
+        contact_name: row.contact_name || 'Contato', message_text: text,
+        service: isConfirmAction ? 'appointment_request_confirmed' : 'appointment_request_rejected',
+        stage: isConfirmAction ? 'Agendamento confirmado' : 'Horario indisponivel', handoff: false, response_text: null,
+        ai_provider: 'operator_confirmation', sent_by_user: user.email || user.id, delivery_status: 'sent', command_id: commandId,
+        raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0] } });
+      return { ok: true, command, appointment: updated[0], saved };
+    };
+
+    if (payload.uncertain_resolution) {
+      if (!metadata.confirmation_state) throw new Error('Este pedido nao tem entrega pendente de verificacao');
+      if (payload.uncertain_resolution === 'delivered') return await finish(metadata, null, '');
+      if (payload.uncertain_resolution !== 'not_delivered') throw new Error('Resolucao invalida');
+      const { confirmation_state: _state, confirmation_action: _action, confirmation_command: _command, ...cleared } = metadata;
+      const updated = await httpJson('PATCH', openPath, serviceHeaders('return=representation'), { metadata: cleared, updated_at: new Date().toISOString() });
+      return { ok: true, command, appointment: updated[0], resolved: true };
+    }
+    if (metadata.confirmation_state) throw new Error('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.');
+    if (Number(payload.request_version) !== Number(metadata.request_version)) throw new Error('Pedido alterado pela cliente. Atualize o quadro.');
+    if (isConfirm && Date.parse(row.starts_at) <= Date.now()) throw new Error('O horario deste pedido ja passou');
+    const zoneRows = await httpJson('GET', supabaseUrl + '/rest/v1/tenant_settings?select=timezone&tenant_id=eq.' + encodeURIComponent(tenant.id) + '&limit=1', serviceHeaders());
+    const text = renderAppointmentRequest(isConfirm ? config.confirmation_template : config.slot_rejected_template, row, { timezone: zoneRows?.[0]?.timezone });
+    if (isConfirm && payload.conflicts_acknowledged !== true) {
+      const conflicts = await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_appointment_request_conflicts', serviceHeaders(),
+        { p_tenant: tenant.id, p_appointment: appointmentId });
+      if (Array.isArray(conflicts) && conflicts.length) return { ok: true, command, requires_acknowledgement: true, conflicts };
+    }
+    const claimedMetadata = { ...metadata, confirmation_state: 'sending', confirmation_action: isConfirm ? 'confirm' : 'reject', confirmation_command: commandId };
+    const claimed = await httpJson('PATCH', openPath + '&updated_at=eq.' + encodeURIComponent(row.updated_at), serviceHeaders('return=representation'),
+      { metadata: claimedMetadata, updated_at: new Date().toISOString() });
+    if (claimed.length !== 1) throw new Error('Pedido alterado por outro operador. Atualize o quadro.');
+    let sent;
+    try {
+      sent = await sendWhatsApp(evolution, externalConversationId, text);
+      if (!sent.messageId) throw new Error('Evolution nao retornou identificador da mensagem');
+    } catch (error) {
+      await httpJson('PATCH', appointmentPath, serviceHeaders(), { metadata: { ...claimedMetadata, confirmation_state: 'uncertain' }, updated_at: new Date().toISOString() });
+      throw new Error('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.');
+    }
+    return await finish(claimedMetadata, sent.messageId, text);
   }
 
   if (command === 'confirm_payment_signal') {
