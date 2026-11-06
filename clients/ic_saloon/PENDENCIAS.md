@@ -59,3 +59,9 @@ Migration `supabase/migrations/030_appointment_outcomes_no_show.sql` e painel (K
 - Vale só para agendamentos feitos no sistema: **nenhum cliente anterior à ativação é considerado**.
 - A IA **ainda não sabe** da lista (o motor só enxerga agendamentos futuros): o selo avisa o dono, que cobra o sinal ao confirmar. Para a IA avisar sozinha é preciso uma mudança genérica no CORE (opcional por tenant), ainda não feita.
 - Limite técnico existente: o painel carrega só os 200 primeiros agendamentos por tenant em ordem crescente de data; com mais que isso os recentes deixam de aparecer. Corrigir antes de o salão passar de ~200 agendamentos.
+
+## 5. Coluna Confirmar agendamento
+
+Implementada na `dev` em 06/11/2026, ainda **desligada** e fora de produção. Plano: `docs/operations/plano_coluna_confirmacao_agendamento.md`.
+
+Quando ligada, substitui a regra da seção 2: a IA registra o pedido com data e hora exatas e o dono confirma pelo Kanban, sem lançar à mão na aba Agendamentos. A IA continua sem ver a agenda. Depende dos textos aprovados pelo Cesar em `05_confirmacao_agendamento.sql`.
