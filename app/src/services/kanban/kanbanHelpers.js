@@ -20,6 +20,7 @@ export const KANBAN_KEY_ALIASES = {
   conversas_com_humano: 'com_humano',
   designado_humano: 'com_humano',
   verificar_sinal: 'verificar_sinal',
+  confirmar_agendamento: 'confirmar_agendamento',
   sinal_pago: 'verificar_sinal',
   pagamento_sinal: 'verificar_sinal',
   pagamento_reportado: 'verificar_sinal',

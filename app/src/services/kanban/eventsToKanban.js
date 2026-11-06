@@ -23,6 +23,8 @@ import { normalizeMedia } from '../media/mediaNormalization.js';
 import { mediaPreview } from '../media/mediaPresentation.js';
 import { formatConversationPreview } from '../../utils/audioUtils.js';
 
+const HUMAN_HELD_COLUMNS = new Set(['aguardando_humano', 'com_humano', 'conversas_humanos']);
+
 export function eventsToKanban(
   events,
   tenantSlug = 'clinica_nubia',
@@ -289,7 +291,10 @@ export function eventsToKanban(
       `appointment-${appointment.id}`,
     );
     const current = latestAppointmentsByConversation.get(key);
-    if (!current || isMoreRecentRecord(appointment, current)) latestAppointmentsByConversation.set(key, appointment);
+    // Pedido aberto é a pendência da conversa: vale mais que um agendamento já resolvido, mesmo mais recente.
+    const replaces = !current || appointment.status === 'pending_confirmation'
+      || (current.status !== 'pending_confirmation' && isMoreRecentRecord(appointment, current));
+    if (replaces) latestAppointmentsByConversation.set(key, appointment);
   }
 
   const appointmentCards = [...latestAppointmentsByConversation.values()]
@@ -310,8 +315,10 @@ export function eventsToKanban(
       externalConversationId: appointment.externalConversationId,
       // 'nao_compareceu' só existe em quadros que a criaram; nos demais o cartão cai em 'agendamentos' (fallback abaixo).
       targetColumnId: appointment.status === 'payment_reported' ? 'verificar_sinal'
-        : appointment.status === 'no_show' ? 'nao_compareceu' : 'agendamentos',
-      actionType: appointment.status === 'payment_reported' ? 'confirm_signal' : '',
+        : appointment.status === 'no_show' ? 'nao_compareceu'
+          : appointment.status === 'pending_confirmation' ? 'confirmar_agendamento' : 'agendamentos',
+      actionType: appointment.status === 'payment_reported' ? 'confirm_signal'
+        : appointment.status === 'pending_confirmation' ? 'confirm_request' : '',
       aiReason: appointment.status === 'payment_reported'
         ? 'Sinal informado. Aguardando verificação humana.'
         : '',
@@ -327,7 +334,10 @@ export function eventsToKanban(
 
     if (matchingEvent) {
       const appointment = latestAppointmentsByConversation.get(key);
-      if (isMoreRecentRecord(appointment, { updated_at: matchingEvent.occurredAt })) {
+      // Pedido aberto fica na coluna mesmo com mensagem nova, salvo se a conversa estiver com humano.
+      const openRequest = appointment.status === 'pending_confirmation';
+      const heldByHuman = openRequest && HUMAN_HELD_COLUMNS.has(matchingEvent.column.automationKey || matchingEvent.column.id);
+      if ((openRequest || isMoreRecentRecord(appointment, { updated_at: matchingEvent.occurredAt })) && !heldByHuman) {
         matchingEvent.column.cards = matchingEvent.column.cards.filter((card) => card.id !== matchingEvent.card.id);
         const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
         if (targetColumn) {

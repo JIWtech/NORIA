@@ -45,6 +45,7 @@ import {
 } from '../../../dataService';
 import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { useDepositRequired } from '../../appointments/utils/useDepositRequired';
+import { AppointmentRequestActions } from './AppointmentRequestActions.jsx';
 import {
   availableOutcomes,
   isDepositRequired,
@@ -296,6 +297,9 @@ export function Kanban({
     if (/sales_qualifying/.test(key)) return { tone: getStageTone('sales_qualifying'), shortLabel: navigationLabel || 'Qualificação IA', description: 'IA coletando informações comerciais.', Icon: Bot };
     if (/sales_new/.test(key)) return { tone: getStageTone('sales_new'), shortLabel: navigationLabel || 'Novos contatos', description: 'Novos contatos aguardando qualificação.', Icon: MessageCircle };
 
+    if (/confirmar[_\s-]?agendamento/.test(key)) {
+      return { tone: 'amber', shortLabel: navigationLabel || 'Confirmar agendamento', description: 'Pedidos conduzidos pela IA aguardando a sua confirmação.', Icon: CalendarCheck };
+    }
     if (/nao[_\s-]?compareceu/.test(key)) {
       return { tone: 'slate', shortLabel: 'Não compareceu', description: 'Clientes que faltaram ao agendamento.', Icon: CalendarX2 };
     }
@@ -789,6 +793,16 @@ export function Kanban({
                                 </button>
                               )}
                             </div>
+                          )}
+
+                          {card.actionType === 'confirm_request' && (
+                            <AppointmentRequestActions
+                              card={card}
+                              tenantSlug={tenantSlug}
+                              staleHours={tenantSettings?.settings?.appointment_request?.stale_alert_hours}
+                              onChanged={onChanged}
+                              onStatus={setKanbanActionStatus}
+                            />
                           )}
 
                           {card.actionType === 'confirm_signal' && (

@@ -1,3 +1,4 @@
+import { mergeOpenAppointmentRequests } from '../appointments/appointmentRequest.js';
 import { isGenesisSalesTenant } from '../kanban/commercialStages.js';
 
 export async function findTenantBySlug(supabase, activeTenantSlug) {
@@ -26,7 +27,15 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     console.warn('Appointments fallback:', error.message);
     return [];
   }
-  return (data || []).map(mapAppointment);
+  const { data: openRequests, error: openError } = await supabase
+    .from('appointments')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'pending_confirmation')
+    .order('starts_at', { ascending: true })
+    .limit(200);
+  if (openError) console.warn('Appointment requests fallback:', openError.message);
+  return mergeOpenAppointmentRequests(data || [], openRequests || []).map(mapAppointment);
 }
 
 export async function loadBroadcastContacts(supabase, tenantId) {
