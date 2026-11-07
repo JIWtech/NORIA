@@ -19,11 +19,13 @@ export function AppTopbar({
   setTenantSlug,
   notificationTenantId,
   notificationUserId,
+  notificationSettings,
   notificationConversations,
   notificationAppointments,
   notificationKanbanColumns,
   onOpenNotificationPage,
   onOpenNotificationConversation,
+  onOpenNotificationCard,
 }) {
   const handleOpenMobileNav = () => {
     if (onOpenMobileNav) {
@@ -68,16 +70,19 @@ export function AppTopbar({
         />
         <div className="topbar-utility-buttons">
           <NotificationCenter
-            key={JSON.stringify([notificationTenantId, notificationUserId])}
+            key={JSON.stringify([activeTenantSlug, notificationTenantId, notificationUserId])}
             tenantId={notificationTenantId}
             userId={notificationUserId}
             tenantName={selectedTenant?.name}
             tenantSlug={activeTenantSlug}
+            role={selectedTenant?.membershipRole}
+            settings={notificationSettings}
             conversations={notificationConversations}
             appointments={notificationAppointments}
             kanbanColumns={notificationKanbanColumns}
             onOpenPage={onOpenNotificationPage}
             onOpenConversation={onOpenNotificationConversation}
+            onOpenCard={onOpenNotificationCard}
           />
           <button className="icon-button" type="button" title="Atualizar" aria-label="Atualizar" onClick={refreshData}>
             <RefreshCcw size={17} className={loading ? 'spin' : ''} />

@@ -43,6 +43,7 @@ async function loadTenantSettings(tenantSlug) {
       return null;
     }
     return {
+      tenantId: tenant.id,
       timezone: data?.timezone || 'America/Sao_Paulo',
       businessHours: (data?.business_hours && Object.keys(data.business_hours).length > 0) ? data.business_hours : null,
       business_hours: (data?.business_hours && Object.keys(data.business_hours).length > 0) ? data.business_hours : null,

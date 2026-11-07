@@ -280,6 +280,7 @@ function App() {
   const [agentsList, setAgentsList] = useState([]);
   const [tenantSettings, setTenantSettings] = useState(null);
   const [initialConversationId, setInitialConversationId] = useState(null);
+  const [notificationCard, setNotificationCard] = useState(null);
   const [prefilledAppointment, setPrefilledAppointment] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const refreshCoordinator = useMemo(() => createRefreshCoordinator(), []);
@@ -1212,11 +1213,16 @@ function App() {
           setTenantSlug={setTenantSlug}
           notificationTenantId={hasTenantAccess ? appData.tenantId : null}
           notificationUserId={session?.user?.id || null}
+          notificationSettings={tenantSettings?.tenantId === appData.tenantId ? tenantSettings?.settings : null}
           notificationConversations={appData.conversations}
           notificationAppointments={appData.appointments}
           notificationKanbanColumns={appData.kanbanColumns}
           onOpenNotificationPage={setActive}
           onOpenNotificationConversation={handleOpenChatFromKanban}
+          onOpenNotificationCard={cardId => {
+            setNotificationCard({ scopeKey, cardId });
+            setActive('kanban');
+          }}
         />
 
         {active === 'dashboard' && (
@@ -1264,6 +1270,8 @@ function App() {
             onMoveCard={handleMoveKanbanCard}
             onOrderApplied={handleKanbanOrderApplied}
             onFinishConversation={handleFinishConversationFromKanban}
+            focusedCardId={notificationCard?.scopeKey === scopeKey ? notificationCard.cardId : undefined}
+            onCardFocused={() => setNotificationCard(null)}
             ready={appDataReady}
           />
         )}

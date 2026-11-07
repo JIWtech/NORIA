@@ -14,6 +14,7 @@ import {
   Copy,
   ExternalLink,
   Flame,
+  GripVertical,
   Inbox,
   MessageCircle,
   RefreshCcw,
@@ -79,6 +80,8 @@ export function Kanban({
   onMoveCard,
   onOrderApplied,
   onFinishConversation,
+  focusedCardId,
+  onCardFocused,
   ready = true,
 }) {
   const [agentFilter, setAgentFilter] = useState(KANBAN_OWNER_FILTERS.ALL);
@@ -100,6 +103,7 @@ export function Kanban({
   const [flowStatus, setFlowStatus] = useState('idle');
   const boardRef = useRef(null);
   const columnRefs = useRef(new Map());
+  const draggedCardRef = useRef(null);
   const channelTransitionTimersRef = useRef({ exit: null, enter: null });
   const pendingChannelFilterRef = useRef(null);
 
@@ -356,47 +360,30 @@ export function Kanban({
         const matchesAgent = matchesKanbanOwnerFilter(card, agentFilter);
         const matchesChannel =
           channelFilter === 'todos' || channelStr.includes(channelFilter);
-        return matchesQuery && matchesAgent && matchesChannel;
+        return card.id === focusedCardId || (matchesQuery && matchesAgent && matchesChannel);
       });
       return { ...col, cards };
     });
-  }, [orderedColumns, agentFilter, channelFilter, searchQuery]);
+  }, [orderedColumns, agentFilter, channelFilter, searchQuery, focusedCardId]);
 
   useEffect(() => {
-    if (!filteredColumns.some((column) => column.id === activeColumnId)) {
-      setActiveColumnId(filteredColumns[0]?.id || '');
+    if (!focusedCardId || !ready) return;
+    const card = boardRef.current?.querySelector('[data-notification-focus]');
+    if (card) {
+      setAgentFilter(KANBAN_OWNER_FILTERS.ALL);
+      setChannelFilter('todos');
+      setSearchQuery('');
+      card.scrollIntoView({ block: 'nearest', inline: 'center' });
+      card.focus({ preventScroll: true });
+    }
+    onCardFocused?.();
+  }, [focusedCardId, onCardFocused, ready]);
+
+  useEffect(() => {
+    if (activeColumnId && !filteredColumns.some((column) => column.id === activeColumnId)) {
+      setActiveColumnId('');
     }
   }, [activeColumnId, filteredColumns]);
-
-  useEffect(() => {
-    const board = boardRef.current;
-    if (!board || !filteredColumns.length) return undefined;
-
-    const updateActiveColumn = () => {
-      const boardBounds = board.getBoundingClientRect();
-      let mostVisibleColumnId = filteredColumns[0]?.id || '';
-      let largestVisibleWidth = -1;
-      for (const column of filteredColumns) {
-        const element = columnRefs.current.get(column.id);
-        if (!element) continue;
-        const bounds = element.getBoundingClientRect();
-        const visibleWidth = Math.max(0, Math.min(bounds.right, boardBounds.right) - Math.max(bounds.left, boardBounds.left));
-        if (visibleWidth > largestVisibleWidth) {
-          largestVisibleWidth = visibleWidth;
-          mostVisibleColumnId = column.id;
-        }
-      }
-      setActiveColumnId((current) => current === mostVisibleColumnId ? current : mostVisibleColumnId);
-    };
-
-    updateActiveColumn();
-    board.addEventListener('scroll', updateActiveColumn, { passive: true });
-    window.addEventListener('resize', updateActiveColumn);
-    return () => {
-      board.removeEventListener('scroll', updateActiveColumn);
-      window.removeEventListener('resize', updateActiveColumn);
-    };
-  }, [filteredColumns]);
 
   function scrollToColumn(columnId) {
     const board = boardRef.current;
@@ -413,58 +400,50 @@ export function Kanban({
 
     board.scrollTo({
       left: targetLeft,
-      behavior: 'smooth',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
     });
     setActiveColumnId(columnId);
   }
 
-  // Drag & Drop Handlers
   const handleDragStart = (e, card, column) => {
+    draggedCardRef.current = { card, sourceColumnId: column.id };
     setDraggingCardId(card.id);
     e.dataTransfer.effectAllowed = 'move';
-    // Usamos text/plain para compatibilidade maxima em todos os browsers
-    e.dataTransfer.setData('text/plain', JSON.stringify({
-      cardId: card.id,
-      sourceColumnId: column.id,
-      card,
-    }));
+    e.dataTransfer.setData('text/plain', card.id);
+    const article = e.currentTarget.closest('.kanban-card');
+    if (article) {
+      const { left, top } = article.getBoundingClientRect();
+      e.dataTransfer.setDragImage(article, e.clientX - left, e.clientY - top);
+    }
   };
 
   const handleDragEnd = () => {
+    draggedCardRef.current = null;
     setDraggingCardId(null);
     setDragOverColumnId(null);
   };
 
-  const handleDragOver = (e, column) => {
+  const handleDragOver = (e) => {
+    if (!draggedCardRef.current) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragOverColumnId !== column.id) {
-      setDragOverColumnId(column.id);
-    }
+    const columnId = e.target.closest?.('[data-column-id]')?.dataset.columnId || null;
+    e.dataTransfer.dropEffect = columnId ? 'move' : 'none';
+    setDragOverColumnId(columnId);
   };
 
-  const handleDragLeave = (e, column) => {
-    if (dragOverColumnId === column.id) {
-      setDragOverColumnId(null);
-    }
+  const handleDragLeave = (e) => {
+    if (draggedCardRef.current && !e.currentTarget.contains(e.relatedTarget)) setDragOverColumnId(null);
   };
 
-  const handleDrop = (e, targetColumn) => {
+  const handleDrop = (e) => {
+    const move = draggedCardRef.current;
+    if (!move) return;
     e.preventDefault();
-    e.stopPropagation();
-    setDragOverColumnId(null);
-    setDraggingCardId(null);
-    try {
-      const raw = e.dataTransfer.getData('text/plain');
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (!data?.card) return;
-      if (data.sourceColumnId === targetColumn.id) return;
-      if (onMoveCard) {
-        onMoveCard(data.card, targetColumn.automationKey || targetColumn.id, targetColumn);
-      }
-    } catch (err) {
-      console.warn('Erro ao processar drop no Kanban:', err);
+    const columnId = e.target.closest?.('[data-column-id]')?.dataset.columnId;
+    const targetColumn = filteredColumns.find(column => String(column.id) === columnId);
+    handleDragEnd();
+    if (targetColumn && move.sourceColumnId !== targetColumn.id) {
+      onMoveCard?.(move.card, targetColumn.automationKey || targetColumn.id, targetColumn);
     }
   };
 
@@ -582,6 +561,7 @@ export function Kanban({
                   onClick={() => scrollToColumn(column.id)}
                   title={`Ir para ${presentation.displayTitle || column.title}`}
                   aria-label={`Ir para etapa ${presentation.displayTitle || column.title}`}
+                  aria-current={activeColumnId === column.id ? 'location' : undefined}
                 >
                   <ShortcutIcon className="kanban-stage-shortcut-icon" size={17} aria-hidden="true" />
                   <span>{presentation.shortLabel}</span>
@@ -596,24 +576,11 @@ export function Kanban({
       <div
         className="kanban-board kanban-scroll-drag-surface"
         ref={boardRef}
-        onDragOver={(e) => {
-          if (draggingCardId) {
-            e.preventDefault();
-          }
-        }}
-        onDrop={(e) => {
-          if (!draggingCardId) return;
-          e.preventDefault();
-          const el = document.elementFromPoint(e.clientX, e.clientY);
-          const colEl = el?.closest?.('.kanban-column');
-          const colId = colEl?.getAttribute('data-column-id');
-          const targetCol = filteredColumns.find((c) => String(c.id) === String(colId));
-          if (targetCol) {
-            handleDrop(e, targetCol);
-          } else {
-            handleDragEnd();
-          }
-        }}
+        onPointerDown={() => setActiveColumnId('')}
+        onWheel={() => setActiveColumnId('')}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         {filteredColumns.map((column) => {
           const isWaitingColumn = column.automationKey === 'aguardando_humano' || column.id === 'aguardando_humano';
@@ -631,9 +598,6 @@ export function Kanban({
                 if (node) columnRefs.current.set(column.id, node);
                 else columnRefs.current.delete(column.id);
               }}
-              onDragOver={(e) => handleDragOver(e, column)}
-              onDragLeave={(e) => handleDragLeave(e, column)}
-              onDrop={(e) => handleDrop(e, column)}
             >
               <div className="column-header">
                 <span className="column-stage-icon" aria-hidden="true"><StageIcon size={19} /></span>
@@ -644,11 +608,7 @@ export function Kanban({
                 <span className="column-count-badge">{ready ? column.cards.length : '—'}</span>
               </div>
 
-              <div
-                className="column-cards-container"
-                onDragOver={(e) => handleDragOver(e, column)}
-                onDrop={(e) => handleDrop(e, column)}
-              >
+              <div className="column-cards-container">
                 {!ready ? (
                   [1, 2].map((i) => (
                     <article className="kanban-card kanban-card-skeleton" key={i}>
@@ -672,11 +632,8 @@ export function Kanban({
                         <article
                           className={`kanban-card ${channelClass} ${isDragging ? 'is-dragging' : ''} ${kanbanCardTransition === 'exiting' ? 'is-channel-exiting' : ''} ${kanbanCardTransition === 'entering' ? 'is-channel-entering' : ''}`}
                           key={card.id}
-                          draggable={true}
-                          onDragStart={(e) => handleDragStart(e, card, column)}
-                          onDragEnd={handleDragEnd}
-                          onDragOver={(e) => handleDragOver(e, column)}
-                          onDrop={(e) => handleDrop(e, column)}
+                          tabIndex={-1}
+                          data-notification-focus={card.id === focusedCardId ? '' : undefined}
                         >
                           <div className="kanban-card-header">
                             <div className="contact-title-line">
@@ -691,6 +648,11 @@ export function Kanban({
                               )}
                             </div>
                             <small className="card-time">{card.lastAt}</small>
+                            {onMoveCard && <span className="kanban-card-drag-handle" draggable
+                              title="Arraste para mover o card para outra etapa"
+                              onDragStart={(e) => handleDragStart(e, card, column)} onDragEnd={handleDragEnd}>
+                              <GripVertical size={16} aria-hidden="true" />
+                            </span>}
                           </div>
 
                           <p className="card-subtitle" title={formatConversationPreview(card.subtitle)}>{formatConversationPreview(card.subtitle)}</p>

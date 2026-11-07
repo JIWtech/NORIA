@@ -88,7 +88,6 @@
     gap: 12px;
     padding-bottom: 6px;
     overscroll-behavior-x: contain;
-    scroll-snap-type: x proximity;
   }
 
   .kanban-stage-navigation {
@@ -115,7 +114,6 @@
     width: min(310px, calc(100dvw - 32px));
     min-width: min(310px, calc(100dvw - 32px));
     max-width: min(310px, calc(100dvw - 32px));
-    scroll-snap-align: start;
     padding: 10px;
     border-radius: 8px;
   }
@@ -186,12 +184,24 @@
 }
 
 /* Kanban Drag and Drop & Quick Actions (Itens B e C) */
-.kanban-card[draggable="true"] {
+.kanban-card-drag-handle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  height: 24px;
+  margin-block: -4px;
+  border-radius: 5px;
+  color: var(--muted);
   cursor: grab;
   user-select: none;
 }
 
-.kanban-card[draggable="true"]:active {
+.kanban-card-drag-handle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.kanban-card-drag-handle:active {
   cursor: grabbing;
 }
 

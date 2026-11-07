@@ -27,7 +27,7 @@ export function useNotifications(tenantId, userId) {
     cursor.current = pageCursor;
     // Only the current bounded page is retained/refreshed, never the full history.
     setState({ items: page.items, replies, checkedAt: Date.now(), unread: page.unread_count, hasMore: page.has_more,
-      isOlderPage: Boolean(pageCursor.p_before_id), loading: false, error: '' });
+      isOlderPage: Boolean(pageCursor.p_before_id), loading: false, error: '', accessLimited: false });
   }, [tenantId]);
 
   const run = useCallback(async ({ readItem, readAll = false, pageCursor = cursor.current } = {}) => {
@@ -61,7 +61,7 @@ export function useNotifications(tenantId, userId) {
       if (active.current) setState((previous) => {
         const forbidden = error?.message?.includes('TURN_REVIEW_FORBIDDEN') || error?.code === '42501';
         return { ...previous, ...(forbidden ? { items: [], unread: null, hasMore: false } : {}),
-          loading: false, error: notificationError(error) };
+          loading: false, error: notificationError(error), accessLimited: forbidden };
       });
     } finally {
       clearTimeout(timeout);

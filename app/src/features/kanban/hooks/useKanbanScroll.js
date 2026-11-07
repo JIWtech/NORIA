@@ -4,6 +4,7 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
   const dragStateRef = useRef({
     pointerId: null,
     startX: 0,
+    startY: 0,
     initialScrollLeft: 0,
     dragging: false,
     suppressClick: false,
@@ -17,7 +18,7 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
     const container = containerRef.current;
     if (!container) return undefined;
     const state = dragStateRef.current;
-    const interactiveSelector = 'button, a, input, textarea, select, [role="button"], [draggable="true"], .kanban-card';
+    const interactiveSelector = 'button, a, input, textarea, select, [role="button"], [draggable="true"]';
 
     const flushScroll = () => {
       state.frameId = null;
@@ -25,46 +26,53 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
     };
 
     const resetPointer = () => {
-      if (state.pointerId !== null && container.hasPointerCapture?.(state.pointerId)) {
-        container.releasePointerCapture(state.pointerId);
-      }
+      const pointerId = state.pointerId;
       state.pointerId = null;
+      if (pointerId !== null && container.hasPointerCapture?.(pointerId)) container.releasePointerCapture(pointerId);
       state.dragging = false;
       container.style.scrollBehavior = state.originalScrollBehavior;
       container.classList.remove('is-drag-scrolling');
     };
 
     const handlePointerDown = (event) => {
-      if (event.pointerType !== 'mouse' || event.button !== 0) return;
+      if (event.pointerType !== 'mouse' || event.button !== 0 || state.pointerId !== null) return;
       // A new press starts a new gesture. It must never inherit click
       // suppression left by a drag that did not emit a residual click.
       state.suppressClick = false;
       window.clearTimeout(state.suppressTimer);
-      if (blockInteractiveTargets && event.target.closest(interactiveSelector)) return;
+      if (blockInteractiveTargets && event.target.closest?.(interactiveSelector)) return;
       if (container.scrollWidth <= container.clientWidth) return;
 
       state.pointerId = event.pointerId;
       state.startX = event.clientX;
+      state.startY = event.clientY;
       state.initialScrollLeft = container.scrollLeft;
       state.targetScrollLeft = container.scrollLeft;
       state.originalScrollBehavior = container.style.scrollBehavior;
       state.dragging = false;
-      container.setPointerCapture?.(event.pointerId);
+      // O corpo do card rola o quadro e não recebe foco por clique do mouse.
+      if (event.target.closest?.('.kanban-card')) event.preventDefault();
     };
 
     const handlePointerMove = (event) => {
       if (event.pointerId !== state.pointerId) return;
       const deltaX = event.clientX - state.startX;
-      if (!state.dragging && Math.abs(deltaX) < 6) return;
 
       if (!state.dragging) {
+        const deltaY = event.clientY - state.startY;
+        if (Math.abs(deltaY) >= 6 && Math.abs(deltaY) > Math.abs(deltaX)) {
+          resetPointer();
+          return;
+        }
+        if (Math.abs(deltaX) < 6) return;
         state.dragging = true;
+        container.setPointerCapture?.(event.pointerId);
         container.style.scrollBehavior = 'auto';
         container.classList.add('is-drag-scrolling');
       }
 
       event.preventDefault();
-      state.targetScrollLeft = state.initialScrollLeft - deltaX * 1.12;
+      state.targetScrollLeft = state.initialScrollLeft - deltaX;
       if (state.frameId === null) state.frameId = window.requestAnimationFrame(flushScroll);
     };
 
@@ -87,7 +95,7 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
     };
 
     const handleClickCapture = (event) => {
-      if (!state.suppressClick) return;
+      if (!state.suppressClick || event.detail === 0) return;
       state.suppressClick = false;
       window.clearTimeout(state.suppressTimer);
       event.preventDefault();
@@ -95,19 +103,24 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
     };
 
     container.addEventListener('pointerdown', handlePointerDown);
-    container.addEventListener('pointermove', handlePointerMove);
-    container.addEventListener('pointerup', handlePointerEnd);
-    container.addEventListener('pointercancel', handlePointerEnd);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    container.addEventListener('lostpointercapture', handlePointerEnd);
     container.addEventListener('click', handleClickCapture, true);
 
     return () => {
       window.clearTimeout(state.suppressTimer);
-      if (state.frameId !== null) window.cancelAnimationFrame(state.frameId);
+      if (state.frameId !== null) {
+        window.cancelAnimationFrame(state.frameId);
+        state.frameId = null;
+      }
       resetPointer();
       container.removeEventListener('pointerdown', handlePointerDown);
-      container.removeEventListener('pointermove', handlePointerMove);
-      container.removeEventListener('pointerup', handlePointerEnd);
-      container.removeEventListener('pointercancel', handlePointerEnd);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      container.removeEventListener('lostpointercapture', handlePointerEnd);
       container.removeEventListener('click', handleClickCapture, true);
     };
   }, [containerRef, blockInteractiveTargets]);
@@ -117,7 +130,7 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
   const scrollStateRef = useRef({
     frameId: null,
     speed: 0,
-    originalScrollBehavior: '',
+    originalScrollBehavior: null,
     lastCoords: null,
     lastHoveredColId: null,
   });
@@ -138,9 +151,9 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
         window.cancelAnimationFrame(state.frameId);
         state.frameId = null;
       }
-      if (state.originalScrollBehavior) {
+      if (state.originalScrollBehavior !== null) {
         container.style.scrollBehavior = state.originalScrollBehavior;
-        state.originalScrollBehavior = '';
+        state.originalScrollBehavior = null;
       }
     };
 
@@ -189,7 +202,7 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
 
     const startLoop = () => {
       if (state.frameId === null) {
-        if (!state.originalScrollBehavior) {
+        if (state.originalScrollBehavior === null) {
           state.originalScrollBehavior = container.style.scrollBehavior;
         }
         container.style.scrollBehavior = 'auto';

@@ -11,8 +11,18 @@ export function readOperatorNotifications(storage, key, tenantId) {
   } catch { return []; }
 }
 
+function readPendingReceipts(key) {
+  if (!key) return [];
+  try {
+    const ids = JSON.parse(window.localStorage.getItem(key) || '[]');
+    return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
+  } catch { return []; }
+}
+
 export function useOperatorNotifications({ tenantId, tenantSlug, userId, appointments = [], kanbanColumns = [] }) {
   const key = notificationScope(tenantId, userId);
+  const pendingKey = key ? `${key}:pending-reads` : null;
+  const [pendingReads, setPendingReads] = useState(() => new Set(readPendingReceipts(pendingKey)));
   const [items, setItems] = useState(() => {
     try { return readOperatorNotifications(window.localStorage, key, tenantId); } catch { return []; }
   });
@@ -49,6 +59,7 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, appoint
       add(operatorEvents({ ...payload, old }, { tenantId, tenantSlug, userId }));
     };
     const storage = event => {
+      if (event.key === pendingKey) setPendingReads(new Set(readPendingReceipts(pendingKey)));
       if (event.key !== key) return;
       try {
         const next = readOperatorNotifications(window.localStorage, key, tenantId);
@@ -62,7 +73,7 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, appoint
       window.removeEventListener(OPERATOR_EVENT, receive);
       window.removeEventListener('storage', storage);
     };
-  }, [key, tenantId, tenantSlug, userId, add]);
+  }, [key, pendingKey, tenantId, tenantSlug, userId, add]);
 
   useEffect(() => {
     if (!key) return undefined;
@@ -83,11 +94,18 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, appoint
     return () => { window.removeEventListener('online', connection); window.removeEventListener('offline', connection); };
   }, [key, tenantId, add]);
 
-  const markRead = useCallback((id) => {
+  const markRead = useCallback((id, trackedItems = []) => {
+    if (pendingKey && trackedItems.length) {
+      // Guardamos apenas os recibos. As pendências vêm dos registros atuais da operação.
+      const ids = [...new Set([...readPendingReceipts(pendingKey), ...pendingReads,
+        ...trackedItems.filter(item => item.tenantId === tenantId).map(item => item.id)])].slice(-2000);
+      setPendingReads(new Set(ids));
+      try { window.localStorage.setItem(pendingKey, JSON.stringify(ids)); } catch { /* Armazenamento opcional. */ }
+    }
     const next = itemsRef.current.map(item => !id || item.id === id ? { ...item, unread: false } : item);
     itemsRef.current = next;
     setItems(next);
-  }, []);
+  }, [pendingKey, pendingReads, tenantId]);
 
-  return { items, soundSequence, markRead, markAllRead: () => markRead(null) };
+  return { items, pendingReads, soundSequence, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
 }

@@ -40,6 +40,7 @@ export function operatorEvents(payload, scope, now = Date.now()) {
   const notifications = [];
   const add = (kind, title, description, category = 'conversations', attention = false, version = '') => {
     notifications.push({ id: `${payload.table}:${row.id}:${kind}:${version}`, tenantId, kind, title, description, category, attention,
+      ...(payload.table === 'appointments' ? { appointmentId: row.id, appointmentStatus: row.status } : {}),
       chatId: row.external_conversation_id || row.chat_id || '', channel: row.channel_type || 'whatsapp',
       contact: row.contact_name || '', createdAt: row.updated_at || row.created_at || new Date(now).toISOString(), unread: true });
   };
@@ -98,11 +99,13 @@ export function operatorEvents(payload, scope, now = Date.now()) {
       add('hot-lead', 'Lead pronto para avançar', 'O cliente demonstrou interesse. Confira a qualificação e dê continuidade ao atendimento.', 'leads', true, row.revision || row.updated_at || 'hot');
     }
   } else if (payload.table === 'appointments') {
-    const labels = { confirmed: 'Agendamento confirmado', cancelled: 'Agendamento cancelado', done: 'Atendimento concluído', payment_reported: 'Pagamento informado', aguardando_verificacao: 'Pagamento aguardando conferência', pending_payment: 'Agendamento aguarda pagamento' };
+    const labels = { confirmed: 'Agendamento confirmado', cancelled: 'Agendamento cancelado', done: 'Atendimento concluído', payment_reported: 'Pagamento informado', aguardando_verificacao: 'Pagamento aguardando conferência', pending_payment: 'Agendamento aguarda pagamento', pending_confirmation: 'Pedido aguardando confirmação' };
     if (inserted || row.status !== old.status || row.starts_at !== old.starts_at) {
       const date = row.starts_at && new Date(row.starts_at);
       const when = date && Number.isFinite(date.getTime()) ? date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-      add('appointment', inserted ? 'Novo agendamento' : labels[row.status] || 'Horário do agendamento alterado',
+      const title = row.status === 'pending_confirmation' ? labels[row.status]
+        : inserted ? 'Novo agendamento' : labels[row.status] || 'Horário do agendamento alterado';
+      add('appointment', title,
         ['payment_reported', 'aguardando_verificacao'].includes(row.status) ? 'Confira o comprovante para confirmar o pagamento.' : `Confira os dados do agendamento${when ? ` de ${when}` : ''}.`,
         'appointments', row.status !== 'done', `${row.status}:${row.starts_at}`);
     }

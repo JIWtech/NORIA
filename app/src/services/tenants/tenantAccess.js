@@ -13,7 +13,7 @@ export async function loadUserTenants(client) {
     })
     .filter(row => row.user_id === auth.user.id && row.status === 'active'
       && row.tenant?.status === 'active' && row.tenant?.slug)
-    .map(row => [row.tenant.slug, { ...row.tenant, id: row.tenant.slug }])).values()];
+    .map(row => [row.tenant.slug, { ...row.tenant, id: row.tenant.slug, membershipRole: row.role }])).values()];
 }
 
 export const CHANNEL_OPTIONS = [

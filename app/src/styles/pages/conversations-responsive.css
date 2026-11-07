@@ -760,10 +760,6 @@
   user-select: none;
 }
 
-.kanban-scroll-drag-surface :is(.kanban-card, [draggable="true"]) {
-  cursor: auto;
-}
-
 .kanban-stage-shortcut {
   --stage-accent: var(--brand);
   --stage-tint: rgba(0, 224, 255, 0.08);

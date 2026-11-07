@@ -46,6 +46,12 @@ import './styles/components/stage-tones.css';
 import './styles/components/appointment-outcome.css';
 import './landing.css';
 
-createRoot(document.getElementById('root')).render(
-  <AppErrorBoundary><App /></AppErrorBoundary>,
-);
+const root = createRoot(document.getElementById('root'));
+if (import.meta.env.DEV && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+  && window.location.pathname === '/__local/notificacoes') {
+  import('./features/notifications/NotificationDemo.jsx').then(({ NotificationDemo }) => {
+    root.render(<AppErrorBoundary><NotificationDemo /></AppErrorBoundary>);
+  });
+} else {
+  root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
+}

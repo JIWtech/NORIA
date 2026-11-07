@@ -27,15 +27,15 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     console.warn('Appointments fallback:', error.message);
     return [];
   }
-  const { data: openRequests, error: openError } = await supabase
+  const { data: openAppointments, error: openError } = await supabase
     .from('appointments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .eq('status', 'pending_confirmation')
+    .in('status', ['pending_confirmation', 'payment_reported'])
     .order('starts_at', { ascending: true })
     .limit(200);
-  if (openError) console.warn('Appointment requests fallback:', openError.message);
-  return mergeOpenAppointmentRequests(data || [], openRequests || []).map(mapAppointment);
+  if (openError) console.warn('Pending appointments fallback:', openError.message);
+  return mergeOpenAppointmentRequests(data || [], openAppointments || []).map(mapAppointment);
 }
 
 export async function loadBroadcastContacts(supabase, tenantId) {
