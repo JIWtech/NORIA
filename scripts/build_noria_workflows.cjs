@@ -15,10 +15,12 @@ const genesisIdentityCode = fs.readFileSync(genesisIdentitySourcePath, 'utf8');
 const intakeNormalizerCode = fs.readFileSync(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js'), 'utf8').trimEnd();
 // The Núbia v2 EXT remains an isolated, inactive workflow for future work; it is no longer embedded in the CORE.
 const nubiaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/nubia_extension.js'), 'utf8');
-// Router of the live CORE: legacy tenants route without any database read. The services-pipeline router
-// (n8n/sources/noria_router.js) returns to the CORE only together with the Núbia v2 chain.
-const coreRouterSourcePath = path.join(root, 'n8n/sources/noria_router_core.js');
+// Router of the CORE: selects the services pipeline (Núbia v2) only from a validated, enabled declaration in
+// tenant_settings.noria_turn_pipeline; without it every tenant routes exactly as before. Gênesis and the SaaS tenants never
+// read the declaration. The services chain below is reachable only through this selection.
+const coreRouterSourcePath = path.join(root, 'n8n/sources/noria_router.js');
 const routerSourceCode = fs.readFileSync(coreRouterSourcePath, 'utf8').replace(/\r\n/g, '\n');
+const servicesDispatchCode = fs.readFileSync(path.join(root, 'n8n/sources/noria_turn_dispatch.js'), 'utf8').replace(/\r\n/g, '\n');
 // Fallback recovery of the WhatsApp queue. The webhook path processes messages on arrival; this trigger only picks up
 // leftovers (expired leases, retries), so a longer interval cuts idle executions without changing the happy path.
 const RECOVERY_TRIGGER_SECONDS = 30;
@@ -242,39 +244,82 @@ if (readiness?.ready!==true || readiness.contract!=='noria_turn_lifecycle_v1') t
 }
 
 const NUBIA_EXT_WORKFLOW_FILE = 'NORIA EXT _ NB Bronze _ Serviços v2.json';
-const nubiaV2NodeNames = new Set([
-  'CORE | Serviços | Executar EXT bootstrap',
-  'CORE | Serviços | Preparar dispatch',
-  'CORE | Serviços | Turno terminal?',
-  'CORE | Serviços | Preparar resposta',
-  'CORE | Serviços | Turno terminal após prepare?',
-  'CORE | Serviços | Executar EXT decisão',
-  'CORE | Serviços | Verificar disponibilidade',
-  'CORE | Serviços | Executar EXT reavaliação',
-  'CORE | Serviços | Finalizar resposta',
-  'CORE | Serviços | Núbia v2?',
-]);
 
-function removeNubiaV2CoreNodes(workflow) {
+const SERVICES_EXT_PLACEHOLDER = 'PREENCHER_ID_EXT_NUBIA_V2';
+const SERVICES_PREFIX = 'CORE | Serviços | ';
+
+// The services pipeline (EXT v2): bootstrap -> dispatch -> prepare -> decision -> availability -> re-evaluation -> finalize,
+// with the same engine sub-workflow and phase markers the Gênesis chain uses. Reachable only when the router marks the
+// turn (noria_pipeline = 'services_v1'); every other turn takes the legacy branch unchanged. Idempotent.
+// EXT v2 workflow ID: NORIA_NUBIA_V2_EXT_WORKFLOW_ID, else the ID already configured, else a placeholder that the
+// publisher (scripts/publish_nubia_v2.cjs) resolves by workflow name.
+function configureServicesChain(workflow) {
   const resolver = 'CORE - Resolver extensão do tenant';
   const legacyNext = 'CORE - É Núbia?';
-  const resolverNode = workflow.nodes.find(node => node.name === resolver);
+  const find = name => workflow.nodes.find(node => node.name === name);
+  const resolverNode = find(resolver);
   if (!resolverNode) throw new Error('MISSING_ROUTER_NODE');
-
-  workflow.nodes = workflow.nodes.filter(node => !nubiaV2NodeNames.has(node.name));
-  for (const nodeName of nubiaV2NodeNames) delete workflow.connections[nodeName];
-  for (const entry of Object.values(workflow.connections)) {
-    for (const branch of entry?.main || []) {
-      for (let index = branch.length - 1; index >= 0; index -= 1) {
-        if (nubiaV2NodeNames.has(branch[index].node)) branch.splice(index, 1);
-      }
-    }
-  }
-  // Restore the original Núbia v1 route and router; no tenant can reach v2 from the shared CORE.
-  workflow.connections[resolver] = { main: [[{ node: legacyNext, type: 'main', index: 0 }]] };
+  if (!find(legacyNext)) throw new Error('MISSING_LEGACY_NUBIA_ROUTE');
   resolverNode.parameters.jsCode = routerSourceCode;
-  if (!workflow.nodes.some(node => node.name === legacyNext)) throw new Error('MISSING_LEGACY_NUBIA_ROUTE');
-  if (workflow.nodes.some(node => nubiaV2NodeNames.has(node.name))) throw new Error('NUBIA_V2_CORE_NODES_REMAIN');
+
+  const extSteps = ['Executar EXT bootstrap', 'Executar EXT decisão', 'Executar EXT reavaliação'];
+  const configured = extSteps.map(step => find(SERVICES_PREFIX + step)?.parameters?.workflowId?.value)
+    .find(id => id && id !== SERVICES_EXT_PLACEHOLDER);
+  const extId = process.env.NORIA_NUBIA_V2_EXT_WORKFLOW_ID || configured || SERVICES_EXT_PLACEHOLDER;
+  const terminal = "={{ $json.noria_terminal === true || $json.skipped === true }}";
+  const ifNode = (expression, notes) => ({ type: 'n8n-nodes-base.if', typeVersion: 2.2, notes, parameters: {
+    conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+      conditions: [{ leftValue: expression, rightValue: true, operator: { type: 'boolean', operation: 'equals' } }], combinator: 'and' },
+    options: {} } });
+  const extCall = () => ({ type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, notes: 'EXT de serviços v2.',
+    parameters: { workflowId: { __rl: true, value: extId, mode: 'id' }, mode: 'each', options: { waitForSubWorkflow: true } } });
+  // Engine nodes become sub-workflow calls with a phase marker in routeEngineThroughSubworkflow.
+  const engineCall = () => ({ type: 'n8n-nodes-base.code', typeVersion: 2, notes: 'Fase do Motor conversacional.',
+    parameters: { mode: 'runOnceForEachItem', jsCode: 'return $input.item;' } });
+  const spec = [
+    ['Núbia v2?', ifNode("={{ $json.noria_pipeline === 'services_v1' }}",
+      'Seletor de versão: ramo falso = fluxo atual. O verdadeiro só recebe turnos que o roteador marcou por configuração validada.')],
+    ['Executar EXT bootstrap', extCall()],
+    ['Preparar dispatch', { type: 'n8n-nodes-base.code', typeVersion: 2, notes: 'Despachante genérico de turno.',
+      parameters: { mode: 'runOnceForEachItem', jsCode: servicesDispatchCode } }],
+    ['Turno terminal?', ifNode(terminal, 'Turno já encerrado: vai direto para a finalização.')],
+    ['Preparar resposta', engineCall()],
+    ['Turno terminal após prepare?', ifNode(terminal, 'Turno encerrado na preparação: vai direto para a finalização.')],
+    ['Executar EXT decisão', extCall()],
+    ['Verificar disponibilidade', engineCall()],
+    ['Executar EXT reavaliação', extCall()],
+    ['Finalizar resposta', engineCall()],
+  ];
+  const [x0, y0] = [resolverNode.position[0] + 272, resolverNode.position[1] + 896];
+  spec.forEach(([step, definition], index) => {
+    const name = SERVICES_PREFIX + step;
+    let node = find(name);
+    if (!node) {
+      node = { name, id: deterministicNodeId('noria-services-chain', name), position: [x0 + index * 256, y0] };
+      workflow.nodes.push(node);
+    }
+    const alreadyEngine = definition.notes === 'Fase do Motor conversacional.' && node.type === 'n8n-nodes-base.executeWorkflow';
+    if (!alreadyEngine) Object.assign(node, definition);
+    delete node.disabled;
+  });
+
+  const link = (from, ...branches) => {
+    workflow.connections[SERVICES_PREFIX + from] = { main: branches.map(to => [{ node: to.startsWith('CORE') ? to : SERVICES_PREFIX + to, type: 'main', index: 0 }]) };
+  };
+  workflow.connections[resolver] = { main: [[{ node: SERVICES_PREFIX + 'Núbia v2?', type: 'main', index: 0 }]] };
+  link('Núbia v2?', 'Executar EXT bootstrap', legacyNext);
+  link('Executar EXT bootstrap', 'Preparar dispatch');
+  link('Preparar dispatch', 'Turno terminal?');
+  link('Turno terminal?', 'Finalizar resposta', 'Preparar resposta');
+  link('Preparar resposta', 'Turno terminal após prepare?');
+  link('Turno terminal após prepare?', 'Finalizar resposta', 'Executar EXT decisão');
+  link('Executar EXT decisão', 'Verificar disponibilidade');
+  link('Verificar disponibilidade', 'Executar EXT reavaliação');
+  link('Executar EXT reavaliação', 'Finalizar resposta');
+  delete workflow.connections[SERVICES_PREFIX + 'Finalizar resposta'];
+  if (extId === SERVICES_EXT_PLACEHOLDER) {
+    console.warn('AVISO: cadeia de serviços com ' + SERVICES_EXT_PLACEHOLDER + '. O publicador resolve o ID pelo nome da EXT v2.');
+  }
 }
 
 // Successful executions are not stored (the recovery and follow-up ticks alone would write thousands of rows a day); failures keep full data.
@@ -369,10 +414,13 @@ const ENGINE_PHASES = {
   'CORE | Motor conversacional único': 'single',
   'CORE | Preparar resposta': 'prepare',
   'CORE | Finalizar resposta': 'finalize',
+  'CORE | Serviços | Preparar resposta': 'prepare',
+  'CORE | Serviços | Verificar disponibilidade': 'availability',
+  'CORE | Serviços | Finalizar resposta': 'finalize',
 };
 // The calling CORE node marks the phase on the item; the engine takes it and removes it before reading its input.
 const enginePrelude = `const NORIA_NODE_PHASE = String($json.noria_engine_phase || '');
-if (!['single', 'prepare', 'finalize'].includes(NORIA_NODE_PHASE)) throw new Error('NORIA_ENGINE_PHASE_REQUIRED');
+if (!['single', 'prepare', 'availability', 'finalize'].includes(NORIA_NODE_PHASE)) throw new Error('NORIA_ENGINE_PHASE_REQUIRED');
 delete $json.noria_engine_phase;
 `;
 const engineCode = enginePrelude + coreCode;
@@ -498,7 +546,7 @@ for (const [source, file, prefix, code] of targets) {
       );
     }
     ensureGenesisTerminalBypass(workflow);
-    removeNubiaV2CoreNodes(workflow);
+    configureServicesChain(workflow);
     configureRoyalRoute(workflow);
     configureNubiaExtRoute(workflow);
     routeEngineThroughSubworkflow(workflow);

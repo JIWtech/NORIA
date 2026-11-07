@@ -173,7 +173,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// NORIA CORE — resolução de extensão do tenant (fonte canônica do nó \"CORE - Resolver extensão do tenant\").\n// Tenants legados usam subworkflows isolados, sem leitura de banco; novos tenants SaaS usam a policy dinâmica de tenant_settings.\n// O roteador com seleção de pipeline da Núbia v2 fica em noria_router.js e só volta ao CORE junto com a cadeia de serviços.\nconst v = $json || {};\nfunction required(x, label) { if (typeof x !== 'string' || !x.trim()) throw new Error('NORIA_ROTEAMENTO: '+label+' ausente'); return x.trim(); }\nconst tenant_slug = required(v.tenant_slug, 'tenant_slug');\nconst tenant_id = required(v.tenant_id, 'tenant_id');\nrequired(v.instance, 'instance');\nrequired(v.remoteJid, 'remoteJid');\n\nconst byTenant = { clinica_nubia_oficial: 'nubia', wesley_automoveis: 'genesis' };\nconst contractVersionByTenant = { wesley_automoveis: '2.0' };\nconst legacyExtension = byTenant[tenant_slug];\nif (legacyExtension) {\n  return { json: { ...v, noria_extension: legacyExtension, noria_contract_version: contractVersionByTenant[tenant_slug] || '1.0', noria_router: 'core_3wf_v1', noria_dispatch_phase: 'bootstrap' } };\n}\n\n// Para novos tenants SaaS autônomos, busca noria_client_policy diretamente em tenant_settings\nconst base = String($env.SUPABASE_URL || '').replace(new RegExp('/$'), '');\nconst key = String($env.SUPABASE_SERVICE_ROLE_KEY || '');\nif (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');\n\nconst rows = await this.helpers.httpRequest({\n  method: 'GET',\n  url: base + '/rest/v1/tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(tenant_id) + '&limit=1',\n  headers: { apikey: key, Authorization: 'Bearer ' + key },\n  json: true,\n  timeout: 7000,\n});\n\nconst s = rows?.[0]?.settings || {};\nif (!s.noria_client_policy) {\n  throw new Error('NORIA_SEM_EXTENSAO_CONFIGURADA: ' + tenant_slug);\n}\n\nreturn {\n  json: {\n    ...v,\n    noria_extension: 'saas_dynamic',\n    noria_client_policy: s.noria_client_policy,\n    noria_contract_version: '1.0',\n    noria_router: 'saas_dynamic_v1',\n  },\n};\n"
+        "jsCode": "// NORIA CORE — resolução de extensão do tenant (fonte canônica; gerada no nó \"CORE - Resolver extensão do tenant\").\n// Tenants legados mantêm o roteamento anterior. Para o tenant legado de contrato 1.0 que declara\n// settings.noria_turn_pipeline, a versão (1.0 ou 2.0) é escolhida aqui, por configuração validada, e fica FIXA enquanto houver\n// um lote em andamento: um turno nunca muda de versão no meio. Sem declaração válida e habilitada, o resultado é idêntico ao anterior.\nconst v = $json || {};\nfunction required(x, label) { if (typeof x !== 'string' || !x.trim()) throw new Error('NORIA_ROTEAMENTO: '+label+' ausente'); return x.trim(); }\nconst tenant_slug = required(v.tenant_slug, 'tenant_slug');\nconst tenant_id = required(v.tenant_id, 'tenant_id');\nrequired(v.instance, 'instance');\nconst remoteJid = required(v.remoteJid, 'remoteJid');\n\nconst base = String($env.SUPABASE_URL || '').replace(new RegExp('/$'), '');\nconst key = String($env.SUPABASE_SERVICE_ROLE_KEY || '');\nconst get = endpoint => this.helpers.httpRequest({ method: 'GET', url: base + '/rest/v1/' + endpoint,\n  headers: { apikey: key, Authorization: 'Bearer ' + key }, json: true, timeout: 7000 });\nconst enc = encodeURIComponent;\n\nconst byTenant = { clinica_nubia_oficial: 'nubia', wesley_automoveis: 'genesis' };\nconst contractVersionByTenant = { wesley_automoveis: '2.0' };\nconst legacyExtension = byTenant[tenant_slug];\nif (legacyExtension) {\n  const legacy = { ...v, noria_extension: legacyExtension, noria_contract_version: contractVersionByTenant[tenant_slug] || '1.0', noria_router: 'core_3wf_v1', noria_dispatch_phase: 'bootstrap' };\n  // A contract line that already has its own version (Gênesis) never takes part in the services pipeline selection.\n  if (contractVersionByTenant[tenant_slug]) return { json: legacy };\n  if (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');\n  const digits = value => String(value || '').replace(/\\D/g, '');\n  // Pilot identity: only a phone JID (<digits>@s.whatsapp.net) of the authenticated ingress can match. LID, group and broadcast\n  // identifiers never match a configured number, even if their digits coincide.\n  const phoneOf = jid => { const m = /^(\\d{8,15})(?::\\d+)?@s\\.whatsapp\\.net$/.exec(String(jid || '')); return m ? m[1] : ''; };\n  const validContact = item => typeof item === 'string' && /^\\d{8,15}$/.test(digits(item));\n  const PIPELINE_VERSIONS = ['2.0'];\n  try {\n    const rows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(tenant_id) + '&limit=1');\n    if (!Array.isArray(rows) || rows.length !== 1) throw new Error('settings');\n    const declared = rows[0].settings?.noria_turn_pipeline;\n    // 1. An in-flight batch stays with the pipeline that started it (the dispatcher leaves a pin on the batch).\n    const queue = await get('conversation_turn_queue?select=claimed&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&chat_id=eq.' + enc(remoteJid) + '&limit=1');\n    const claimed = Array.isArray(queue) && Array.isArray(queue[0]?.claimed) ? queue[0].claimed : [];\n    let pinned = false;\n    if (claimed.length) {\n      const keys = claimed.map(item => String(item?.event_id || item?.id || '')).filter(Boolean)\n        .flatMap(id => PIPELINE_VERSIONS.map(version => 'noria_pin_' + version + '_' + id));\n      const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)\n        + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];\n      if (!Array.isArray(pins)) throw new Error('pin');\n      pinned = pins.length > 0;\n      if (!pinned) return { json: legacy };\n      return { json: { ...legacy, noria_contract_version: PIPELINE_VERSIONS[0], noria_router: 'services_v2_pinned', noria_pipeline: 'services_v1' } };\n    }\n    // 2. No batch in flight: an explicit, valid and enabled declaration selects the pipeline; anything else keeps 1.0.\n    if (declared === undefined || declared === null) return { json: legacy };\n    if (typeof declared !== 'object' || Array.isArray(declared)) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');\n    if (declared.enabled !== true) return { json: legacy };\n    const scoped = declared.rollout === 'all' || (declared.rollout === 'pilot' && Array.isArray(declared.pilot?.allowed_contacts)\n      && declared.pilot.allowed_contacts.length > 0 && declared.pilot.allowed_contacts.every(validContact));\n    if (declared.contract !== 'noria_turn_pipeline_v1' || declared.capability !== 'services_v1' || !PIPELINE_VERSIONS.includes(declared.contract_version) || !scoped) {\n      throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');\n    }\n    const allowed = declared.rollout === 'all' || (phoneOf(remoteJid) !== '' && declared.pilot.allowed_contacts.some(item => digits(item) === phoneOf(remoteJid)));\n    return { json: allowed ? { ...legacy, noria_contract_version: declared.contract_version, noria_router: 'services_v2', noria_pipeline: 'services_v1', noria_pipeline_rollout: declared.rollout } : legacy };\n  } catch (error) {\n    if (/^NORIA_ROTEAMENTO_/.test(String(error?.message))) throw error;\n    // Fail closed: no silent fallback between incompatible versions. The message stays queued and the recovery loop retries.\n    throw new Error('NORIA_ROTEAMENTO_PIPELINE_INDISPONIVEL');\n  }\n}\n\n// Para novos tenants SaaS autônomos, busca noria_client_policy diretamente em tenant_settings\nif (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');\n\nconst rows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(tenant_id) + '&limit=1');\n\nconst s = rows?.[0]?.settings || {};\nif (!s.noria_client_policy) {\n  throw new Error('NORIA_SEM_EXTENSAO_CONFIGURADA: ' + tenant_slug);\n}\n\nreturn {\n  json: {\n    ...v,\n    noria_extension: 'saas_dynamic',\n    noria_client_policy: s.noria_client_policy,\n    noria_contract_version: '1.0',\n    noria_router: 'saas_dynamic_v1',\n  },\n};\n"
       },
       "id": "3a4acd73-166c-498b-bc74-ad187152eba5",
       "name": "CORE - Resolver extensão do tenant",
@@ -1524,6 +1524,297 @@
           "waitForSubWorkflow": true
         }
       }
+    },
+    {
+      "name": "CORE | Serviços | Núbia v2?",
+      "id": "1ee4d332-6a93-4e36-8d51-8a50cb7f3a7e",
+      "position": [
+        155296,
+        -9568
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "notes": "Seletor de versão: ramo falso = fluxo atual. O verdadeiro só recebe turnos que o roteador marcou por configuração validada.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.noria_pipeline === 'services_v1' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "CORE | Serviços | Executar EXT bootstrap",
+      "id": "f164fd11-7378-4043-87b8-f69867002b37",
+      "position": [
+        155552,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "EXT de serviços v2.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "6jSiEH2ugboYSack",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Preparar dispatch",
+      "id": "8759e444-a18f-441c-8655-2ef71b04266b",
+      "position": [
+        155808,
+        -9568
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "Despachante genérico de turno.",
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// NORIA — despachante genérico de turno (infraestrutura compartilhada).\n// Fonte canônica; gerado em um nó do workflow CORE por scripts/build_noria_workflows.cjs.\n// Faz SÓ o que independe de vertical: pré-voo do ciclo de vida da fila, um único magia_claim_turn, verificação da identidade\n// do claim e composição de request_id = <event_id da última mensagem>:<token>. Não lê estoque, leads, catálogo nem política\n// comercial, e não envia nem reserva nada. O nó específico da Gênesis permanece como está.\nconst input = $json || {};\nconst isObj = value => value && typeof value === 'object' && !Array.isArray(value);\nconst policy = isObj(input.noria_client_policy) ? input.noria_client_policy : {};\nconst pipeline = isObj(policy.modules) && isObj(policy.modules.turn_pipeline) ? policy.modules.turn_pipeline : null;\nif (policy.contract !== 'noria_policy_v2' || policy.tenant_id !== input.tenant_id || policy.tenant_slug !== input.tenant_slug\n  || !pipeline || pipeline.contract !== 'noria_turn_pipeline_v1'\n  || typeof pipeline.contract_version !== 'string' || !pipeline.contract_version || typeof pipeline.capability !== 'string' || !pipeline.capability) throw new Error('NORIA_TURN_DISPATCH_POLICY_INVALID');\nif (!input.tenant_id || !input.remoteJid || !input.instance) throw new Error('NORIA_TURN_DISPATCH_IDENTITY_INCOMPLETE');\n// A turn that already carries a claim is never claimed again by a second dispatch.\nif (input.noria_preclaimed_turn !== undefined) throw new Error('NORIA_TURN_ALREADY_CLAIMED');\nconst base = String($env.SUPABASE_URL || '').replace(/\\/$/, ''), key = String($env.SUPABASE_SERVICE_ROLE_KEY || '');\nif (!base || !key) throw new Error('NORIA_TURN_DISPATCH_DB_UNAVAILABLE');\nconst headers = { apikey: key, Authorization: 'Bearer ' + key };\nconst post = (endpoint, body) => this.helpers.httpRequest({ method: 'POST', url: base + '/rest/v1/' + endpoint, headers, body, json: true, timeout: 7000 });\nconst get = endpoint => this.helpers.httpRequest({ method: 'GET', url: base + '/rest/v1/' + endpoint, headers, json: true, timeout: 7000 });\nlet claim = null;\ntry {\n  // lifecycle-deployment-preflight: read-only and before any claim.\n  if (!String($env['NORIA_INGRESS_FORWARD_TOKEN_' + String(input.tenant_slug || '').toUpperCase().replace(/[^A-Z0-9]/g, '_')] || '')) throw new Error('TURN_INGRESS_CONFIG_REQUIRED');\n  let readiness;\n  try { readiness = await get('rpc/magia_turn_lifecycle_status'); }\n  catch (error) { throw new Error('TURN_LIFECYCLE_DEPLOYMENT_REQUIRED:' + String(error?.message || error).slice(0, 160)); }\n  if (readiness?.ready !== true || readiness.contract !== 'noria_turn_lifecycle_v1') throw new Error('TURN_LIFECYCLE_DEPLOYMENT_REQUIRED');\n  claim = await post('rpc/magia_claim_turn', { p_tenant: input.tenant_id, p_chat: input.remoteJid });\n  if (!claim?.claimed) {\n    return { json: { ...input, ok: true, skipped: true, noria_terminal: true, reason: String(claim?.reason || 'queue_empty'),\n      noria_preclaimed_turn: claim, noria_dispatch_phase: 'turn', noria_dispatch_skip: 'queue_empty' } };\n  }\n  if (claim.contract !== 'noria_turn_lifecycle_v1') throw new Error('TURN_LIFECYCLE_RPC_MISMATCH');\n  const sessionId = String(claim.boundary_id || '');\n  const messages = Array.isArray(claim.messages) ? claim.messages : [];\n  if (!sessionId || !messages.length || !String(claim.token || '')) throw new Error('NORIA_TURN_DISPATCH_CLAIM_INVALID');\n  // The claim must belong to the tenant and the authenticated instance this dispatch was invoked for.\n  if (String(claim.tenant_slug || '') !== String(input.tenant_slug) || String(claim.instance || '') !== String(input.instance)) throw new Error('NORIA_TURN_DISPATCH_CLAIM_SCOPE_MISMATCH');\n  const last = messages.at(-1);\n  const lastEventId = String(last?.event_id || last?.id || '');\n  if (!lastEventId) throw new Error('NORIA_TURN_DISPATCH_CLAIM_INVALID');\n  const requestId = lastEventId + ':' + String(claim.token);\n  // Pin: the batch stays with this pipeline for as long as it is in flight (the router reads this marker; a retry never switches version).\n  // A marker event with a deterministic key is the only durable place that needs no schema change; it is written once per batch.\n  const pinKey = 'noria_pin_' + pipeline.contract_version + '_' + lastEventId;\n  const scope = 'tenant_id=eq.' + encodeURIComponent(input.tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeURIComponent(input.remoteJid);\n  const existingPin = await get('channel_events?select=id&' + scope + '&external_message_id=eq.' + encodeURIComponent(pinKey) + '&limit=1');\n  if (!Array.isArray(existingPin)) throw new Error('NORIA_TURN_PIPELINE_PIN_NOT_PERSISTED');\n  if (!existingPin.length) {\n    const saved = await this.helpers.httpRequest({ method: 'POST', url: base + '/rest/v1/channel_events', headers: { ...headers, Prefer: 'return=representation' }, json: true, timeout: 7000, body: {\n      tenant_id: input.tenant_id, tenant_slug: input.tenant_slug, channel_type: 'whatsapp', external_conversation_id: input.remoteJid, external_message_id: pinKey,\n      direction: 'outbound', sender_type: 'system', message_text: '', service: 'noria_pipeline_pin', stage: 'Pipeline', handoff: false, ai_provider: 'noria_turn_dispatch',\n      delivery_status: 'internal', raw_payload: { contract: 'noria_pipeline_pin_v1', version: pipeline.contract_version, capability: pipeline.capability, request_id: requestId, session_id: sessionId } } });\n    if (!(Array.isArray(saved) ? saved[0] : saved)?.id) throw new Error('NORIA_TURN_PIPELINE_PIN_NOT_PERSISTED');\n  }\n  return { json: { ...input, noria_dispatch_phase: 'turn', noria_preclaimed_turn: claim, noria_dispatch_skip: '',\n    noria_business_context: { contract: 'noria_business_result_v1', tenant_slug: input.tenant_slug, phase: 'turn', operation: 'conversation.evaluate',\n      session_id: sessionId, request_id: requestId, provenance: 'noria_turn_dispatch_v1' } } };\n} catch (error) {\n  // turn-dispatch-lifecycle-v1: no blind retry or swallowed persistence error.\n  const status = Number(error?.statusCode || error?.response?.status || error?.response?.statusCode || 0);\n  const retryable = status === 429 || (status >= 500 && status <= 599)\n    || ['ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(String(error?.code || ''));\n  let finish = { retry_queued: false, finish_persisted: false };\n  if (claim?.claimed && String(claim.token || '')) {\n    try {\n      const result = await post('rpc/magia_fail_turn', { p_tenant: input.tenant_id, p_chat: input.remoteJid, p_token: claim.token, p_error: String(error?.message || 'dispatch_preparation_failed').slice(0, 300), p_retryable: retryable });\n      if (result?.finished !== true || result.contract !== 'noria_turn_lifecycle_v1') throw new Error('TURN_FAILURE_NOT_PERSISTED');\n      finish = { ...result, finish_persisted: true };\n    } catch (finishError) { finish.finish_error = String(finishError?.message || finishError).slice(0, 300); }\n  }\n  return { json: { ...input, ok: false, skipped: true, noria_terminal: true, noria_preclaimed_turn: claim || { claimed: false, reason: 'dispatch_preparation_failed' },\n    noria_dispatch_phase: 'turn', noria_dispatch_skip: 'preparation_failed',\n    noria_dispatch_error: { code: 'TURN_DISPATCH_PREPARATION_FAILED', retryable, message: String(error?.message || error).slice(0, 300), ...finish } } };\n}\n"
+      }
+    },
+    {
+      "name": "CORE | Serviços | Turno terminal?",
+      "id": "9c02f457-8ae1-4676-85e0-f026d738f59c",
+      "position": [
+        156064,
+        -9568
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "notes": "Turno já encerrado: vai direto para a finalização.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.noria_terminal === true || $json.skipped === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "CORE | Serviços | Preparar resposta",
+      "id": "683b2aef-d529-46e4-8ce8-46028a91fc8f",
+      "position": [
+        156320,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "Fase do Motor conversacional.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mlKNPv862H2g3Gap",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/mlKNPv862H2g3Gap"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Turno terminal após prepare?",
+      "id": "d1ebf381-9ab4-48af-8050-ee2cbbfdae99",
+      "position": [
+        156576,
+        -9568
+      ],
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "notes": "Turno encerrado na preparação: vai direto para a finalização.",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.noria_terminal === true || $json.skipped === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "CORE | Serviços | Executar EXT decisão",
+      "id": "dfd305f7-c716-48a8-8b92-afda7ba57471",
+      "position": [
+        156832,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "EXT de serviços v2.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "6jSiEH2ugboYSack",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Verificar disponibilidade",
+      "id": "71770fab-355e-4c7b-894b-b9ccad20d0f0",
+      "position": [
+        157088,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "Fase do Motor conversacional.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mlKNPv862H2g3Gap",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/mlKNPv862H2g3Gap"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Executar EXT reavaliação",
+      "id": "f347bceb-8176-472c-8e99-ad18c075db34",
+      "position": [
+        157344,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "EXT de serviços v2.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "6jSiEH2ugboYSack",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Finalizar resposta",
+      "id": "c5b0c20a-8f9f-4d34-844f-49dd73d9233f",
+      "position": [
+        157600,
+        -9568
+      ],
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "notes": "Fase do Motor conversacional.",
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "mlKNPv862H2g3Gap",
+          "mode": "id",
+          "cachedResultUrl": "/workflow/mlKNPv862H2g3Gap"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "name": "CORE | Serviços | Preparar resposta | Fase",
+      "id": "290c1351-1ceb-41d0-816f-854aa53d93d0",
+      "position": [
+        156096,
+        -9408
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { ...$json, noria_engine_phase: 'prepare' }, binary: $input.item.binary };"
+      }
+    },
+    {
+      "name": "CORE | Serviços | Verificar disponibilidade | Fase",
+      "id": "14919bae-d4e0-4c17-8e84-f810fb44740d",
+      "position": [
+        156864,
+        -9408
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { ...$json, noria_engine_phase: 'availability' }, binary: $input.item.binary };"
+      }
+    },
+    {
+      "name": "CORE | Serviços | Finalizar resposta | Fase",
+      "id": "a711d996-7d86-4367-82c7-fce5149bc2d0",
+      "position": [
+        157376,
+        -9408
+      ],
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { ...$json, noria_engine_phase: 'finalize' }, binary: $input.item.binary };"
+      }
     }
   ],
   "pinData": {},
@@ -1586,7 +1877,7 @@
       "main": [
         [
           {
-            "node": "CORE - É Núbia?",
+            "node": "CORE | Serviços | Núbia v2?",
             "type": "main",
             "index": 0
           }
@@ -2291,6 +2582,159 @@
         [
           {
             "node": "CORE | Motor conversacional único | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Núbia v2?": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Executar EXT bootstrap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CORE - É Núbia?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Executar EXT bootstrap": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Preparar dispatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Preparar dispatch": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Turno terminal?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Turno terminal?": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Finalizar resposta | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CORE | Serviços | Preparar resposta | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Preparar resposta": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Turno terminal após prepare?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Turno terminal após prepare?": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Finalizar resposta | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CORE | Serviços | Executar EXT decisão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Executar EXT decisão": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Verificar disponibilidade | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Verificar disponibilidade": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Executar EXT reavaliação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Executar EXT reavaliação": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Finalizar resposta | Fase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Preparar resposta | Fase": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Preparar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Verificar disponibilidade | Fase": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Verificar disponibilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORE | Serviços | Finalizar resposta | Fase": {
+      "main": [
+        [
+          {
+            "node": "CORE | Serviços | Finalizar resposta",
             "type": "main",
             "index": 0
           }

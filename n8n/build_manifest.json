@@ -15,7 +15,7 @@
   "ext_identity_sha256": "780c78f0e5cda477de6a6745684994259f839a00c19b5873dedb517d9c55ad55",
   "intake_normalizer_sha256": "6381b6026fe4cb6a468ff6af3e54e8b2f1cf75fa79f69afe17a921faeaa8203d",
   "ext_bundle_sha256": "b48c3bc25f946a8ee2af150b2d4644faef3c64df9676bd8220775bf21109bae6",
-  "router_sha256": "4f7b9fa484793a909507046a1fbc18aac487310886a6356554386ad7c82590aa",
+  "router_sha256": "0cf0340f15c8c90f0399b5ebe286c09e9f2673aa34daa1b3eead11d2e9edefba",
   "recovery_sha256": "f2a3c0afadfcd61bfa2b57b96ee5e01653fa63554abba48ef5c1c3ee16e2ba21",
   "recovery_trigger_seconds": 30,
   "control_origin_adapter_sha256": "a1ad08d1e95826cefaf15ca738fa5418f29725938624ee6b24972cfc10524c40",

@@ -15,6 +15,9 @@ const PHASES = {
   'CORE | Motor conversacional único': 'single',
   'CORE | Preparar resposta': 'prepare',
   'CORE | Finalizar resposta': 'finalize',
+  'CORE | Serviços | Preparar resposta': 'prepare',
+  'CORE | Serviços | Verificar disponibilidade': 'availability',
+  'CORE | Serviços | Finalizar resposta': 'finalize',
 };
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 

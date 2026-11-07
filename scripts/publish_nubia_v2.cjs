@@ -37,11 +37,13 @@ const stripped = workflow => ({ name: workflow.name, nodes: workflow.nodes, conn
 function buildArtifact(core, extId) {
   const artifact = JSON.parse(JSON.stringify(core));
   const chain = artifact.nodes.filter(node => node.name.startsWith(CHAIN_PREFIX));
-  if (chain.length !== 10) throw new Error('CHAIN_INCOMPLETE: ' + chain.length);
+  if (chain.length !== 13) throw new Error('CHAIN_INCOMPLETE: ' + chain.length);
   for (const node of chain) delete node.disabled;
   for (const name of EXT_NODES) {
     const node = artifact.nodes.find(item => item.name === name);
-    if (!node || node.parameters.workflowId?.value !== PLACEHOLDER) throw new Error('UNEXPECTED_EXT_NODE: ' + name);
+    // O repositório traz o marcador ou o mesmo ID resolvido pelo nome; qualquer outro ID é recusado.
+    const current = node?.parameters?.workflowId?.value;
+    if (!node || (current !== PLACEHOLDER && current !== String(extId))) throw new Error('UNEXPECTED_EXT_NODE: ' + name);
     node.parameters.workflowId = { __rl: true, value: String(extId), mode: 'id' };
   }
   if (JSON.stringify(artifact).includes(PLACEHOLDER)) throw new Error('PLACEHOLDER_LEFT');
