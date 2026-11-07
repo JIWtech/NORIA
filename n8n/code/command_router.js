@@ -582,7 +582,8 @@ async function main(helpers) {
     external_conversation_id: externalConversationId,
     external_message_id: sent.messageId || commandId,
     direction: 'outbound',
-    sender_type: 'agent',
+    // A resposta manual passa por magia_record_turn_control_event, que aceita só 'human' ou 'system'.
+    sender_type: command === 'manual_reply' ? 'human' : 'agent',
     contact_name: payload.contact_name || 'Contato',
     message_text: messageText,
     service: payload.service || (command === 'broadcast_send' ? 'broadcast' : 'manual_reply'),
