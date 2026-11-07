@@ -576,6 +576,11 @@ function buildKanbanColumns(kanbanConfig, tenantSlug = '') {
         boardId: column.board_id,
         boardColumnId: column.id,
         position: column.position,
+        icon: column.icon || null,
+        tone: column.tone || null,
+        ownerRole: column.owner_role || null,
+        shortLabel: column.short_label || null,
+        description: column.description || null,
         cards: [],
       };
     })

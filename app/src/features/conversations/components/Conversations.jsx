@@ -1,4 +1,6 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
+import { conversationListTags, conversationStageChip, indexKanbanCards } from '../utils/conversationListTags.js';
+import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   AlertCircle,
@@ -32,7 +34,6 @@ import { canCloseConversation, requirePersistedClosure } from '../../../services
 import { sendN8nCommand } from '../../../services/integration.js';
 import {
   getStageLabel,
-  getStageTone,
   resolveConversationHeaderOwner,
   formatWaitingDuration,
   matchesResponsibleFilter,
@@ -112,20 +113,7 @@ export function Conversations({
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef(null);
 
-  const kanbanCardsByConversationKey = useMemo(() => {
-    const map = new Map();
-    if (!Array.isArray(kanbanColumns)) return map;
-    for (const column of kanbanColumns) {
-      for (const card of (column.cards || [])) {
-        if (card.canonicalKey && !map.has(card.canonicalKey)) map.set(card.canonicalKey, card);
-        if (card.normalizedExternalId && !map.has(card.normalizedExternalId)) map.set(card.normalizedExternalId, card);
-        if (card.externalConversationId && !map.has(card.externalConversationId)) map.set(card.externalConversationId, card);
-        if (card.id && !map.has(card.id)) map.set(card.id, card);
-      }
-    }
-    return map;
-  }, [kanbanColumns]);
-
+  const kanbanCardsByConversationKey = useMemo(() => indexKanbanCards(kanbanColumns), [kanbanColumns]);
   const isSearchExpanded = searchOpen || Boolean(query && query.trim() !== '');
 
   const handleOpenSearch = () => {
@@ -411,7 +399,6 @@ export function Conversations({
   const canEndSelected = canCloseConversation(selected, closedLocally[selectedCloseKey]);
 
   const currentStageLabel = getStageLabel(selected?.stage || selected?.salesStageKey, { kanbanColumns, tenantSettings, tenantSlug });
-  const currentStageTone = getStageTone(selected?.salesStageKey || selected?.stage);
   const headerSubtitleInfo = useMemo(() => {
     return deriveConversationPresentationState(selected, {
       matchingCard: matchingKanbanCard,
@@ -422,6 +409,12 @@ export function Conversations({
       tenantSettings,
     });
   }, [selected, matchingKanbanCard, agentsList, currentStageLabel, kanbanColumns, tenantSlug, tenantSettings]);
+  // Mesma regra da lista: etapa pela coluna do Kanban do tenant; o dono só aparece quando acrescenta informação.
+  const headerStageColumn = Array.isArray(kanbanColumns)
+    ? findKanbanColumn(kanbanColumns, selected?.stage || selected?.salesStageKey) || null
+    : null;
+  const headerTags = conversationListTags(headerSubtitleInfo, matchingKanbanCard, headerStageColumn);
+  const headerStageChip = conversationStageChip(headerTags.column);
 
   const [fullHistoryByChat, setFullHistoryByChat] = useState({});
   const loadedChatHistoryRef = useRef(new Set());
@@ -946,12 +939,13 @@ export function Conversations({
                   </span>
                 </div>
                 <div className="chat-header-sub">
-                  {selected.contactCategory !== 'commercial' && currentStageLabel && (
+                  {selected.contactCategory !== 'commercial' && headerStageChip && (
                     <span
-                      className={`chat-header-stage-chip stage-tag tone-${currentStageTone}`}
-                      title={`Etapa comercial: ${currentStageLabel}`}
+                      className={`chat-header-stage-chip stage-tag has-icon tone-${headerStageChip.tone}`}
+                      title={`Coluna do Kanban: ${headerStageChip.label}`}
                     >
-                      <span>{currentStageLabel}</span>
+                      <headerStageChip.Icon size={12} aria-hidden="true" />
+                      <span>{headerStageChip.label}</span>
                     </span>
                   )}
                   {headerSubtitleInfo.isHuman && headerSubtitleInfo.assignee ? (
@@ -959,7 +953,7 @@ export function Conversations({
                       <UserRound size={13} aria-hidden="true" />
                       <span>Com {headerSubtitleInfo.assignee}</span>
                     </span>
-                  ) : headerSubtitleInfo.isAiActive ? (
+                  ) : headerSubtitleInfo.isAiActive && headerTags.owner?.kind === 'ai' ? (
                     <span className="chat-header-status is-ai" title="A IA está respondendo esta conversa">
                       <span className="chat-header-status-dot" aria-hidden="true" />
                       <span>Atendido pela IA</span>

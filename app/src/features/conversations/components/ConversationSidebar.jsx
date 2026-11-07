@@ -1,11 +1,13 @@
 import React from 'react';
 import { Bot, Check, CheckCircle2, Clock3, Filter, Search, Sparkles, UserRound, X } from 'lucide-react';
-import { formatConversationCardOrigin, formatMediaPreviewWithIcon, formatWaitingDuration, getStageLabel, getStageTone } from '../../../dataService.js';
+import { formatConversationCardOrigin, formatMediaPreviewWithIcon, formatWaitingDuration, getStageLabel } from '../../../dataService.js';
 import { ContactAvatar, ContactAvatarBadge } from '../../../components/ui/ContactAvatar.jsx';
 import { EmptyState } from '../../../components/ui/EmptyState.jsx';
 import { SkeletonLine } from '../../../components/ui/Skeletons.jsx';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon.jsx';
 import { deriveConversationPresentationState } from '../utils/chatTimelineHelpers.js';
+import { conversationListTags, conversationStageChip } from '../utils/conversationListTags.js';
+import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
 import { formatConversationPreview } from '../../../utils/audioUtils.js';
 export function ConversationSidebar({
   activeCount = 0, activeTab, agentsList, allowedChannels, availableStages, channelCounts, channelFilter,
@@ -405,9 +407,11 @@ export function ConversationSidebar({
                 tenantSlug,
                 tenantSettings,
               });
-              const isClosedConv = presentation.isClosed;
-              const isHumanAttendant = presentation.isHuman;
-              const attendantName = presentation.assignee || 'Humano';
+              const stageColumn = Array.isArray(kanbanColumns)
+                ? findKanbanColumn(kanbanColumns, conversation.stage || conversation.salesStageKey) || null
+                : null;
+              const listTags = conversationListTags(presentation, matchingCard, stageColumn);
+              const stageChip = conversationStageChip(listTags.column);
               const origin = formatConversationCardOrigin(conversation);
               const formattedPreview = formatMediaPreviewWithIcon(formatConversationPreview(conversation.lastMessage));
               const isSelected = selected?.id === conversation.id;
@@ -492,28 +496,31 @@ export function ConversationSidebar({
                     </div>
 
                     <div className="conversation-item-tags">
-                      {isClosedConv ? (
+                      {listTags.owner?.kind === 'closed' && (
                         <span className="attendant-pill closed" title="Atendimento encerrado">
                           <CheckCircle2 size={11} />
                           <span>Encerrada</span>
                         </span>
-                      ) : isHumanAttendant ? (
-                        <span className="attendant-pill humano" title={`Atendimento Humano: ${attendantName}`}>
+                      )}
+                      {listTags.owner?.kind === 'human' && (
+                        <span className="attendant-pill humano" title={`Atendimento humano: ${listTags.owner.label}`}>
                           <UserRound size={11} />
-                          <span>{attendantName || 'Humano'}</span>
+                          <span>{listTags.owner.label}</span>
                         </span>
-                      ) : (
+                      )}
+                      {listTags.owner?.kind === 'ai' && (
                         <span className="attendant-pill ia" title="Assistente IA">
                           <Bot size={11} />
                           <span>IA</span>
                         </span>
                       )}
-                      {conversationStageLabel && (
+                      {stageChip && (
                         <span
-                          className={`conversation-stage-tag stage-tag tone-${getStageTone(conversation.salesStageKey || conversation.stage)}`}
-                          title={conversationStageLabel}
+                          className={`conversation-stage-tag stage-tag has-icon tone-${stageChip.tone}`}
+                          title={`Coluna do Kanban: ${stageChip.label}`}
                         >
-                          <span>{conversationStageLabel}</span>
+                          <stageChip.Icon size={11} aria-hidden="true" />
+                          <span>{stageChip.label}</span>
                         </span>
                       )}
                     </div>

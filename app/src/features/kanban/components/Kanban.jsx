@@ -4,25 +4,19 @@ import {
   AlertCircle,
   Bot,
   CalendarCheck,
-  CalendarDays,
-  CalendarX2,
-  CarFront,
   Check,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
   Copy,
   ExternalLink,
-  Flame,
   GripVertical,
-  Inbox,
   MessageCircle,
   RefreshCcw,
   Search,
   Sparkles,
   UserRound,
   UserX,
-  Wrench,
 } from 'lucide-react';
 import { SiInstagram, SiTelegram, SiWhatsapp } from 'react-icons/si';
 
@@ -39,7 +33,6 @@ import { SkeletonLine } from '../../../components/ui/Skeletons';
 import {
   getKanbanColumnKind,
   getStageLabel,
-  getStageTone,
   getTenantSchedulingLink,
   orderKanbanColumnsForTenant,
   validateKanbanOrderProposal,
@@ -47,6 +40,7 @@ import {
 import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { useDepositRequired } from '../../appointments/utils/useDepositRequired';
 import { AppointmentRequestActions } from './AppointmentRequestActions.jsx';
+import { kanbanColumnPresentation } from '../../../services/kanban/kanbanColumnPresentation.js';
 import {
   availableOutcomes,
   isDepositRequired,
@@ -283,66 +277,8 @@ export function Kanban({
     if (norm.includes('insta')) return 'channel-instagram';
     return 'channel-telegram';
   };
-  const getBaseColumnPresentation = (column = {}) => {
-    const key = [column.automationKey, column.id, column.title]
-      .filter(Boolean)
-      .join(' ')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-
-    const navigationLabel = column.navigationLabel || '';
-    if (/sales_closed/.test(key)) return { tone: getStageTone('sales_closed'), shortLabel: navigationLabel || 'Negócio fechado', description: 'Venda efetivamente concluída.', Icon: CheckCircle2 };
-    if (/sales_after_sales/.test(key)) return { tone: getStageTone('sales_after_sales'), shortLabel: navigationLabel || 'Pós-venda', description: 'Atendimentos de manutenção e pós-venda.', Icon: Wrench };
-    if (/sales_appraisal/.test(key)) return { tone: getStageTone('sales_appraisal'), shortLabel: navigationLabel || 'Avaliação de retoma', description: 'Avaliação de veículo para retoma.', Icon: CarFront };
-    if (/sales_financing/.test(key)) return { tone: getStageTone('sales_financing'), shortLabel: navigationLabel || 'Financiamento', description: 'Fila operacional de financiamento.', Icon: CircleDollarSign };
-    if (/sales_hot/.test(key)) return { tone: getStageTone('sales_hot'), shortLabel: navigationLabel || 'Leads quentes', description: 'Leads de compra com prioridade comercial.', Icon: Flame };
-    if (/sales_human/.test(key)) return { tone: getStageTone('sales_human'), shortLabel: navigationLabel || 'Atendimento humano', description: 'Atendimento assumido pela equipe.', Icon: UserRound };
-    if (/sales_qualifying/.test(key)) return { tone: getStageTone('sales_qualifying'), shortLabel: navigationLabel || 'Qualificação IA', description: 'IA coletando informações comerciais.', Icon: Bot };
-    if (/sales_new/.test(key)) return { tone: getStageTone('sales_new'), shortLabel: navigationLabel || 'Novos contatos', description: 'Novos contatos aguardando qualificação.', Icon: MessageCircle };
-
-    if (/confirmar[_\s-]?agendamento/.test(key)) {
-      return { tone: 'amber', shortLabel: navigationLabel || 'Confirmar agendamento', description: 'Pedidos conduzidos pela IA aguardando a sua confirmação.', Icon: CalendarCheck };
-    }
-    if (/nao[_\s-]?compareceu/.test(key)) {
-      return { tone: 'slate', shortLabel: 'Não compareceu', description: 'Clientes que faltaram ao agendamento.', Icon: CalendarX2 };
-    }
-    if (/finalizada/.test(key)) {
-      return { tone: 'green', shortLabel: 'Finalizadas', description: 'Atendimentos concluídos.', Icon: CheckCircle2 };
-    }
-    if (/aguardando[_\s-]?humano/.test(key)) {
-      return { tone: 'violet', shortLabel: 'Aguardando', displayTitle: 'Aguardando humano', description: 'Aguardando atendimento da equipe.', Icon: UserRound };
-    }
-    if (/com[_\s-]?humano|conversas[_\s-]?humanos/.test(key)) {
-      return { tone: 'violet', shortLabel: 'Em atendimento', displayTitle: 'Em atendimento humano', description: 'Com atendentes da equipe.', Icon: UserRound };
-    }
-    if (/verificar[_\s-]?sinal/.test(key)) {
-      return { tone: 'amber', shortLabel: 'Sinal', description: 'Aguardando confirmação.', Icon: CircleDollarSign };
-    }
-    if (/andamento/.test(key)) {
-      return { tone: 'amber', shortLabel: 'Andamento', description: 'Em negociação.', Icon: Clock3 };
-    }
-    if (/agendamento/.test(key)) {
-      return { tone: 'blue', shortLabel: 'Agenda', description: 'Conversas com horário marcado.', Icon: CalendarDays };
-    }
-    if (/produto/.test(key)) {
-      return { tone: 'violet', shortLabel: 'Produtos', description: 'Produtos e serviços enviados.', Icon: Sparkles };
-    }
-    if (/nova/.test(key)) {
-      return { tone: 'blue', shortLabel: 'Novas', description: 'Aguardando primeiro contato.', Icon: MessageCircle };
-    }
-    if (/conversas[_\s-]?ia|\bia\b/.test(key)) {
-      return { tone: 'cyan', shortLabel: 'Conversas IA', description: 'Em atendimento com a IA.', Icon: Bot };
-    }
-    return { tone: 'cyan', shortLabel: column.title || 'Etapa', description: 'Conversas nesta etapa.', Icon: Inbox };
-  };
-
-  // A cor vem sempre da paleta canônica (stageTone.js): a mesma etapa tem a mesma cor
-  // no Kanban e nas Conversas, e etapas diferentes nunca repetem cor.
-  const getColumnPresentation = (column = {}) => ({
-    ...getBaseColumnPresentation(column),
-    tone: getStageTone(column.automationKey || column.id || column.title),
-  });
+  // Símbolo, cor, rótulo curto e descrição vêm da coluna no banco (kanban_columns, migração 032).
+  const getColumnPresentation = (column = {}) => kanbanColumnPresentation(column);
 
   const filteredColumns = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -559,8 +495,8 @@ export function Kanban({
                   type="button"
                   className={`kanban-stage-shortcut kanban-stage-shortcut--${presentation.tone} has-tone tone-${presentation.tone} ${activeColumnId === column.id ? 'active' : ''}`}
                   onClick={() => scrollToColumn(column.id)}
-                  title={`Ir para ${presentation.displayTitle || column.title}`}
-                  aria-label={`Ir para etapa ${presentation.displayTitle || column.title}`}
+                  title={`Ir para ${column.title}`}
+                  aria-label={`Ir para etapa ${column.title}`}
                   aria-current={activeColumnId === column.id ? 'location' : undefined}
                 >
                   <ShortcutIcon className="kanban-stage-shortcut-icon" size={17} aria-hidden="true" />
@@ -602,7 +538,7 @@ export function Kanban({
               <div className="column-header">
                 <span className="column-stage-icon" aria-hidden="true"><StageIcon size={19} /></span>
                 <div className="column-heading-copy">
-                  <strong className="column-title">{presentation.displayTitle || column.title}</strong>
+                  <strong className="column-title">{column.title}</strong>
                   <small className="column-description">{presentation.description}</small>
                 </div>
                 <span className="column-count-badge">{ready ? column.cards.length : '—'}</span>
