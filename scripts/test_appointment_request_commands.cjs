@@ -5,7 +5,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const fn = new AsyncFunction('$json', '$env', '$vars', fs.readFileSync(path.join(__dirname, '../n8n/code/command_router.js'), 'utf8'));
+// O painel chama o nó "Executar Comando1" da Entrada, não o arquivo: os dois precisam passar.
+const entrada = JSON.parse(fs.readFileSync(path.join(__dirname, '../n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+const routers = [
+  ['arquivo', fs.readFileSync(path.join(__dirname, '../n8n/code/command_router.js'), 'utf8')],
+  ['nó publicado', entrada.nodes.find(node => node.name === 'Executar Comando1').parameters.jsCode],
+].map(([label, code]) => [label, new AsyncFunction('$json', '$env', '$vars', code)]);
+let fn;
 
 const request = {
   mode: 'operator_confirmation', received_template: 'Anotado.',
@@ -44,120 +50,123 @@ async function run({ command = 'confirm_appointment_request', status = 'pending_
   return { result, sends, sentText, writes, events, row };
 }
 
-test('confirmar envia o modelo do tenant com o dia da semana certo e confirma', async () => {
-  const r = await run();
-  assert.equal(r.result.ok, true, JSON.stringify(r.result));
-  assert.equal(r.sends, 1);
-  assert.equal(r.sentText, 'Maria Silva, confirmado: Corte e Escova, sábado, 29 de setembro, às 10:00.'.replace('sábado', new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long' }).format(new Date(FUTURE))));
-  assert.equal(r.row.status, 'confirmed');
-});
+for (const [label, router] of routers) {
+  const use = () => { fn = router; };
+  test(label + ': confirmar envia o modelo do tenant com o dia da semana certo e confirma', async () => { use();
+    const r = await run();
+    assert.equal(r.result.ok, true, JSON.stringify(r.result));
+    assert.equal(r.sends, 1);
+    assert.equal(r.sentText, 'Maria Silva, confirmado: Corte e Escova, sábado, 29 de setembro, às 10:00.'.replace('sábado', new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', weekday: 'long' }).format(new Date(FUTURE))));
+    assert.equal(r.row.status, 'confirmed');
+  });
 
-test('o evento da confirmação não trava a IA', async () => {
-  const event = (await run()).events.at(-1);
-  assert.equal(event.handoff, false);
-  assert.equal(event.sender_type, 'system');
-  assert.equal(event.service, 'appointment_request_confirmed');
-  assert.equal(event.stage, 'Agendamento confirmado');
-  assert.equal(event.external_message_id, 'sent-1');
-});
+  test(label + ': o evento da confirmação não trava a IA', async () => { use();
+    const event = (await run()).events.at(-1);
+    assert.equal(event.handoff, false);
+    assert.equal(event.sender_type, 'system');
+    assert.equal(event.service, 'appointment_request_confirmed');
+    assert.equal(event.stage, 'Agendamento confirmado');
+    assert.equal(event.external_message_id, 'sent-1');
+  });
 
-test('confirmar de novo não reenvia', async () => {
-  const r = await run({ status: 'confirmed' });
-  assert.equal(r.result.ok, true);
-  assert.equal(r.result.already_confirmed, true);
-  assert.equal(r.sends, 0);
-});
+  test(label + ': confirmar de novo não reenvia', async () => { use();
+    const r = await run({ status: 'confirmed' });
+    assert.equal(r.result.ok, true);
+    assert.equal(r.result.already_confirmed, true);
+    assert.equal(r.sends, 0);
+  });
 
-test('versão antiga é recusada e nada é enviado', async () => {
-  const r = await run({ metadata: { request_version: 3 } });
-  assert.equal(r.result.ok, false);
-  assert.match(r.result.error, /alterado/i);
-  assert.equal(r.sends, 0);
-  assert.equal(r.writes.length, 0);
-});
-
-test('horário vencido não confirma, mas pode ser recusado', async () => {
-  const late = await run({ starts: '2020-01-01T13:00:00Z' });
-  assert.equal(late.result.ok, false);
-  assert.equal(late.sends, 0);
-  const reject = await run({ command: 'reject_appointment_slot', starts: '2020-01-01T13:00:00Z' });
-  assert.equal(reject.result.ok, true, JSON.stringify(reject.result));
-});
-
-test('conversa errada, operador de fora, status errado ou modo desligado não enviam', async () => {
-  for (const options of [{ chat: 'other' }, { member: false }, { status: 'pending_payment' }, { status: 'cancelled' }, { config: null }, { config: { ...request, confirmation_template: '' } }]) {
-    const r = await run(options);
-    assert.equal(r.result.ok, false, JSON.stringify(options));
+  test(label + ': versão antiga é recusada e nada é enviado', async () => { use();
+    const r = await run({ metadata: { request_version: 3 } });
+    assert.equal(r.result.ok, false);
+    assert.match(r.result.error, /alterado/i);
     assert.equal(r.sends, 0);
     assert.equal(r.writes.length, 0);
-  }
-});
+  });
 
-test('clique concorrente perde antes de enviar', async () => {
-  const r = await run({ race: true });
-  assert.equal(r.result.ok, false);
-  assert.equal(r.sends, 0);
-});
+  test(label + ': horário vencido não confirma, mas pode ser recusado', async () => { use();
+    const late = await run({ starts: '2020-01-01T13:00:00Z' });
+    assert.equal(late.result.ok, false);
+    assert.equal(late.sends, 0);
+    const reject = await run({ command: 'reject_appointment_slot', starts: '2020-01-01T13:00:00Z' });
+    assert.equal(reject.result.ok, true, JSON.stringify(reject.result));
+  });
 
-test('conflito exige segundo clique e nada é enviado antes dele', async () => {
-  const conflicts = [{ id: 'x', title: 'Escova - Ana', starts_at: FUTURE }];
-  const first = await run({ conflicts });
-  assert.equal(first.result.ok, true);
-  assert.equal(first.result.requires_acknowledgement, true);
-  assert.deepEqual(first.result.conflicts, conflicts);
-  assert.equal(first.sends, 0);
-  assert.equal(first.writes.length, 0);
-  const second = await run({ conflicts, payload: { conflicts_acknowledged: true } });
-  assert.equal(second.sends, 1);
-  assert.equal(second.row.status, 'confirmed');
-});
+  test(label + ': conversa errada, operador de fora, status errado ou modo desligado não enviam', async () => { use();
+    for (const options of [{ chat: 'other' }, { member: false }, { status: 'pending_payment' }, { status: 'cancelled' }, { config: null }, { config: { ...request, confirmation_template: '' } }]) {
+      const r = await run(options);
+      assert.equal(r.result.ok, false, JSON.stringify(options));
+      assert.equal(r.sends, 0);
+      assert.equal(r.writes.length, 0);
+    }
+  });
 
-test('entrega incerta não confirma e bloqueia novo envio', async () => {
-  const r = await run({ failSend: true });
-  assert.equal(r.result.ok, false);
-  assert.equal(r.row.status, 'pending_confirmation');
-  assert.equal(r.row.metadata.confirmation_state, 'uncertain');
-  assert.equal(r.row.metadata.confirmation_action, 'confirm');
-  const retry = await run({ metadata: r.row.metadata });
-  assert.equal(retry.result.ok, false);
-  assert.equal(retry.sends, 0);
-});
+  test(label + ': clique concorrente perde antes de enviar', async () => { use();
+    const r = await run({ race: true });
+    assert.equal(r.result.ok, false);
+    assert.equal(r.sends, 0);
+  });
 
-test('o dono resolve a entrega incerta sem reenviar', async () => {
-  const stuck = { confirmation_state: 'uncertain', confirmation_action: 'confirm' };
-  const delivered = await run({ metadata: stuck, payload: { uncertain_resolution: 'delivered' } });
-  assert.equal(delivered.result.ok, true, JSON.stringify(delivered.result));
-  assert.equal(delivered.sends, 0);
-  assert.equal(delivered.row.status, 'confirmed');
-  assert.equal(delivered.row.metadata.confirmation_state, 'sent');
-  const lost = await run({ metadata: stuck, payload: { uncertain_resolution: 'not_delivered' } });
-  assert.equal(lost.sends, 0);
-  assert.equal(lost.row.status, 'pending_confirmation');
-  assert.equal(lost.row.metadata.confirmation_state, undefined);
-  const refused = await run({ metadata: { ...stuck, confirmation_action: 'reject' }, command: 'reject_appointment_slot', payload: { uncertain_resolution: 'delivered' } });
-  assert.equal(refused.row.status, 'cancelled');
-});
+  test(label + ': conflito exige segundo clique e nada é enviado antes dele', async () => { use();
+    const conflicts = [{ id: 'x', title: 'Escova - Ana', starts_at: FUTURE }];
+    const first = await run({ conflicts });
+    assert.equal(first.result.ok, true);
+    assert.equal(first.result.requires_acknowledgement, true);
+    assert.deepEqual(first.result.conflicts, conflicts);
+    assert.equal(first.sends, 0);
+    assert.equal(first.writes.length, 0);
+    const second = await run({ conflicts, payload: { conflicts_acknowledged: true } });
+    assert.equal(second.sends, 1);
+    assert.equal(second.row.status, 'confirmed');
+  });
 
-test('resolver sem nada pendente é recusado', async () => {
-  const r = await run({ payload: { uncertain_resolution: 'delivered' } });
-  assert.equal(r.result.ok, false);
-  assert.equal(r.row.status, 'pending_confirmation');
-});
+  test(label + ': entrega incerta não confirma e bloqueia novo envio', async () => { use();
+    const r = await run({ failSend: true });
+    assert.equal(r.result.ok, false);
+    assert.equal(r.row.status, 'pending_confirmation');
+    assert.equal(r.row.metadata.confirmation_state, 'uncertain');
+    assert.equal(r.row.metadata.confirmation_action, 'confirm');
+    const retry = await run({ metadata: r.row.metadata });
+    assert.equal(retry.result.ok, false);
+    assert.equal(retry.sends, 0);
+  });
 
-test('recusar envia o modelo, cancela com motivo e devolve a conversa à IA', async () => {
-  const r = await run({ command: 'reject_appointment_slot' });
-  assert.equal(r.result.ok, true, JSON.stringify(r.result));
-  assert.equal(r.sentText, 'Maria Silva, esse horário não está disponível. Qual outro fica bom?');
-  assert.equal(r.row.status, 'cancelled');
-  assert.equal(r.row.metadata.cancel_reason, 'slot_rejected');
-  const event = r.events.at(-1);
-  assert.equal(event.handoff, false);
-  assert.equal(event.sender_type, 'system');
-  assert.equal(event.service, 'appointment_request_rejected');
-});
+  test(label + ': o dono resolve a entrega incerta sem reenviar', async () => { use();
+    const stuck = { confirmation_state: 'uncertain', confirmation_action: 'confirm' };
+    const delivered = await run({ metadata: stuck, payload: { uncertain_resolution: 'delivered' } });
+    assert.equal(delivered.result.ok, true, JSON.stringify(delivered.result));
+    assert.equal(delivered.sends, 0);
+    assert.equal(delivered.row.status, 'confirmed');
+    assert.equal(delivered.row.metadata.confirmation_state, 'sent');
+    const lost = await run({ metadata: stuck, payload: { uncertain_resolution: 'not_delivered' } });
+    assert.equal(lost.sends, 0);
+    assert.equal(lost.row.status, 'pending_confirmation');
+    assert.equal(lost.row.metadata.confirmation_state, undefined);
+    const refused = await run({ metadata: { ...stuck, confirmation_action: 'reject' }, command: 'reject_appointment_slot', payload: { uncertain_resolution: 'delivered' } });
+    assert.equal(refused.row.status, 'cancelled');
+  });
 
-test('modelo com variável desconhecida não é enviado', async () => {
-  const r = await run({ config: { ...request, confirmation_template: 'Oi {apelido}' } });
-  assert.equal(r.result.ok, false);
-  assert.equal(r.sends, 0);
-});
+  test(label + ': resolver sem nada pendente é recusado', async () => { use();
+    const r = await run({ payload: { uncertain_resolution: 'delivered' } });
+    assert.equal(r.result.ok, false);
+    assert.equal(r.row.status, 'pending_confirmation');
+  });
+
+  test(label + ': recusar envia o modelo, cancela com motivo e devolve a conversa à IA', async () => { use();
+    const r = await run({ command: 'reject_appointment_slot' });
+    assert.equal(r.result.ok, true, JSON.stringify(r.result));
+    assert.equal(r.sentText, 'Maria Silva, esse horário não está disponível. Qual outro fica bom?');
+    assert.equal(r.row.status, 'cancelled');
+    assert.equal(r.row.metadata.cancel_reason, 'slot_rejected');
+    const event = r.events.at(-1);
+    assert.equal(event.handoff, false);
+    assert.equal(event.sender_type, 'system');
+    assert.equal(event.service, 'appointment_request_rejected');
+  });
+
+  test(label + ': modelo com variável desconhecida não é enviado', async () => { use();
+    const r = await run({ config: { ...request, confirmation_template: 'Oi {apelido}' } });
+    assert.equal(r.result.ok, false);
+    assert.equal(r.sends, 0);
+  });
+}

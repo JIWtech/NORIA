@@ -30,6 +30,37 @@ const routerInsertStart = routerCode.indexOf('  async function insertEvent(event
 const routerInsertEnd = routerCode.indexOf('  async function loadTenantSettings(', routerInsertStart);
 if (routerInsertStart < 0 || routerInsertEnd < 0) throw new Error('CONTROL_ORIGIN_SOURCE_MISSING');
 const routerInsertCode = routerCode.slice(routerInsertStart, routerInsertEnd).trimEnd();
+// Pedido de agendamento (migração 031): o painel chama o roteador embutido na Entrada, então os comandos novos
+// são projetados nele a partir do arquivo, entre marcadores, sem substituir o resto do roteador.
+const APPOINTMENT_REQUEST_BEGIN = '  // >>> appointment_request: projetado de n8n/code/command_router.js pelo build';
+const APPOINTMENT_REQUEST_END = '  // <<< appointment_request';
+const routerSlice = (from, to) => {
+  const start = routerCode.indexOf(from); const end = routerCode.indexOf(to, start);
+  if (start < 0 || end < 0) throw new Error('APPOINTMENT_REQUEST_ROUTER_SOURCE_MISSING');
+  return routerCode.slice(start, end).trimEnd();
+};
+const appointmentRequestHelpers = routerSlice('  function renderAppointmentRequest(', '  async function confirmAppointment(');
+const appointmentRequestCommands = routerSlice("  if (command === 'confirm_appointment_request' || command === 'reject_appointment_slot') {", "  if (command === 'confirm_payment_signal') {");
+function projectAppointmentRequestCommands(code) {
+  const marked = new RegExp(APPOINTMENT_REQUEST_BEGIN.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '[\\s\\S]*?' + APPOINTMENT_REQUEST_END + '\n\n', 'g');
+  let out = code.replace(marked, '');
+  const block = text => APPOINTMENT_REQUEST_BEGIN + '\n' + text + '\n' + APPOINTMENT_REQUEST_END + '\n\n';
+  const put = (anchor, text) => {
+    if (out.split(anchor).length !== 2) throw new Error('APPOINTMENT_REQUEST_ANCHOR_MISSING: ' + anchor.trim().slice(0, 40));
+    out = out.replace(anchor, block(text) + anchor);
+  };
+  put('  async function confirmAppointment(', appointmentRequestHelpers);
+  put("  if (command === 'confirm_payment_signal') {", appointmentRequestCommands);
+  const list = "'confirm_payment_signal'].includes(command)";
+  if (!out.includes("'confirm_appointment_request', 'reject_appointment_slot'")) {
+    if (out.split(list).length !== 2) throw new Error('APPOINTMENT_REQUEST_COMMAND_LIST_MISSING');
+    out = out.replace(list, "'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)");
+  }
+  const text = "      : command === 'confirm_payment_signal'\n        ? String(payload.message_text || '').trim()";
+  if (out.includes(text)) out = out.replace(text, "      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text || '').trim()");
+  else if (!out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text")) throw new Error('APPOINTMENT_REQUEST_MESSAGE_TEXT_MISSING');
+  return out;
+}
 
 // 2. Compute SHA-256 hashes and build metadata
 const extSha256 = crypto.createHash('sha256').update(extCode).digest('hex');
@@ -448,7 +479,7 @@ for (const [source, file, prefix, code] of targets) {
     const insertStart = embeddedRouter?.indexOf('  async function insertEvent(event) {') ?? -1;
     const insertEnd = embeddedRouter?.indexOf('  async function loadTenantSettings(', insertStart) ?? -1;
     if (insertStart < 0 || insertEnd < 0) throw new Error('CONTROL_ORIGIN_ROUTER_MISSING');
-    commandNode.parameters.jsCode = embeddedRouter.slice(0, insertStart) + routerInsertCode + '\n\n' + embeddedRouter.slice(insertEnd);
+    commandNode.parameters.jsCode = projectAppointmentRequestCommands(embeddedRouter.slice(0, insertStart) + routerInsertCode + '\n\n' + embeddedRouter.slice(insertEnd));
     new AsyncFunction('$json', '$env', '$vars', commandNode.parameters.jsCode);
     const recoveryNode = workflow.nodes.find(n => n.name === 'Ler Fila WhatsApp');
     if (!recoveryNode || recoveryNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_TURN_RECOVERY_NODE');
