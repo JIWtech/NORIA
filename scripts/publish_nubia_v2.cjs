@@ -22,6 +22,10 @@ const GATE = 'CORE | Serviços | Núbia v2?';
 const ROUTER_NODE = 'CORE - Resolver extensão do tenant';
 const read = file => JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows', file), 'utf8'));
 const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+// JSON com chaves ordenadas: o n8n devolve os mesmos campos em outra ordem, e isso não é diferença.
+const stable = value => Array.isArray(value) ? value.map(stable)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+const canonical = value => JSON.stringify(stable(value));
 
 async function api(method, endpoint, body) {
   const base = String(process.env.N8N_API_URL || '').replace(/\/$/, '');
@@ -56,14 +60,14 @@ function buildArtifact(core, extId) {
 function diffWorkflows(live, repo) {
   const own = node => node.name.startsWith(CHAIN_PREFIX);
   const L = new Map(live.nodes.map(node => [node.name, node])), R = new Map(repo.nodes.filter(node => !own(node)).map(node => [node.name, node]));
-  const strip = node => JSON.stringify({ ...node, parameters: { ...node.parameters, jsCode: undefined }, position: undefined, id: undefined, webhookId: undefined });
+  const strip = node => canonical({ ...node, parameters: { ...node.parameters, jsCode: undefined }, position: undefined, id: undefined, webhookId: undefined });
   const onlyLive = [...L.keys()].filter(name => !R.has(name) && !own(L.get(name)));
   const onlyRepo = [...R.keys()].filter(name => !L.has(name));
   const common = [...R.keys()].filter(name => L.has(name));
   const paramDiff = common.filter(name => strip(L.get(name)) !== strip(R.get(name)));
   const codeChanged = common.filter(name => L.get(name).parameters?.jsCode !== R.get(name).parameters?.jsCode);
   const connectionKeys = [...new Set([...Object.keys(live.connections), ...Object.keys(repo.connections)])].filter(key => !key.startsWith(CHAIN_PREFIX));
-  const connectionDiff = connectionKeys.filter(key => JSON.stringify(live.connections[key] || null) !== JSON.stringify(repo.connections[key] || null));
+  const connectionDiff = connectionKeys.filter(key => canonical(live.connections[key] || null) !== canonical(repo.connections[key] || null));
   const expectedConnection = connectionDiff.filter(key => key === ROUTER_NODE);
   const unexpected = [...onlyLive.map(name => 'node_only_in_instance:' + name), ...onlyRepo.map(name => 'node_only_in_repository:' + name),
     ...paramDiff.map(name => 'node_parameters_differ:' + name), ...connectionDiff.filter(key => !expectedConnection.includes(key)).map(key => 'connection_differs:' + key)];

@@ -390,6 +390,18 @@ test('guardas do CORE: o legado recusa lote fixado no pipeline; turno despachado
 });
 
 // ------------------------------------------------------------------ publicação
+test('publicação: a comparação com o n8n ignora a ordem das chaves e ainda acusa diferença real', () => {
+  // O n8n devolve os mesmos campos em outra ordem; isso não pode bloquear a publicação nem esconder mudança de verdade.
+  const { diffWorkflows } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
+  const repo = { nodes: [{ name: 'A', type: 't', typeVersion: 1, parameters: { b: 1, a: { y: 2, x: 1 } } }], connections: { A: { main: [[{ node: 'B', type: 'main', index: 0 }]] } } };
+  const reordered = { nodes: [{ parameters: { a: { x: 1, y: 2 }, b: 1 }, typeVersion: 1, type: 't', name: 'A' }], connections: { A: { main: [[{ index: 0, type: 'main', node: 'B' }]] } } };
+  assert.deepEqual(diffWorkflows(reordered, repo).unexpected, []);
+  const changed = { nodes: [{ name: 'A', type: 't', typeVersion: 1, parameters: { b: 2, a: { y: 2, x: 1 } } }], connections: repo.connections };
+  assert.deepEqual(diffWorkflows(changed, repo).unexpected, ['node_parameters_differ:A']);
+  const rewired = { nodes: repo.nodes, connections: { A: { main: [[{ node: 'C', type: 'main', index: 0 }]] } } };
+  assert.deepEqual(diffWorkflows(rewired, repo).unexpected, ['connection_differs:A']);
+});
+
 test('publicação: o artefato aponta as três chamadas da cadeia para a EXT v2 resolvida pelo nome; ID divergente é recusado', () => {
   const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
   const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
