@@ -231,3 +231,26 @@ test('modo desligado: as tags novas não têm efeito e a criação segue como an
   assert.equal(created.posted[0].status, 'pending_payment');
   assert.doesNotMatch(created.prompt, /pedido_pendente/);
 });
+
+// 09/11/2026 (I&C): a resposta do Gemini tinha só marcações; depois de limpar, o texto ficou vazio e a Evolution recusou o
+// envio com 400. A cliente ficou sem resposta e a conversa caiu em erro técnico.
+test('resposta só com pedido de atendente envia o aviso de encaminhamento, nunca texto vazio', async () => {
+  const r = await run({ response: '[HUMANO_SOLICITADO]' });
+  assert.equal(r.result.ok, true, JSON.stringify(r.result));
+  assert.equal(r.sent, 1);
+  assert.ok(r.sentText.trim().length > 0, 'texto enviado não pode ser vazio');
+  assert.ok(r.events.some(e => e.handoff === true));
+});
+
+test('resposta vazia sem encaminhamento não é enviada', async () => {
+  const r = await run({ response: '[ACAO: CANCELAR_PEDIDO]', request: null });
+  assert.equal(r.sent, 0, 'nada é enviado à Evolution');
+  assert.equal(r.result.ok, false);
+});
+
+test('o evento registra quais marcações a IA devolveu, sem o texto', async () => {
+  const r = await run({ response: 'Vou chamar a equipe. [HUMANO_SOLICITADO] ' + CREATE });
+  const saved = r.events.find(e => e.raw_payload && e.raw_payload.reply_actions);
+  assert.ok(saved, 'diagnóstico gravado');
+  assert.deepEqual(saved.raw_payload.reply_actions, { human_requested: true, complaint: false, appointment_tag: 'create', text_empty: false });
+});

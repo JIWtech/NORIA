@@ -83,9 +83,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_06',
-  built_at: '2026-11-06T18:19:35.980Z',
-  core_sha256: 'a8d3891a86b24d6aa5fe5e2deaa08589975f0b307adf29c92c0da96cb30b2185',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_09',
+  built_at: '2026-11-09T15:30:43.939Z',
+  core_sha256: 'b0106c749b06049e945d84706d322332a79b38b938f187a92f04e7465d9a6ac1',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -14818,10 +14818,18 @@ async function runTurn() {
   } else if (actions.humanRequested || (actions.complaint && !isBotFrustrationText())) {
     event.handoff = true; event.stage = 'Atendimento humano'; event.service = 'atendimento_humano';
   }
-  const clean = preserveLiteralReply
+  let clean = preserveLiteralReply
     ? String(responseText || '').trim()
     : enforceEmojiPolicy(removeMidConversationGreeting(cleanReplyText(responseText), history.length > 0), history,
       { ...classification, handoff: event.handoff });
+  // Quais marcações a IA devolveu (sem o texto), para diagnosticar o turno depois.
+  event.raw_payload.reply_actions = { human_requested: Boolean(actions.humanRequested), complaint: Boolean(actions.complaint),
+    appointment_tag: requestAction ? requestAction.kind : (tag ? 'legacy_create' : null), text_empty: !clean };
+  // Resposta só com marcações: nunca envia texto vazio (a Evolution recusa com 400 e a cliente fica sem resposta).
+  if (!clean) {
+    if (!event.handoff) throw new Error('EMPTY_CUSTOMER_REPLY');
+    clean = sessionHandoffMessage();
+  }
   event.raw_payload.catalog_lookup = { count: catalog.matches.length, mode: catalog.mode };
   await saveEvent(event);
   const sent = await sendChannelMessage(context, clean, event);
