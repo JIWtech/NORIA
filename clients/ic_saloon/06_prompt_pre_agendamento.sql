@@ -35,3 +35,23 @@ set settings = jsonb_set(settings, '{appointment_request,slot_rejected_template}
   to_jsonb('Poxa, o horário de {data}, às {hora}, já está ocupado 😕 Mas a gente encontra outro pra você! Qual dia ou horário fica melhor?'::text))
 where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
   and settings->'appointment_request'->>'slot_rejected_template' = '{nome}, esse horário não está disponível. Qual outro dia ou horário fica bom para você?';
+
+-- 5) Mensagens do pedido mais leves, sem o nome completo da cliente e sem ponto final em toda frase (no máximo um emoji).
+update tenant_settings
+set settings = jsonb_set(settings, '{appointment_request}', (settings->'appointment_request') || jsonb_build_object(
+  'received_template', E'Prontinho, anotei aqui! {servicos} para {data}, às {hora} ✨\nAgora é só aguardar: a equipe confirma o horário com você por aqui, combinado?\nUm lembrete importante: menores de idade só são atendidos acompanhados do pai ou da mãe',
+  'confirmation_template', E'Oba, seu horário está confirmado! {servicos} para {data}, às {hora} 💜\nVamos te esperar com muito carinho!\nLembrando que menores de idade só são atendidos acompanhados do pai ou da mãe',
+  'slot_rejected_template', 'Poxa, o horário de {data}, às {hora}, já está ocupado 😕 Mas a gente encontra outro para você! Qual dia ou horário fica melhor?',
+  'invalid_request_template', 'Hum, não consegui registrar esse pedido 😕 Pode me contar de novo o serviço, o dia e o horário que você quer?',
+  'full_name_template', 'Para eu anotar certinho, qual é o seu nome completo?'))
+where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
+  and settings->'appointment_request'->>'received_template' like 'Perfeito, {nome}!%'
+  and settings->'appointment_request'->>'confirmation_template' like '{nome}, seu horário está confirmado%';
+
+-- 6) Estilo das respostas livres da IA: tom de WhatsApp, menos ponto final, sem repetir o nome. dafdeb67… -> d9ac00a5…
+update tenant_settings
+set settings = jsonb_set(settings, '{system_prompt}', to_jsonb(replace(settings->>'system_prompt',
+  E'nunca transforme a conversa em formulário.\n',
+  E'nunca transforme a conversa em formulário.\n- Escreva como numa conversa de WhatsApp, leve e calorosa. Evite terminar todas as frases com ponto final: prefira quebra de linha, exclamação ou pergunta quando couber.\n- Não repita o nome da cliente a cada mensagem. Se usar, use só o primeiro nome, e de vez em quando.\n')))
+where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
+  and md5(settings->>'system_prompt') = 'dafdeb67c6930cc9e90479b250a22624';
