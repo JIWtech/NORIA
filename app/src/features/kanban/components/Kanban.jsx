@@ -569,6 +569,10 @@ export function Kanban({
                           className={`kanban-card ${channelClass} ${isDragging ? 'is-dragging' : ''} ${kanbanCardTransition === 'exiting' ? 'is-channel-exiting' : ''} ${kanbanCardTransition === 'entering' ? 'is-channel-entering' : ''}`}
                           key={card.id}
                           tabIndex={-1}
+                          // O card inteiro arrasta para outra etapa; a rolagem do quadro fica no espaço fora dos cards.
+                          draggable={Boolean(onMoveCard)}
+                          onDragStart={onMoveCard ? (e) => handleDragStart(e, card, column) : undefined}
+                          onDragEnd={onMoveCard ? handleDragEnd : undefined}
                           data-notification-focus={card.id === focusedCardId ? '' : undefined}
                         >
                           <div className="kanban-card-header">
@@ -584,9 +588,8 @@ export function Kanban({
                               )}
                             </div>
                             <small className="card-time">{card.lastAt}</small>
-                            {onMoveCard && <span className="kanban-card-drag-handle" draggable
-                              title="Arraste para mover o card para outra etapa"
-                              onDragStart={(e) => handleDragStart(e, card, column)} onDragEnd={handleDragEnd}>
+                            {onMoveCard && <span className="kanban-card-drag-handle"
+                              title="Arraste o card para mover para outra etapa">
                               <GripVertical size={16} aria-hidden="true" />
                             </span>}
                           </div>
