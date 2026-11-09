@@ -120,6 +120,35 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     return data;
   }
 
+  // Lista de bloqueio (opt-out) do tenant ativo. A RLS limita aos membros; o filtro explicita o tenant.
+  async function listBroadcastOptOuts(activeTenantSlug) {
+    const supabase = client();
+    const tenant = await loadTenant(activeTenantSlug);
+    if (!tenant) throw new Error('Tenant nao encontrado');
+    const { data, error } = await supabase
+      .from('broadcast_opt_outs')
+      .select('channel_type, contact_key, source, reason, created_at')
+      .eq('tenant_id', tenant.id);
+    if (error) throw error;
+    return data || [];
+  }
+
+  // Bloquear vale para qualquer operador; desbloquear, só gestores (validado no servidor).
+  async function setBroadcastOptOut(activeTenantSlug, contact, optedOut, reason = null) {
+    const supabase = client();
+    const tenant = await loadTenant(activeTenantSlug);
+    if (!tenant) throw new Error('Tenant nao encontrado');
+    const { data, error } = await supabase.rpc('broadcast_set_opt_out', {
+      p_tenant_id: tenant.id,
+      p_channel: contact?.channelType || contact?.channel_type || 'whatsapp',
+      p_external: String(contact?.externalConversationId || contact?.external_conversation_id || '').trim(),
+      p_opted_out: optedOut === true,
+      p_reason: reason || null,
+    });
+    if (error) throw error;
+    return data;
+  }
+
   async function updateBroadcastCampaign(campaignId, patch) {
     const { data, error } = await client()
       .from('broadcast_campaigns')
@@ -187,6 +216,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     createBroadcastCampaign,
     enqueueBroadcastCampaign,
     controlBroadcastCampaign,
+    listBroadcastOptOuts,
+    setBroadcastOptOut,
     updateBroadcastCampaign,
     updateBroadcastRecipient,
     getBroadcastCampaignRecipients,

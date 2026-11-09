@@ -1012,3 +1012,48 @@
   flex: none;
   accent-color: var(--brand);
 }
+
+/* Lista de bloqueio: contato bloqueado fica visível, mas fora da seleção */
+.bc-row-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bc-row-item > .bc-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.bc-row.is-blocked {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.bc-optout-btn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bc-optout-btn:hover,
+.bc-optout-btn:focus-visible {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.bc-optout-btn.is-active {
+  color: #fca5a5;
+}
+
+.bc-optout-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

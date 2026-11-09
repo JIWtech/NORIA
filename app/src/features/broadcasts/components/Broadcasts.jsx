@@ -1,5 +1,5 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Clock3,
   Search,
@@ -17,6 +17,7 @@ import {
   Info,
   Loader2,
   Send,
+  Ban,
 } from 'lucide-react';
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
@@ -43,6 +44,7 @@ import {
   displayContactPhone,
 } from '../utils/broadcastImport';
 import { broadcastErrorMessage, broadcastPauseReason } from '../utils/broadcastMessages.js';
+import { optOutIndex, isContactOptedOut } from '../utils/broadcastOptOut.js';
 
 export function Broadcasts({ conversations = [], contacts = [], campaigns = [], tenantSlug, onChanged, ready = true, allowedChannels = CHANNEL_OPTIONS.map(c => c.id) }) {
   const defaultChannel = allowedChannels.includes('telegram') ? 'telegram' : allowedChannels[0] || 'whatsapp';
@@ -87,7 +89,20 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       .filter((contact) => allowedChannels.includes(contact.channelType || contact.channel_type || defaultChannel));
   }, [allowedChannels, contacts, conversations, defaultChannel, draftContacts]);
   const stages = useMemo(() => Array.from(new Set(conversations.map((item) => item.stage).filter(Boolean))), [conversations]);
-  const selectedContacts = allContacts.filter((contact) => selected.has(contact.key));
+
+  // Lista de bloqueio do tenant: quem pediu para sair, ou foi bloqueado pela equipe, não entra no disparo.
+  const [optOuts, setOptOuts] = useState([]);
+  const loadOptOuts = useCallback(async () => {
+    if (!tenantSlug) return;
+    try { setOptOuts(await broadcastOps.listBroadcastOptOuts(tenantSlug)); } catch { setOptOuts([]); }
+  }, [broadcastOps, tenantSlug]);
+  useEffect(() => { void loadOptOuts(); }, [loadOptOuts]);
+  const optOutKeys = useMemo(() => optOutIndex(optOuts), [optOuts]);
+  const isBlocked = (contact) => isContactOptedOut(
+    { ...contact, channelType: contact.channelType || contact.channel_type || defaultChannel }, optOutKeys);
+
+  const selectedContacts = allContacts.filter((contact) => selected.has(contact.key) && !isBlocked(contact));
+  const blockedSelectedCount = allContacts.filter((contact) => selected.has(contact.key) && isBlocked(contact)).length;
   const visibleContacts = useMemo(() => {
     const query = contactSearch.trim().toLocaleLowerCase('pt-BR');
     if (!query) return allContacts;
@@ -97,7 +112,8 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       return `${name} ${phone}`.toLocaleLowerCase('pt-BR').includes(query);
     });
   }, [allContacts, contactSearch]);
-  const allVisibleSelected = visibleContacts.length > 0 && visibleContacts.every((contact) => selected.has(contact.key || contactKey(contact)));
+  const selectableVisible = visibleContacts.filter((contact) => !isBlocked(contact));
+  const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every((contact) => selected.has(contact.key || contactKey(contact)));
 
   async function importFile(file) {
     if (!file) return;
@@ -204,7 +220,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   function toggleAllVisibleContacts() {
     setSelected((prev) => {
       const next = new Set(prev);
-      visibleContacts.forEach((contact) => {
+      selectableVisible.forEach((contact) => {
         const key = contact.key || contactKey(contact);
         if (allVisibleSelected) next.delete(key);
         else next.add(key);
@@ -215,6 +231,26 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
 
   function clearSelectedContacts() {
     setSelected(new Set());
+  }
+
+  async function toggleOptOut(contact, optedOut) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await broadcastOps.setBroadcastOptOut(tenantSlug,
+        { ...contact, channelType: contact.channelType || contact.channel_type || defaultChannel }, optedOut);
+      if (optedOut) {
+        setSelected((prev) => { const next = new Set(prev); next.delete(contact.key || contactKey(contact)); return next; });
+      }
+      await loadOptOuts();
+      setStatus(optedOut
+        ? `${displayContactName(contact)} não recebe mais disparos desta empresa.`
+        : `${displayContactName(contact)} pode voltar a receber disparos.`, 'success');
+    } catch (error) {
+      setStatus(broadcastErrorMessage(error, 'Não foi possível atualizar a lista de bloqueio.'), 'error');
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Campanha que precisa de atenção: na fila, agendada, em envio, pausada ou com envios incertos.
@@ -433,6 +469,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <button type="button" className="bc-text-btn" onClick={toggleAllVisibleContacts} disabled={!visibleContacts.length}>{allVisibleSelected ? 'Desmarcar todos' : 'Selecionar todos'}</button>
             {selectedContacts.length > 0 && <button type="button" className="bc-text-btn is-muted" onClick={clearSelectedContacts}>Limpar</button>}
           </div>
+          {blockedSelectedCount > 0 && <p className="bc-hint">{blockedSelectedCount} contato{blockedSelectedCount === 1 ? '' : 's'} da lista de bloqueio fica{blockedSelectedCount === 1 ? '' : 'm'} fora do disparo.</p>}
 
           <ul className="bc-list">
             {!ready ? [1, 2, 3, 4].map((i) => <li className="bc-row" key={i}><SkeletonBlock width="16px" height="16px" style={{ borderRadius: '4px' }} /><SkeletonBlock width="30px" height="30px" style={{ borderRadius: '50%' }} /><div style={{ flex: 1 }}><SkeletonLine width="120px" /><SkeletonLine width="90px" style={{ marginTop: '4px' }} /></div></li>) : <>
@@ -441,13 +478,20 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 const name = displayContactName(contact);
                 const phone = displayContactPhone(contact);
                 const channel = contact.channel_type || contact.channelType || defaultChannel;
-                const isOn = selected.has(key);
-                return <li key={key}><label className={`bc-row ${isOn ? 'is-selected' : ''}`}>
-                  <input type="checkbox" checked={isOn} onChange={() => toggleContact(key)} />
+                const blocked = isBlocked(contact);
+                const isOn = selected.has(key) && !blocked;
+                return <li key={key} className="bc-row-item"><label className={`bc-row ${isOn ? 'is-selected' : ''} ${blocked ? 'is-blocked' : ''}`}>
+                  <input type="checkbox" checked={isOn} disabled={blocked} onChange={() => toggleContact(key)} />
                   <ContactAvatar name={name} avatarUrl={contact.avatarUrl} className="bc-avatar" />
-                  <span className="bc-row-text"><strong>{name}</strong><small>{phone}</small></span>
+                  <span className="bc-row-text"><strong>{name}</strong><small>{blocked ? 'Não recebe disparos' : phone}</small></span>
                   <span className={`bc-channel-badge bc-tone-${channelTone(channel)}`} title={channel}><ChannelIcon channel={channel} size={15} /></span>
-                </label></li>;
+                </label>
+                <button type="button" className={`bc-optout-btn ${blocked ? 'is-active' : ''}`} disabled={busy}
+                  onClick={() => toggleOptOut(contact, !blocked)}
+                  aria-label={blocked ? `Permitir disparos para ${name}` : `Não enviar disparos para ${name}`}
+                  title={blocked ? 'Permitir disparos de novo (gestores)' : 'Não enviar disparos para este contato'}>
+                  <Ban size={14} aria-hidden="true" />
+                </button></li>;
               })}
               {!visibleContacts.length && <li className="bc-empty">
                 <span className="bc-empty-icon" aria-hidden="true"><UsersRound size={20} /></span>

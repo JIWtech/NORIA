@@ -4,7 +4,8 @@
 //
 // Garantias:
 // - Campanha reivindicada com lease no banco (broadcast_claim_due_campaigns): uma por tenant por vez.
-// - Destinatário reivindicado com lease (broadcast_claim_batch) e marcado 'sending' antes da chamada externa.
+// - Destinatário reivindicado com lease (broadcast_claim_batch) e marcado 'sending' antes da chamada externa;
+//   contato na lista de bloqueio do tenant é pulado nesse mesmo passo (broadcast_begin_send).
 // - Falha de transporte ou resposta sem confirmação vira 'unknown' e nunca é reenviada automaticamente.
 // - Horários (início, envio, próximo envio, conclusão) vêm do relógio do banco, nunca deste processo.
 // - Toda leitura de tabela filtra por tenant_id; credenciais são as do próprio tenant.
@@ -138,8 +139,10 @@ async function processCampaign(campaign, leaseToken) {
       const batch = await rpc('broadcast_claim_batch', { p_campaign_id: campaign.id, p_lease_token: leaseToken, p_batch_size: 1, p_lease_seconds: 120 });
       const recipient = Array.isArray(batch) ? batch[0] : null;
       if (!recipient || recipient.tenant_id !== campaign.tenant_id) break;
-      const marked = await rpc('broadcast_mark_sending', { p_recipient_id: recipient.id, p_lease_token: leaseToken });
-      if (marked !== true) break;
+      // Contato bloqueado (opt-out) é pulado no mesmo passo que abre o envio.
+      const begin = await rpc('broadcast_begin_send', { p_recipient_id: recipient.id, p_lease_token: leaseToken });
+      if (begin === 'skipped_opt_out') { report.skipped_opt_out = (report.skipped_opt_out || 0) + 1; continue; }
+      if (begin !== 'sending') break;
 
       const outcome = await deliver(sender, recipient, text);
       report[outcome.status] += 1;
