@@ -20,6 +20,7 @@ const BROADCAST_MIGRATIONS = [
 const OPTIONAL_MIGRATIONS = [
   'supabase/migrations/20261109192353_broadcast_number_protection.sql',
   'supabase/migrations/20261109192425_broadcast_opt_out.sql',
+  'supabase/migrations/20261109200000_broadcast_opt_out_detection.sql',
 ];
 
 const SUPABASE_URL = 'https://db.test';
@@ -49,11 +50,24 @@ async function bootstrap() {
       ai_provider text, ai_model text, delivery_status text, command_id text, sent_by_user text,
       created_at timestamptz default clock_timestamp());
     create publication supabase_realtime;
+    -- Stand-in da cota de Gemini do tenant (mesma assinatura de produção); test_gemini_quota controla a resposta.
+    create table test_gemini_quota(allowed boolean not null default true, calls integer not null default 0);
+    insert into test_gemini_quota default values;
+    create function magia_gemini_reserve(p_tenant_id uuid, p_daily_limit integer, p_model text, p_lease_id text, p_estimated_tokens integer,
+      p_scope text default null, p_max_concurrent integer default null, p_max_rpm integer default null, p_max_tpm integer default null,
+      p_max_rpd integer default null, p_lease_ttl_ms integer default null, p_probe_cooldown_ms integer default null)
+    returns jsonb language plpgsql as $$
+    begin
+      update test_gemini_quota set calls = calls + 1;
+      return case when (select allowed from test_gemini_quota) then '{"allowed": true}'::jsonb else '{"allowed": false, "reason": "daily_limit"}'::jsonb end;
+    end $$;
+    create function magia_gemini_release(p_scope text, p_model text, p_lease_id text, p_outcome text, p_cooldown_ms integer default 30000)
+    returns jsonb language sql as $$ select '{"ok": true}'::jsonb $$;
     grant usage on schema public, auth to anon, authenticated, service_role;
     insert into auth.users values ('${MEMBER_A}'), ('${MEMBER_B}');
     insert into tenants(id, slug) values ('${TENANT_A.id}', '${TENANT_A.slug}'), ('${TENANT_B.id}', '${TENANT_B.slug}');
     insert into tenant_members values ('${TENANT_A.id}', '${MEMBER_A}', 'agent', 'active'), ('${TENANT_B.id}', '${MEMBER_B}', 'owner', 'active');
-    insert into tenant_settings(tenant_id, timezone) values ('${TENANT_A.id}', 'America/Sao_Paulo'), ('${TENANT_B.id}', 'America/Sao_Paulo');
+    insert into tenant_settings(tenant_id, timezone, settings) values ('${TENANT_A.id}', 'America/Sao_Paulo', '{"ai_model": "gemini-test"}'), ('${TENANT_B.id}', 'America/Sao_Paulo', '{"ai_model": "gemini-test"}');
     insert into channels(tenant_id, type, external_id, status) values
       ('${TENANT_A.id}', 'whatsapp', '${TENANT_A.instance}', 'active'), ('${TENANT_B.id}', 'whatsapp', '${TENANT_B.instance}', 'active');
   `);
@@ -159,7 +173,7 @@ function createProvider(respond) {
 }
 
 function envFor(extra = {}) {
-  const env = { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, BROADCAST_WORKER_BUDGET_SECONDS: '0' };
+  const env = { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY, BROADCAST_WORKER_BUDGET_SECONDS: '0', GEMINI_API_KEY: 'gemini-key-test' };
   for (const tenant of [TENANT_A, TENANT_B]) {
     const suffix = tenant.slug.toUpperCase();
     env['EVOLUTION_API_URL_' + suffix] = 'https://evo.test/' + tenant.slug;
@@ -169,7 +183,19 @@ function envFor(extra = {}) {
   return { ...env, ...extra };
 }
 
-async function runWorker(db, { provider = createProvider(), env = envFor(), postgrest = createPostgrest(db) } = {}) {
+// Gemini falso: decide(input) devolve o objeto estruturado { requested, evidence_ids } ou lança erro.
+function createGemini(decide) {
+  const calls = [];
+  async function handle(options) {
+    const input = JSON.parse(options.body.contents[0].parts[0].text);
+    calls.push({ url: options.url, headers: options.headers, body: options.body, input });
+    const value = decide ? await decide(input, calls.length) : { requested: false, evidence_ids: [] };
+    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(value) }] } }], usageMetadata: { totalTokenCount: 10 } };
+  }
+  return { handle, calls };
+}
+
+async function runWorker(db, { provider = createProvider(), env = envFor(), postgrest = createPostgrest(db), gemini = createGemini() } = {}) {
   const code = read('n8n/code/broadcast_campaign_worker.js');
   const helpers = {
     async httpRequest(options) {
@@ -177,6 +203,7 @@ async function runWorker(db, { provider = createProvider(), env = envFor(), post
         const body = await postgrest.handle(options);
         return options.returnFullResponse ? { statusCode: 200, body } : body;
       }
+      if (options.url.startsWith('https://generativelanguage.googleapis.com/')) return gemini.handle(options);
       const response = await provider.handle(options);
       if (options.returnFullResponse) return response;
       if (response.statusCode >= 400) throw Object.assign(new Error('HTTP ' + response.statusCode), { httpCode: String(response.statusCode) });
@@ -184,10 +211,10 @@ async function runWorker(db, { provider = createProvider(), env = envFor(), post
     },
   };
   const items = await new AsyncFunction('$env', '$json', code).call({ helpers }, env, {});
-  return { items: (items || []).map(item => item.json), provider, postgrest };
+  return { items: (items || []).map(item => item.json), provider, postgrest, gemini };
 }
 
 module.exports = {
-  bootstrap, asUser, setSettings, createCampaign, createPostgrest, createProvider, envFor, runWorker, read,
+  bootstrap, asUser, setSettings, createCampaign, createPostgrest, createProvider, createGemini, envFor, runWorker, read,
   TENANT_A, TENANT_B, MEMBER_A, MEMBER_B,
 };
