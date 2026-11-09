@@ -12,6 +12,7 @@ import { cleanAgentName } from '../agents/agentNames.js';
 import { canEventMoveOwnershipToAi } from '../conversations/ownershipEvidence.js';
 
 import { findKanbanColumn } from './stageResolution.js';
+import { closedColumnReason, isClosedKanbanColumn } from './kanbanCardReason.js';
 import { isGenesisSalesTenant } from './commercialStages.js';
 
 function resolveEventTargetColumn(event, card, resolvedTenant, columns) {
@@ -31,6 +32,11 @@ function resolveEventTargetColumn(event, card, resolvedTenant, columns) {
     || event?.ai_provider === 'conversation_closed'
     || payload?.event_type === 'conversation_closed';
   if (isClosed) {
+    // Mesma regra da carga completa: falta registrada vai para "Não compareceu" quando o quadro tem a coluna.
+    if (!isGenesis && payload?.close_reason === 'no_show') {
+      const missedCol = findKanbanColumn(columns, 'nao_compareceu');
+      if (missedCol) return missedCol;
+    }
     const closedKey = isGenesis ? 'sales_closed' : 'finalizadas';
     const col = findKanbanColumn(columns, closedKey);
     if (col) return col;
@@ -207,9 +213,18 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
 
   if (targetColIndex >= 0 && targetColIndex !== sourceColIndex) {
     const isGenesis = isGenesisSalesTenant(resolvedTenant);
+    const targetKey = targetCol.automationKey || targetCol.id;
     updatedCard.stage = targetCol.title || targetCol.name || updatedCard.stage;
+    // A coluna e a etiqueta acompanham o card: sem isso o painel acha que ele ainda está na coluna
+    // antiga (arrasto na mesma coluna vira movimento) e o card encerrado segue "IA conduzindo a conversa".
+    updatedCard.targetColumnId = targetKey;
+    if (isClosedKanbanColumn(targetKey)) {
+      updatedCard.aiReason = closedColumnReason(targetKey);
+    } else if (isHandoff && updatedCard.aiReason === 'IA conduzindo a conversa') {
+      updatedCard.aiReason = '';
+    }
     if (isGenesis) {
-      updatedCard.salesStageKey = targetCol.automationKey || targetCol.id;
+      updatedCard.salesStageKey = targetKey;
     }
 
     const nextColumns = columns.map((col, cIdx) => {

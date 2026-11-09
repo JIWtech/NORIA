@@ -22,6 +22,8 @@ import { resolveContactCategory } from '../contacts/contactCategory.js';
 import { normalizeMedia } from '../media/mediaNormalization.js';
 import { mediaPreview } from '../media/mediaPresentation.js';
 import { formatConversationPreview } from '../../utils/audioUtils.js';
+import { technicalEventPresentation } from '../conversations/technicalEventPresentation.js';
+import { closedColumnReason, isClosedKanbanColumn } from './kanbanCardReason.js';
 
 const HUMAN_HELD_COLUMNS = new Set(['aguardando_humano', 'com_humano', 'conversas_humanos']);
 
@@ -162,15 +164,15 @@ export function eventsToKanban(
       aiReason = 'Cliente demonstrou interesse de compra';
     } else if (!isHumanControlled && target === 'aguardando_finalizacao') {
       aiReason = 'Aguardando finalizacao do pedido';
-    } else if (!isHumanControlled && target === 'finalizadas') {
-      aiReason = 'Atendimento finalizado';
+    } else if (!isHumanControlled && isClosedKanbanColumn(target)) {
+      aiReason = closedColumnReason(target);
     } else if (!isHumanControlled && target === 'conversas_abandonadas') {
       aiReason = 'Conversa sem encerramento recente';
     } else if (!isHumanControlled && target === 'novas_conversas') {
       aiReason = 'Primeiro contato recebido';
     }
 
-    const isClosedConv = conversationState?.status === 'finalizado' || target === 'finalizadas';
+    const isClosedConv = conversationState?.status === 'finalizado' || isClosedKanbanColumn(target);
     const chatExplicitOwner = isClosedConv ? null : (explicitOwnerByChat.get(key)
       || cleanAgentName(asObject(event.raw_payload)?.assignee?.name)
       || cleanAgentName(asObject(event.raw_payload)?.human_dispatch?.assignee_name)
@@ -190,7 +192,7 @@ export function eventsToKanban(
       currentControlMode,
       activeAgents: resolvedActiveAgents,
       isHumanControlled,
-      isAiControlled: !isHumanControlled && target !== 'finalizadas',
+      isAiControlled: !isHumanControlled && !isClosedKanbanColumn(target),
       aiLocked: Boolean(salesLead?.ai_locked),
       handoff: Boolean(event.handoff),
       stage: salesLead?.stage_key || event.stage,
@@ -238,6 +240,8 @@ export function eventsToKanban(
       externalConversationId: event.external_conversation_id,
       title: resolveConversationDisplayName(identityEvent, `Contato ${channelType.label}`),
       subtitle: salesFinancingSummary(salesLead, tenantSlug)
+        // Evento técnico (erro do motor) não tem texto: mostra o aviso legível, nunca o nome interno do serviço.
+        || technicalEventPresentation(activityEvent)?.title
         || activityEvent.message_text
         || (() => {
           const media = normalizeMedia(activityEvent.raw_payload, activityEvent);

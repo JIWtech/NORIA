@@ -71,6 +71,7 @@ import { Kanban } from '../features/kanban/components/Kanban';
 import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
 import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
+import { reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
 import { AuthShell } from '../features/auth/components/AuthShell';
 import { LoginPage } from '../features/auth/components/LoginPage';
@@ -151,89 +152,6 @@ function formatCurrency(value) {
     currency: 'BRL',
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-function reconcilePendingKanbanMoves(serverData, pendingMovesMap, confirmedMovesMap) {
-  if (!serverData?.kanbanColumns) {
-    return serverData;
-  }
-  const now = Date.now();
-  const activePending = new Map();
-
-  if (pendingMovesMap && pendingMovesMap.size > 0) {
-    for (const [cardId, move] of pendingMovesMap.entries()) {
-      const isExpired = !move.inFlight && (now - (move.completedAt || move.timestamp) >= 4000);
-      if (!isExpired) {
-        activePending.set(cardId, move);
-      } else {
-        pendingMovesMap.delete(cardId);
-      }
-    }
-  }
-
-  const activeConfirmed = new Map();
-  if (confirmedMovesMap && confirmedMovesMap.size > 0) {
-    for (const [cardId, confirmed] of confirmedMovesMap.entries()) {
-      if (now - confirmed.confirmedAt < 5000) {
-        activeConfirmed.set(cardId, confirmed);
-      } else {
-        confirmedMovesMap.delete(cardId);
-      }
-    }
-  }
-
-  if (activePending.size === 0 && activeConfirmed.size === 0) return serverData;
-
-  const nextColumns = serverData.kanbanColumns.map((col) => {
-    const colKey = col.automationKey || col.id;
-    const filteredCards = (col.cards || []).filter((c) => {
-      const pending = activePending.get(c.id);
-      if (pending) {
-        const targetMatches = pending.targetColumnKey === colKey
-          || (pending.targetColObj && (pending.targetColObj.id === col.id || pending.targetColObj.automationKey === colKey));
-        return targetMatches;
-      }
-      const confirmed = activeConfirmed.get(c.id);
-      if (confirmed) {
-        if (!c.salesRevision || (confirmed.salesRevision && c.salesRevision < confirmed.salesRevision) || (now - confirmed.confirmedAt < 4000)) {
-          const targetMatches = confirmed.targetColumnKey === colKey
-            || (confirmed.targetColObj && (confirmed.targetColObj.id === col.id || confirmed.targetColObj.automationKey === colKey));
-          return targetMatches;
-        }
-      }
-      return true;
-    });
-
-    for (const [cardId, pending] of activePending.entries()) {
-      const targetMatches = pending.targetColumnKey === colKey
-        || (pending.targetColObj && (pending.targetColObj.id === col.id || pending.targetColObj.automationKey === colKey));
-      if (targetMatches && !filteredCards.some((c) => c.id === cardId)) {
-        filteredCards.unshift({
-          ...pending.card,
-          stage: pending.targetStageLabel,
-          targetColumnId: col.automationKey || pending.targetColumnKey,
-        });
-      }
-    }
-
-    for (const [cardId, confirmed] of activeConfirmed.entries()) {
-      if (activePending.has(cardId)) continue;
-      const targetMatches = confirmed.targetColumnKey === colKey
-        || (confirmed.targetColObj && (confirmed.targetColObj.id === col.id || confirmed.targetColObj.automationKey === colKey));
-      if (targetMatches && !filteredCards.some((c) => c.id === cardId)) {
-        filteredCards.unshift({
-          ...confirmed.card,
-          stage: confirmed.targetStageLabel,
-          targetColumnId: col.automationKey || confirmed.targetColumnKey,
-          salesRevision: confirmed.salesRevision || confirmed.card?.salesRevision,
-        });
-      }
-    }
-
-    return { ...col, cards: filteredCards };
-  });
-
-  return { ...serverData, kanbanColumns: nextColumns };
 }
 
 function App() {
