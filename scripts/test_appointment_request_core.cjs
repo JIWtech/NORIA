@@ -254,3 +254,19 @@ test('o evento registra quais marcações a IA devolveu, sem o texto', async () 
   assert.ok(saved, 'diagnóstico gravado');
   assert.deepEqual(saved.raw_payload.reply_actions, { human_requested: true, complaint: false, appointment_tag: 'create', text_empty: false });
 });
+
+// 09/11/2026 (I&C): o CORE ensinava ao Gemini o agendamento com sinal (status=pending_payment, "pendente do sinal") mesmo
+// no modo de pedido com confirmação do dono, que recusa esse formato. A instrução de agendamento segue o modo do tenant.
+test('no modo de pedido, o Gemini aprende o formato do pré-agendamento, sem sinal', async () => {
+  const r = await run({ response: 'Qual horário você prefere?' });
+  assert.match(r.prompt, /status=pending_confirmation/);
+  assert.doesNotMatch(r.prompt, /pendente do sinal/);
+  assert.doesNotMatch(r.prompt, /status=pending_payment/);
+});
+
+test('sem o modo de pedido, a instrução de agendamento continua a de antes', async () => {
+  const r = await run({ request: null, response: 'Qual horário você prefere?' });
+  assert.match(r.prompt, /pendente do sinal/);
+  assert.match(r.prompt, /status=pending_payment/);
+  assert.doesNotMatch(r.prompt, /status=pending_confirmation/);
+});

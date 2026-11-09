@@ -84,8 +84,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_09',
-  built_at: '2026-11-09T15:30:43.939Z',
-  core_sha256: 'b0106c749b06049e945d84706d322332a79b38b938f187a92f04e7465d9a6ac1',
+  built_at: '2026-11-09T15:37:37.983Z',
+  core_sha256: 'a1aa6efed1a2224ae9ce8f008ae9e2ccec4470e2a55c61f8e6a7c538f71f0f7e',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -2896,6 +2896,19 @@ async function callGemini(context, classification, fallback, history, catalog, a
   const audience = audienceSignals();
   const explicitAge = explicitAgeFromText();
 
+  // Instrução de agendamento conforme o modo do tenant: pedido confirmado pelo dono (appointment_request) ou o fluxo
+  // com sinal que já existia. Só muda o protocolo da tag e quando encaminhar; nenhum texto comercial.
+  const bookingRules = appointmentRequestConfig(context)?.valid === true ? [
+    '- O agendamento deste tenant é por pedido: a equipe confirma o horário. Você não confirma e não reserva horário.',
+    '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:mm|status=pending_confirmation].',
+    '- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.',
+    '- Ao registrar o pedido, não use [HUMANO_SOLICITADO]. Use humano apenas para reclamação ou pedido explícito de atendente.',
+  ].join('\n') : `- Durante agendamento com sinal/pagamento antecipado, registre o pre-agendamento quando tiver nome, servico, data e horario.
+- Quando tiver nome, servico, data e horario, confirme em uma frase curta, informe que o horario fica pendente do sinal conforme regra do tenant e inclua no final a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servico=SERVICO|data=AAAA-MM-DD|hora=HH:mm|duracao=120|status=pending_payment].
+- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.
+- Se a cliente pedir Pix, sinal ou dados de pagamento, use as informacoes de pagamento do tenant e peca para ela responder exatamente SINAL PAGO depois que pagar.
+- Nao use [ACAO: PRONTO_PARA_AGENDAR] para agendamento comum. Use humano apenas depois de SINAL PAGO, reclamacao, cancelamento, alteracao de horario ou pedido explicito de atendente.
+- Nao use [HUMANO_SOLICITADO] para agendamento comum antes do pagamento do sinal.`;
   const appointmentContext = JSON.stringify({
     confirmado: appointments?.futureConfirmed ? {
       titulo: appointments.futureConfirmed.title,
@@ -2991,12 +3004,7 @@ ${settings.conversation_style_instructions || settings.tone || ""}
 - Para criar agendamento, colete no minimo: nome da pessoa atendida, servico, data especifica e horario especifico.
 - Faca somente UMA pergunta por mensagem. Nunca peca nome + dia + horario juntos. Pergunte apenas o proximo dado que estiver faltando.
 - Se a cliente informar dados juntos, aproveite todos e pergunte apenas o que ainda faltar.
-- Durante agendamento com sinal/pagamento antecipado, registre o pre-agendamento quando tiver nome, servico, data e horario.
-- Quando tiver nome, servico, data e horario, confirme em uma frase curta, informe que o horario fica pendente do sinal conforme regra do tenant e inclua no final a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servico=SERVICO|data=AAAA-MM-DD|hora=HH:mm|duracao=120|status=pending_payment].
-- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.
-- Se a cliente pedir Pix, sinal ou dados de pagamento, use as informacoes de pagamento do tenant e peca para ela responder exatamente SINAL PAGO depois que pagar.
-- Nao use [ACAO: PRONTO_PARA_AGENDAR] para agendamento comum. Use humano apenas depois de SINAL PAGO, reclamacao, cancelamento, alteracao de horario ou pedido explicito de atendente.
-- Nao use [HUMANO_SOLICITADO] para agendamento comum antes do pagamento do sinal.
+${bookingRules}
 - Para listas, use apenas bullets simples com "•".
 - Não interrompa a resposta no meio.`;
 
