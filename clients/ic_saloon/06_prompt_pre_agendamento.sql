@@ -28,3 +28,10 @@ where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
   and settings->'appointment_request'->>'mode' = 'operator_confirmation'
   and not (settings->'appointment_request' ? 'invalid_request_template')
   and not (settings->'appointment_request' ? 'full_name_template');
+
+-- 4) Horário indisponível com tom mais acolhedor e sem repetir o nome completo da cliente.
+update tenant_settings
+set settings = jsonb_set(settings, '{appointment_request,slot_rejected_template}',
+  to_jsonb('Poxa, o horário de {data}, às {hora}, já está ocupado 😕 Mas a gente encontra outro pra você! Qual dia ou horário fica melhor?'::text))
+where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
+  and settings->'appointment_request'->>'slot_rejected_template' = '{nome}, esse horário não está disponível. Qual outro dia ou horário fica bom para você?';
