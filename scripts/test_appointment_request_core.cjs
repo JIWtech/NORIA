@@ -270,3 +270,18 @@ test('sem o modo de pedido, a instrução de agendamento continua a de antes', a
   assert.match(r.prompt, /status=pending_payment/);
   assert.doesNotMatch(r.prompt, /status=pending_confirmation/);
 });
+
+// 09/11/2026 (I&C): a IA marcou o serviço com outro nome ("Corte cabelo" em vez de "Corte"); o pedido só aceita o nome
+// exato do catálogo e foi recusado sem dizer por quê. A instrução lista os nomes do catálogo do tenant e o erro diz o que não bateu.
+test('no modo de pedido, a instrução lista os nomes exatos do catálogo para o campo servicos', async () => {
+  const r = await run({ response: 'Qual horário você prefere?' });
+  assert.match(r.prompt, /servicos.*somente nomes exatos[^\n]*Corte; Escova; Drenagem/);
+});
+
+test('serviço fora do catálogo: o erro registra qual nome não bateu, sem criar pedido', async () => {
+  const r = await run({ response: '[ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servicos=Corte cabelo;Escova|data=2099-09-29|hora=10:00|status=pending_confirmation]' });
+  const ev = r.events.find(e => e.raw_payload?.appointment_request);
+  assert.match(ev.raw_payload.appointment_request.failed, /^Invalid appointment details/);
+  assert.match(ev.raw_payload.appointment_request.failed, /unknown_services=Corte cabelo(?!;Escova)/);
+  assert.equal(ev.raw_payload.appointment_request.appointment_id, undefined);
+});

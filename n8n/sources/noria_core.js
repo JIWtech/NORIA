@@ -84,8 +84,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_09',
-  built_at: '2026-11-09T15:37:37.983Z',
-  core_sha256: 'a1aa6efed1a2224ae9ce8f008ae9e2ccec4470e2a55c61f8e6a7c538f71f0f7e',
+  built_at: '2026-11-09T18:19:29.741Z',
+  core_sha256: 'f0584d73a512f231509732cac2d7f542255b4b85bdb2a0bf19de155d8ecb2af1',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -2056,7 +2056,13 @@ async function saveAppointmentRequest(context, action, open) {
   const services = wanted.map(name => catalog.find(item => normalizeText(item.name) === normalizeText(name)));
   const startsAt = parseAppointmentStartAt(date, time, context);
   if (!groundingIsFullName(customerName)) throw new Error('APPOINTMENT_FULL_NAME_REQUIRED');
-  if (!services.length || services.some(item => !item) || !startsAt || Date.parse(startsAt) <= Date.now()) throw new Error('Invalid appointment details');
+  if (!services.length || services.some(item => !item) || !startsAt || Date.parse(startsAt) <= Date.now()) {
+    // Diz o que não bateu (nomes de serviço não são dado pessoal) para o turno poder ser diagnosticado depois.
+    const unknown = wanted.filter((_, index) => !services[index]);
+    const reasons = [!wanted.length ? 'no_services' : '', unknown.length ? 'unknown_services=' + unknown.join(';') : '',
+      !startsAt ? 'invalid_date_time' : (Date.parse(startsAt) <= Date.now() ? 'past_date_time' : '')].filter(Boolean);
+    throw new Error('Invalid appointment details: ' + reasons.join(' '));
+  }
   // A duração vem do catálogo. Sem ela para algum serviço, o fim fica em aberto e o card avisa.
   const hours = services.map(item => Number(item.estimated_hours));
   const knownDuration = services.every(item => item.estimated_hours !== null && item.estimated_hours !== undefined) && hours.every(value => value > 0);
@@ -2850,6 +2856,15 @@ function markGeminiPhysicalUsage() {
   // acquisition; workflow static data is no longer a budget source.
 }
 
+// O pedido só aceita o nome exato de um serviço ativo do catálogo; a lista vem do catálogo do tenant, nunca do código.
+function bookingServiceNamesRule(catalog) {
+  const names = [...new Set((Array.isArray(catalog?.matches) ? catalog.matches : [])
+    .map(item => String(item?.name || '').trim()).filter(Boolean))];
+  if (!names.length) return [];
+  return ['- No campo servicos, use somente nomes exatos desta lista do catálogo, sem acrescentar palavras: ' + names.join('; ')
+    + '. Se o que a cliente pediu não corresponder claramente a um desses nomes, pergunte qual deles ela quer antes de registrar.'];
+}
+
 async function callGemini(context, classification, fallback, history, catalog, appointments) {
   const agent = context.agent || {};
   const settings = settingsFor(context);
@@ -2902,6 +2917,7 @@ async function callGemini(context, classification, fallback, history, catalog, a
     '- O agendamento deste tenant é por pedido: a equipe confirma o horário. Você não confirma e não reserva horário.',
     '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:mm|status=pending_confirmation].',
     '- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.',
+    ...bookingServiceNamesRule(catalog),
     '- Ao registrar o pedido, não use [HUMANO_SOLICITADO]. Use humano apenas para reclamação ou pedido explícito de atendente.',
   ].join('\n') : `- Durante agendamento com sinal/pagamento antecipado, registre o pre-agendamento quando tiver nome, servico, data e horario.
 - Quando tiver nome, servico, data e horario, confirme em uma frase curta, informe que o horario fica pendente do sinal conforme regra do tenant e inclua no final a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servico=SERVICO|data=AAAA-MM-DD|hora=HH:mm|duracao=120|status=pending_payment].
