@@ -285,3 +285,30 @@ test('serviço fora do catálogo: o erro registra qual nome não bateu, sem cria
   assert.match(ev.raw_payload.appointment_request.failed, /unknown_services=Corte cabelo(?!;Escova)/);
   assert.equal(ev.raw_payload.appointment_request.appointment_id, undefined);
 });
+
+// 09/11/2026: no modo de pedido, as frases de nova tentativa (nome completo e dados do pedido) eram texto fixo no CORE.
+// Agora vêm de appointment_request no Supabase, como as de pedido recebido e confirmado. Sem a frase configurada, decide uma pessoa.
+const BAD_SERVICE = '[ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servicos=Corte cabelo|data=2099-09-29|hora=10:00|status=pending_confirmation]';
+const SHORT_NAME = '[ACAO: CRIAR_AGENDAMENTO|nome=Maria|servicos=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]';
+const retryMode = { ...mode, invalid_request_template: 'TPL dados do pedido', full_name_template: 'TPL nome completo' };
+
+test('pedido recusado: a frase de nova tentativa vem da configuração do tenant', async () => {
+  const r = await run({ request: retryMode, response: BAD_SERVICE });
+  assert.equal(r.sent, 1);
+  assert.match(r.sentText, /TPL dados do pedido/);
+  assert.ok(!r.events.some(e => e.handoff === true));
+});
+
+test('nome incompleto: a pergunta do nome completo vem da configuração do tenant', async () => {
+  const r = await run({ request: retryMode, response: SHORT_NAME });
+  assert.match(r.sentText, /TPL nome completo/);
+  assert.ok(!r.events.some(e => e.handoff === true));
+});
+
+test('sem a frase configurada, o pedido recusado vai para a equipe e o CORE não inventa texto', async () => {
+  for (const response of [BAD_SERVICE, SHORT_NAME]) {
+    const r = await run({ response });
+    assert.ok(r.events.some(e => e.handoff === true), 'encaminha para a equipe');
+    assert.doesNotMatch(r.sentText, /consegui registrar|nome completo, por favor/);
+  }
+});

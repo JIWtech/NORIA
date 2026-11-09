@@ -17,3 +17,14 @@ set settings = jsonb_set(settings, '{system_prompt}', to_jsonb(replace(settings-
   E'- A avaliação é presencial e gratuita. Não é feita por foto.\n- A avaliação não é um serviço do catálogo e nunca vai na tag. Para marcar uma avaliação, descubra qual serviço do catálogo a cliente pretende fazer (pergunte, se ainda não estiver claro) e registre o pedido com esse serviço. Na conversa, diga que a avaliação é feita no salão, junto com o atendimento.\n')))
 where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
   and md5(settings->>'system_prompt') = '3128d9fb4f95269f6283f898f1ea03eb';
+
+-- 3) Frases de nova tentativa do pedido, antes fixas no CORE: agora são do tenant, como as de recebido e confirmado.
+--    Mesmo texto que o cliente já recebia. Sem elas, o pedido recusado vai para a equipe.
+update tenant_settings
+set settings = jsonb_set(settings, '{appointment_request}', (settings->'appointment_request') || jsonb_build_object(
+  'invalid_request_template', 'Não consegui registrar esse horário. Me confirme o serviço, a data e o horário desejados para eu verificar?',
+  'full_name_template', 'Qual é o seu nome completo, por favor?'))
+where tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'
+  and settings->'appointment_request'->>'mode' = 'operator_confirmation'
+  and not (settings->'appointment_request' ? 'invalid_request_template')
+  and not (settings->'appointment_request' ? 'full_name_template');

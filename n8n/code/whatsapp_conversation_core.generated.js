@@ -85,8 +85,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_09',
-  built_at: '2026-11-09T18:19:29.741Z',
-  core_sha256: 'f0584d73a512f231509732cac2d7f542255b4b85bdb2a0bf19de155d8ecb2af1',
+  built_at: '2026-11-09T18:23:01.987Z',
+  core_sha256: '1b66012d429ef3def154e3a5cb9189dc1005cdb2ac0d92fb4ee8f2d0cd445079',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -14779,9 +14779,12 @@ async function runTurn() {
       const code = supabaseErrorText(error) || String(error?.message || error);
       event.ai_error = 'appointment_not_created';
       event.raw_payload.appointment_request = { kind: requestAction.kind, failed: String(code).slice(0, 120) };
-      if (/APPOINTMENT_FULL_NAME_REQUIRED/.test(code)) responseText = 'Qual \u00e9 o seu nome completo, por favor?';
-      else if (/Invalid appointment details|APPOINTMENT_REQUEST_(?:PAST|STATUS_INVALID|NOT_OPEN)/.test(code)) {
-        responseText = 'N\u00e3o consegui registrar esse hor\u00e1rio. Me confirme o servi\u00e7o, a data e o hor\u00e1rio desejados para eu verificar?';
+      // A frase de nova tentativa é do tenant (appointment_request no Supabase); o código só classifica o erro técnico.
+      const retryKey = /APPOINTMENT_FULL_NAME_REQUIRED/.test(code) ? 'full_name_template'
+        : /Invalid appointment details|APPOINTMENT_REQUEST_(?:PAST|STATUS_INVALID|NOT_OPEN)/.test(code) ? 'invalid_request_template' : '';
+      const retryText = retryKey && typeof requestConfig[retryKey] === 'string' ? requestConfig[retryKey].trim() : '';
+      if (retryText) {
+        responseText = retryText; preserveLiteralReply = true;
       } else {
         // Pedido em envio, configuração inválida ou falha técnica: decide uma pessoa.
         responseText = sessionHandoffMessage(); preserveLiteralReply = true;
