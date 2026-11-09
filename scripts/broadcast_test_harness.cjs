@@ -14,12 +14,12 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const BROADCAST_MIGRATIONS = [
   'supabase/migrations/010_broadcasts_and_appointments.sql',
   'supabase/migrations/023_broadcast_campaign_controls.sql',
-  'supabase/migrations/20261109190000_broadcast_production_alignment.sql',
-  'supabase/migrations/20261109190100_broadcast_server_dispatch.sql',
+  'supabase/migrations/20261109192247_broadcast_production_alignment.sql',
+  'supabase/migrations/20261109192323_broadcast_server_dispatch.sql',
 ];
 const OPTIONAL_MIGRATIONS = [
-  'supabase/migrations/20261109190200_broadcast_number_protection.sql',
-  'supabase/migrations/20261109190300_broadcast_opt_out.sql',
+  'supabase/migrations/20261109192353_broadcast_number_protection.sql',
+  'supabase/migrations/20261109192425_broadcast_opt_out.sql',
 ];
 
 const SUPABASE_URL = 'https://db.test';

@@ -11,7 +11,7 @@ const { PGlite } = require(path.join(
 
 const root = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
-const ALIGNMENT = 'supabase/migrations/20261109190000_broadcast_production_alignment.sql';
+const ALIGNMENT = 'supabase/migrations/20261109192247_broadcast_production_alignment.sql';
 
 const tenantA = '11111111-1111-1111-1111-111111111111';
 const tenantB = '22222222-2222-2222-2222-222222222222';
