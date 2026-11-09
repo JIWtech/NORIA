@@ -45,6 +45,8 @@ import {
 } from '../utils/broadcastImport';
 import { broadcastErrorMessage, broadcastPauseReason } from '../utils/broadcastMessages.js';
 import { optOutIndex, isContactOptedOut } from '../utils/broadcastOptOut.js';
+import { renderBroadcastMessage } from '../utils/broadcastTemplate.js';
+import { scheduleInputToIso } from '../utils/broadcastSchedule.js';
 
 export function Broadcasts({ conversations = [], contacts = [], campaigns = [], tenantSlug, onChanged, ready = true, allowedChannels = CHANNEL_OPTIONS.map(c => c.id) }) {
   const defaultChannel = allowedChannels.includes('telegram') ? 'telegram' : allowedChannels[0] || 'whatsapp';
@@ -59,6 +61,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   // tone: 'info' | 'progress' | 'success' | 'error'
   const setStatus = (message, tone = 'info') => setStatusState({ message: message || '', tone });
   const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [scheduleInput, setScheduleInput] = useState('');
   const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
@@ -324,13 +327,17 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
         channelType: defaultChannel,
       }, recipients);
 
-      await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed });
+      const scheduledAt = scheduleInputToIso(scheduleInput);
+      await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed, scheduledAt });
 
-      setStatus('Campanha na fila. O servidor envia aos poucos; você pode fechar esta tela e acompanhar o progresso aqui.', 'success');
+      setStatus(scheduledAt
+        ? `Campanha agendada para ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(scheduledAt))}. O servidor envia aos poucos a partir desse horário.`
+        : 'Campanha na fila. O servidor envia aos poucos; você pode fechar esta tela e acompanhar o progresso aqui.', 'success');
       setMessageText('');
       setCampaignName('');
       setSelected(new Set());
       setConsentConfirmed(false);
+      setScheduleInput('');
       await onChanged?.();
     } catch (error) {
       if (campaign?.id) {
@@ -346,6 +353,8 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const messageLimit = MESSAGE_LIMIT_BY_CHANNEL[defaultChannel] || 4096;
   const messageTooLong = messageText.length > messageLimit;
   const hasChannel = allowedChannels.length > 0;
+  const previewContact = selectedContacts[0] || null;
+  const previewName = previewContact ? (previewContact.name || previewContact.contact_name || '') : 'Maria';
   const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong && consentConfirmed;
   const recoverableHasUnknown = (recoverableCampaign?.unknown_count || 0) > 0;
   // Criada pelo fluxo antigo (navegador): sem agendamento do servidor, nunca é enviada automaticamente.
@@ -517,16 +526,23 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
           {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
 
+          <p className="bc-hint">Use {'{nome}'} para incluir o primeiro nome de cada contato.</p>
+
           {messageText.trim() && (
             <figure className="bc-preview" aria-label="Prévia da mensagem">
-              <figcaption>Prévia</figcaption>
-              <p className="bc-bubble">{messageText}</p>
+              <figcaption>Prévia{previewContact ? ` para ${displayContactName(previewContact)}` : ''}</figcaption>
+              <p className="bc-bubble">{renderBroadcastMessage(messageText, previewName)}</p>
             </figure>
           )}
 
           <label className="bc-field">
             <span>Nome da campanha <em>opcional</em></span>
             <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
+          </label>
+
+          <label className="bc-field">
+            <span>Agendar envio <em>opcional, vazio envia agora</em></span>
+            <input type="datetime-local" value={scheduleInput} onChange={(event) => setScheduleInput(event.target.value)} />
           </label>
 
           <label className="bc-consent">
@@ -537,7 +553,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
             {busy
               ? <><Loader2 size={16} className="bc-spin" /> Colocando na fila…</>
-              : <><Send size={16} /> {selectedContacts.length ? `Enviar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
+              : <><Send size={16} /> {selectedContacts.length ? `${scheduleInputToIso(scheduleInput) ? 'Agendar para' : 'Enviar para'} ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
           </button>
           {status.message && (
             <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">

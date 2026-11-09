@@ -21,6 +21,30 @@ function newLeaseToken() {
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
 
+// >>> broadcast_template (mesma regra em app/src/features/broadcasts/utils/broadcastTemplate.js)
+// Renderização técnica do modelo: {nome} ou {{nome}} vira o primeiro nome do contato. Sem nome
+// utilizável (vazio, telefone, JID ou o rótulo genérico), a variável sai junto com a pontuação colada.
+const BROADCAST_NAME_TOKEN = /\{\{\s*nome\s*\}\}|\{\s*nome\s*\}/.source;
+const BROADCAST_NAME_ANY = new RegExp('(?:' + BROADCAST_NAME_TOKEN + ')', 'giu');
+const BROADCAST_NAME_SENTENCE_START = new RegExp(/(^|[.!?]\s+)/.source + '(?:' + BROADCAST_NAME_TOKEN + ')' + /\s*[,;:]?\s*(\S)/.source, 'giu');
+const BROADCAST_NAME_INLINE = new RegExp(/\s*/.source + '(?:' + BROADCAST_NAME_TOKEN + ')', 'giu');
+function broadcastFirstName(value) {
+  const name = String(value || '').trim();
+  if (!name || name.includes('@') || /^\+?[\d\s().-]+$/.test(name) || name.toLowerCase() === 'contato') return '';
+  const first = name.split(/\s+/)[0];
+  return first.charAt(0).toLocaleUpperCase('pt-BR') + first.slice(1);
+}
+function renderBroadcastMessage(template, contactName) {
+  const text = String(template || '');
+  const name = broadcastFirstName(contactName);
+  if (name) return text.replace(BROADCAST_NAME_ANY, name).trim();
+  return text
+    .replace(BROADCAST_NAME_SENTENCE_START, (_, start, next) => start + next.toLocaleUpperCase('pt-BR'))
+    .replace(BROADCAST_NAME_INLINE, '')
+    .trim();
+}
+// <<< broadcast_template
+
 const supabaseUrl = env('SUPABASE_URL').replace(/\/$/, '');
 const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
 if (!supabaseUrl || !serviceKey) throw new Error('SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY ausente');
@@ -144,7 +168,8 @@ async function processCampaign(campaign, leaseToken) {
       if (begin === 'skipped_opt_out') { report.skipped_opt_out = (report.skipped_opt_out || 0) + 1; continue; }
       if (begin !== 'sending') break;
 
-      const outcome = await deliver(sender, recipient, text);
+      const message = renderBroadcastMessage(text, recipient.contact_name);
+      const outcome = message ? await deliver(sender, recipient, message) : { status: 'failed', reason: 'empty_rendered_message' };
       report[outcome.status] += 1;
       if (outcome.status === 'requeue') {
         await rpc('broadcast_requeue_recipient', { p_recipient_id: recipient.id, p_lease_token: leaseToken, p_reason: outcome.reason });
@@ -157,7 +182,7 @@ async function processCampaign(campaign, leaseToken) {
         await post('channel_events', {
           tenant_id: campaign.tenant_id, tenant_slug: campaign.tenant_slug, channel_type: sender.channel,
           external_conversation_id: recipient.external_conversation_id, external_message_id: outcome.messageId,
-          direction: 'outbound', sender_type: 'agent', contact_name: recipient.contact_name || 'Contato', message_text: text,
+          direction: 'outbound', sender_type: 'agent', contact_name: recipient.contact_name || 'Contato', message_text: message,
           service: 'broadcast', stage: 'Disparo', handoff: false, ai_provider: 'broadcast_campaign', sent_by_user: 'Disparo NORIA',
           delivery_status: 'sent', command_id: recipient.idempotency_key || ('bcast:' + campaign.id + ':' + recipient.id),
           raw_payload: { campaign_id: campaign.id, campaign_name: campaign.name, recipient_id: recipient.id },
