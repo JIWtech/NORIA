@@ -35,8 +35,12 @@ const budgetMs = Math.max(0, Number(env('BROADCAST_WORKER_BUDGET_SECONDS', '45')
 const runStartedMs = Date.now();
 const elapsedMs = () => Date.now() - runStartedMs;
 
-// Cadência padrão até a etapa de proteção por tenant ser configurada.
-function pacingDelaySeconds() { return 20; }
+// Cadência do tenant (broadcast_protection_settings): intervalo aleatório entre o mínimo e o máximo.
+function pacingDelaySeconds(protection) {
+  const min = Number(protection.min_interval_seconds);
+  const max = Math.max(min, Number(protection.max_interval_seconds));
+  return min + Math.random() * (max - min);
+}
 
 // Credenciais do canal do próprio tenant. Sem credencial válida a campanha pausa, sem tentar enviar.
 async function resolveSender(campaign) {
@@ -80,8 +84,17 @@ async function resolveSender(campaign) {
   return { error: 'channel_not_supported' };
 }
 
-// Classificação estruturada pela resposta HTTP, não pelo texto do erro:
-// 2xx com id = enviado; 4xx = recusado antes da entrega; 5xx, 2xx sem id ou falha de transporte = incerto.
+// Classificação estruturada pela resposta HTTP e pelo formato do corpo, nunca pelo texto do erro:
+// - 2xx com id = enviado; 2xx sem id = incerto.
+// - 401/403/404/429: o provedor recusou antes da entrega por motivo do canal (credencial, instância,
+//   limite): o destinatário volta para a fila e a campanha pausa ('requeue').
+// - Outros 4xx: recusa do destinatário (ex.: número sem WhatsApp) = falha definitiva.
+// - 5xx, sem status ou falha de transporte: a mensagem pode ter saído = incerto, nunca reenviado.
+const CHANNEL_REJECTION_STATUS = new Set([401, 403, 404, 429]);
+function numberNotOnWhatsApp(body) {
+  const entries = body?.response?.message;
+  return Array.isArray(entries) && entries.some(entry => entry && typeof entry === 'object' && entry.exists === false);
+}
 function classifyDelivery({ statusCode, body, transportError }, sender) {
   if (transportError) return { status: 'unknown', reason: 'transport_' + String(transportError.code || 'error').toLowerCase() };
   const code = Number(statusCode) || 0;
@@ -89,7 +102,10 @@ function classifyDelivery({ statusCode, body, transportError }, sender) {
     const id = sender.messageId(body);
     return id ? { status: 'sent', messageId: String(id) } : { status: 'unknown', reason: 'no_message_id' };
   }
-  if (code >= 400 && code < 500) return { status: 'failed', reason: 'http_' + code };
+  if (CHANNEL_REJECTION_STATUS.has(code)) return { status: 'requeue', reason: 'provider_rejected_http_' + code };
+  if (code >= 400 && code < 500) {
+    return { status: 'failed', reason: sender.channel === 'whatsapp' && numberNotOnWhatsApp(body) ? 'number_not_on_whatsapp' : 'http_' + code };
+  }
   return { status: 'unknown', reason: 'http_' + (code || 'none') };
 }
 
@@ -104,7 +120,7 @@ async function deliver(sender, recipient, text) {
 }
 
 async function processCampaign(campaign, leaseToken) {
-  const report = { campaign_id: campaign.id, tenant_slug: campaign.tenant_slug, sent: 0, failed: 0, unknown: 0 };
+  const report = { campaign_id: campaign.id, tenant_slug: campaign.tenant_slug, sent: 0, failed: 0, unknown: 0, requeue: 0 };
   let pauseReason = null;
   try {
     await rpc('broadcast_recover_stale_leases', { p_campaign_id: campaign.id });
@@ -112,8 +128,13 @@ async function processCampaign(campaign, leaseToken) {
     if (sender.error) { pauseReason = sender.error; return report; }
     const text = String(campaign.message_text || '').trim();
     if (!text) { pauseReason = 'empty_message'; return report; }
+    const protection = await rpc('broadcast_protection_settings', { p_tenant_id: campaign.tenant_id });
+    if (!protection || !Number(protection.min_interval_seconds)) throw new Error('Configuracao de protecao indisponivel');
 
     while (true) {
+      const quota = await rpc('broadcast_daily_quota', { p_campaign_id: campaign.id, p_lease_token: leaseToken });
+      if (!quota?.ok) break;
+      if (Number(quota.remaining) <= 0) { report.daily_limit_reached = true; break; }
       const batch = await rpc('broadcast_claim_batch', { p_campaign_id: campaign.id, p_lease_token: leaseToken, p_batch_size: 1, p_lease_seconds: 120 });
       const recipient = Array.isArray(batch) ? batch[0] : null;
       if (!recipient || recipient.tenant_id !== campaign.tenant_id) break;
@@ -121,9 +142,14 @@ async function processCampaign(campaign, leaseToken) {
       if (marked !== true) break;
 
       const outcome = await deliver(sender, recipient, text);
+      report[outcome.status] += 1;
+      if (outcome.status === 'requeue') {
+        await rpc('broadcast_requeue_recipient', { p_recipient_id: recipient.id, p_lease_token: leaseToken, p_reason: outcome.reason });
+        pauseReason = outcome.reason;
+        break;
+      }
       await rpc('broadcast_record_result', { p_recipient_id: recipient.id, p_lease_token: leaseToken, p_status: outcome.status,
         p_external_message_id: outcome.messageId || null, p_error: outcome.reason || null });
-      report[outcome.status] += 1;
       if (outcome.status === 'sent') {
         await post('channel_events', {
           tenant_id: campaign.tenant_id, tenant_slug: campaign.tenant_slug, channel_type: sender.channel,
@@ -133,10 +159,13 @@ async function processCampaign(campaign, leaseToken) {
           delivery_status: 'sent', command_id: recipient.idempotency_key || ('bcast:' + campaign.id + ':' + recipient.id),
           raw_payload: { campaign_id: campaign.id, campaign_name: campaign.name, recipient_id: recipient.id },
         }).catch(() => {});
+      } else {
+        const failures = await rpc('broadcast_consecutive_failures', { p_tenant_id: campaign.tenant_id });
+        if (Number(failures) >= Number(protection.max_consecutive_failures)) { pauseReason = 'consecutive_failures'; break; }
       }
 
       const schedule = await rpc('broadcast_schedule_next', { p_campaign_id: campaign.id, p_lease_token: leaseToken,
-        p_delay_seconds: pacingDelaySeconds() });
+        p_delay_seconds: pacingDelaySeconds(protection) });
       if (!schedule?.ok) break;
       const waitMs = new Date(schedule.next_send_at).getTime() - new Date(schedule.db_now).getTime();
       if (elapsedMs() + waitMs > budgetMs) break;

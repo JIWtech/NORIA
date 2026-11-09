@@ -42,6 +42,7 @@ import {
   displayContactName,
   displayContactPhone,
 } from '../utils/broadcastImport';
+import { broadcastErrorMessage, broadcastPauseReason } from '../utils/broadcastMessages.js';
 
 export function Broadcasts({ conversations = [], contacts = [], campaigns = [], tenantSlug, onChanged, ready = true, allowedChannels = CHANNEL_OPTIONS.map(c => c.id) }) {
   const defaultChannel = allowedChannels.includes('telegram') ? 'telegram' : allowedChannels[0] || 'whatsapp';
@@ -240,7 +241,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       setStatus(messages[action], 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(userFacingError(error, 'Não foi possível alterar a campanha.'), 'error');
+      setStatus(broadcastErrorMessage(error, 'Não foi possível alterar a campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -299,7 +300,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       if (campaign?.id) {
         await broadcastOps.controlBroadcastCampaign(campaign.id, 'cancel').catch(() => {});
       }
-      setStatus(userFacingError(error, 'Não foi possível colocar o disparo na fila.'), 'error');
+      setStatus(broadcastErrorMessage(error, 'Não foi possível colocar o disparo na fila.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -340,7 +341,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 : recoverableIsLegacy
                   ? 'Criada antes do envio pelo servidor: não será enviada automaticamente. Cancele e crie de novo se ainda quiser enviar.'
                   : recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED && recoverableCampaign.last_error
-                    ? 'Pausada automaticamente para proteger o número. Confira o canal antes de retomar.'
+                    ? broadcastPauseReason(recoverableCampaign.last_error)
                     : 'O servidor envia aos poucos, mesmo com esta tela fechada. Quem já recebeu não recebe de novo.'}
             </p>
           </div>
