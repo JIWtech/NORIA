@@ -11,7 +11,12 @@ export function buildGenesisSalesMovePayload(leadId, stageKey, revision) {
   };
 }
 
-export function createMoveKanbanCard({ getClient, loadTenant }) {
+// Canais em que o roteador do n8n faz o encerramento oficial (close_conversation).
+const OFFICIAL_CLOSE_CHANNELS = new Set(['whatsapp', 'telegram', 'instagram', 'instagram_direct']);
+
+// closeConversation: encerramento oficial, o mesmo do botão Encerrar das Conversas. Sem ele, finalizar no
+// Kanban só gravava um evento interno e o atendimento humano seguia aberto (a IA não voltava a responder).
+export function createMoveKanbanCard({ getClient, loadTenant, closeConversation = null }) {
 async function moveGenesisSalesCard(tenantSlug, card, targetColumnKey, agentName = null, targetColObj = null) {
   const canonical = canonicalKanbanKey(targetColObj?.automationKey || targetColumnKey);
   const sourceColumn = canonicalKanbanKey(card.targetColumnId || card.salesStageKey || card.stage || '');
@@ -187,6 +192,19 @@ async function moveKanbanCard(activeTenantSlug, card, targetColumnKey, agentName
   const contactName = card.title || card.contactName || 'Contato';
   const channelType = card.channelType || card.channel || 'telegram';
   const nowIso = new Date().toISOString();
+
+  const officialChannel = normalizeChannel(channelType).type;
+  if (isFinalizadasTarget && closeConversation && OFFICIAL_CLOSE_CHANNELS.has(officialChannel)) {
+    // O encerramento oficial grava o próprio evento de fechamento; um evento interno a mais seria duplicado.
+    const closed = await closeConversation({
+      tenantSlug,
+      channelType: officialChannel,
+      externalConversationId: conversationId,
+      contactName,
+      sentByUser: agentName || 'Operador NORIA',
+    });
+    return closed?.event ? [closed.event] : [];
+  }
 
   const newEvent = {
     tenant_slug: tenantSlug,

@@ -5,7 +5,7 @@ import { appointmentTimestamp, isMoreRecentRecord } from './utils/recordRecency.
 import { getAuthClient, isAuthRequired } from './services/auth/authService.js';
 import { loadUserTenants, enabledChannels } from './services/tenants/tenantAccess.js';
 import { prepareConversationEvents } from './services/conversations/conversationEvents.js';
-import { applyConversationLifecycle, isConversationClosed } from './services/conversations/conversationLifecycle.js';
+import { applyConversationLifecycle, isConversationClosed, requirePersistedClosure } from './services/conversations/conversationLifecycle.js';
 export { isConversationClosed };
 import { isEligibleForExternalOutbound, isInternalOperationalEvent } from './services/timeline/eventClassification.js';
 import { emptyFunnel, formatCurrency } from './services/funnel/funnelHelpers.js';
@@ -437,6 +437,21 @@ export const { upsertBroadcastContacts, createBroadcastCampaign, updateBroadcast
 const teamAgentManagement = createTeamAgentManagement({ getClient });
 export const { saveTeamAgent, updateTeamAgentStatus, removeTeamAgent } = teamAgentManagement;
 
-export const moveKanbanCard = createMoveKanbanCard({ getClient, loadTenant });
+// Mesmo encerramento do botão Encerrar das Conversas: passa pelo roteador do n8n, que registra o
+// controle do atendimento no banco e libera a IA. Import tardio: integration.js lê variáveis do Vite.
+async function closeConversationFromKanban({ tenantSlug, channelType, externalConversationId, contactName, sentByUser }) {
+  const { sendN8nCommand } = await import('./services/integration.js');
+  const result = await sendN8nCommand('close_conversation', {
+    channel_type: channelType,
+    external_conversation_id: externalConversationId,
+    contact_name: contactName,
+    message_text: 'Atendimento encerrado pela interface',
+    sent_by_user: sentByUser,
+    reason: 'Atendimento finalizado pelo Kanban',
+  }, tenantSlug);
+  return { event: requirePersistedClosure(result) };
+}
+
+export const moveKanbanCard = createMoveKanbanCard({ getClient, loadTenant, closeConversation: closeConversationFromKanban });
 
 export { isEligibleForExternalOutbound, isInternalOperationalEvent };
