@@ -1,11 +1,12 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Clock3,
   Search,
   UsersRound,
   X,
   Play,
+  Pause,
   AlertTriangle,
   RotateCcw,
   CheckCircle2,
@@ -22,19 +23,14 @@ import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon
 import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import {
   createBroadcastCampaign,
-  updateBroadcastCampaign,
-  updateBroadcastRecipient,
   upsertBroadcastContacts,
 } from '../../../dataService';
 import { createBroadcastOperations } from '../../../services/broadcasts/broadcastOperations.js';
-import { executeBroadcastCampaign } from '../../../services/broadcasts/broadcastWorker.js';
 import {
   RECIPIENT_STATUS,
   CAMPAIGN_STATUS,
-  calculateCampaignCounters,
 } from '../../../services/broadcasts/broadcastStateMachine.js';
 import { getAuthClient, getCurrentSession } from '../../../services/auth/authService.js';
-import { sendN8nCommand } from '../../../services/integration.js';
 import { CHANNEL_OPTIONS } from '../../../services/tenants/tenantAccess.js';
 import {
   parseContactFile,
@@ -59,7 +55,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const [status, setStatusState] = useState({ message: '', tone: 'info' });
   // tone: 'info' | 'progress' | 'success' | 'error'
   const setStatus = (message, tone = 'info') => setStatusState({ message: message || '', tone });
-  const abortControllerRef = useRef(null);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
@@ -220,92 +216,31 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     setSelected(new Set());
   }
 
-  // Detecta qualquer campanha em andamento, pausada ou com envios incertos a reconciliar
+  // Campanha que precisa de atenção: na fila, agendada, em envio, pausada ou com envios incertos.
   const recoverableCampaign = useMemo(() => {
     return (campaigns || []).find((c) =>
       c.status === CAMPAIGN_STATUS.SENDING ||
       c.status === CAMPAIGN_STATUS.PAUSED ||
       c.status === CAMPAIGN_STATUS.QUEUED ||
-      (c.status === CAMPAIGN_STATUS.PARTIAL_ERROR && (c.unknown_count > 0 || (c.sent_count || 0) < (c.total_recipients || 0)))
+      c.status === CAMPAIGN_STATUS.SCHEDULED ||
+      (c.status === CAMPAIGN_STATUS.PARTIAL_ERROR && c.unknown_count > 0)
     );
   }, [campaigns]);
 
-  useEffect(() => {
-    if (!busy) return undefined;
-    const handleBeforeUnload = (event) => {
-      event.preventDefault();
-      event.returnValue = 'Um disparo de mensagens está em processamento persistido. Fechar a aba pausará o envio local sem risco de duplicatas, e a campanha poderá ser retomada.';
-      return event.returnValue;
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [busy]);
-
-  async function resumeCampaign(campaignToResume) {
-    if (busy || !campaignToResume) return;
-    setBusy(true);
-    setStatus(`Retomando campanha "${campaignToResume.name}" de forma segura...`, 'progress');
-
-    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
-    abortControllerRef.current = abortController;
-
-    try {
-      // 1. Recupera leases órfãs ('claimed' -> 'queued'; 'sending' -> 'unknown')
-      await broadcastOps.recoverStaleLeases(campaignToResume.id);
-
-      // 2. Dispara sinalização ao backend/n8n se disponível
-      sendN8nCommand('broadcast_resume', {
-        campaign_id: campaignToResume.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      // 3. Executa o worker via leases atômicas estritas
-      const message = campaignToResume.message_text || campaignToResume.message_template || messageText;
-      await executeBroadcastCampaign({
-        campaignId: campaignToResume.id,
-        tenantSlug,
-        messageText: message,
-        defaultChannel: campaignToResume.channel_type || defaultChannel,
-        sendCommand: sendN8nCommand,
-        operations: broadcastOps,
-        abortSignal: abortController?.signal,
-        delayMs: 1200,
-        onProgress: ({ message: stepMessage }) => {
-          setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
-        },
-      });
-
-      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaignToResume.id);
-      const counters = calculateCampaignCounters(finalRecipients);
-
-      setStatus(`Retomada concluída: ${counters.sent} enviados, ${counters.failed} falhas${counters.unknown ? `, ${counters.unknown} incertos` : ''}.`, 'success');
-      await onChanged?.();
-    } catch (error) {
-      setStatus(userFacingError(error, 'Falha ao retomar campanha.'), 'error');
-    } finally {
-      setBusy(false);
-      abortControllerRef.current = null;
-    }
-  }
-
-  async function cancelCampaign(campaignToCancel) {
-    if (!campaignToCancel || busy) return;
+  async function controlCampaign(campaignToControl, action) {
+    if (!campaignToControl || busy) return;
     setBusy(true);
     try {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const res = await broadcastOps.cancelBroadcastCampaign(campaignToCancel.id);
-
-      sendN8nCommand('broadcast_cancel', {
-        campaign_id: campaignToCancel.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res.cancelled_recipients || 0} pendentes cancelados).`, 'success');
+      const result = await broadcastOps.controlBroadcastCampaign(campaignToControl.id, action);
+      const messages = {
+        pause: `Campanha "${campaignToControl.name}" pausada. Quem já recebeu não recebe de novo.`,
+        resume: `Campanha "${campaignToControl.name}" retomada. O servidor continua os envios.`,
+        cancel: `Campanha "${campaignToControl.name}" cancelada (${result?.cancelled_recipients || 0} pendentes cancelados).`,
+      };
+      setStatus(messages[action], 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
+      setStatus(userFacingError(error, 'Não foi possível alterar a campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -334,74 +269,39 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     }
   }
 
+  // Cria a campanha e a entrega ao servidor. O envio não depende desta aba ficar aberta.
   async function sendCampaign() {
     const text = messageText.trim();
-    if (!text || !selectedContacts.length || busy) return;
+    if (!text || !selectedContacts.length || busy || !consentConfirmed) return;
     setBusy(true);
     setStatus('Salvando campanha e destinatários...', 'progress');
 
     let campaign = null;
-    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
-    abortControllerRef.current = abortController;
-
     try {
       const savedContacts = await upsertBroadcastContacts(tenantSlug, selectedContacts);
       const recipients = mergeBroadcastContacts(savedContacts, selectedContacts);
 
       campaign = await createBroadcastCampaign(tenantSlug, {
         name: campaignName.trim() || `Disparo ${new Date().toLocaleDateString('pt-BR')}`,
-        message_template: text,
         messageText: text,
         channelType: defaultChannel,
-        total_recipients: recipients.length,
-        status: CAMPAIGN_STATUS.SENDING,
       }, recipients);
 
-      setStatus('Campanha salva. Iniciando os envios...', 'progress');
+      await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed });
 
-      // Dispara sinalização ao backend/n8n se disponível
-      sendN8nCommand('broadcast_start', {
-        campaign_id: campaign.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      // Executa o processador durável via leases atômicas
-      await executeBroadcastCampaign({
-        campaignId: campaign.id,
-        tenantSlug,
-        messageText: text,
-        defaultChannel,
-        sendCommand: sendN8nCommand,
-        operations: broadcastOps,
-        abortSignal: abortController.signal,
-        delayMs: 1200,
-        onProgress: ({ phase, message: stepMessage }) => {
-          if (phase === 'pacing' || phase === 'sending') {
-            setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
-          } else if (phase === 'item_completed') {
-            setStatus('Processando destinatários...', 'progress');
-          }
-        },
-      });
-
-      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaign.id);
-      const finalCounters = calculateCampaignCounters(finalRecipients);
-
-      setStatus(`Disparo concluído: ${finalCounters.sent} enviados, ${finalCounters.failed} falhas${finalCounters.unknown ? `, ${finalCounters.unknown} incertos` : ''}.`, 'success');
+      setStatus('Campanha na fila. O servidor envia aos poucos; você pode fechar esta tela e acompanhar o progresso aqui.', 'success');
       setMessageText('');
       setCampaignName('');
       setSelected(new Set());
+      setConsentConfirmed(false);
       await onChanged?.();
     } catch (error) {
       if (campaign?.id) {
-        await broadcastOps.updateBroadcastCampaign(campaign.id, {
-          status: CAMPAIGN_STATUS.PARTIAL_ERROR,
-        }).catch(() => {});
+        await broadcastOps.controlBroadcastCampaign(campaign.id, 'cancel').catch(() => {});
       }
-      setStatus(userFacingError(error, 'Falha ao executar disparo.'), 'error');
+      setStatus(userFacingError(error, 'Não foi possível colocar o disparo na fila.'), 'error');
     } finally {
       setBusy(false);
-      abortControllerRef.current = null;
     }
   }
 
@@ -409,8 +309,13 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const messageLimit = MESSAGE_LIMIT_BY_CHANNEL[defaultChannel] || 4096;
   const messageTooLong = messageText.length > messageLimit;
   const hasChannel = allowedChannels.length > 0;
-  const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong;
+  const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong && consentConfirmed;
   const recoverableHasUnknown = (recoverableCampaign?.unknown_count || 0) > 0;
+  // Criada pelo fluxo antigo (navegador): sem agendamento do servidor, nunca é enviada automaticamente.
+  const recoverableIsLegacy = Boolean(recoverableCampaign) && !recoverableCampaign.scheduled_at
+    && recoverableCampaign.status !== CAMPAIGN_STATUS.PARTIAL_ERROR;
+  const recoverableCanPause = !recoverableIsLegacy && [CAMPAIGN_STATUS.QUEUED, CAMPAIGN_STATUS.SCHEDULED, CAMPAIGN_STATUS.SENDING].includes(recoverableCampaign?.status);
+  const recoverableCanResume = !recoverableIsLegacy && recoverableCampaign?.status === CAMPAIGN_STATUS.PAUSED;
 
   return (
     <section className="bc-page">
@@ -421,20 +326,33 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           </span>
           <div className="bc-recover-body">
             <strong>
-              {recoverableHasUnknown ? 'Campanha com envios incertos' : 'Campanha em andamento'}
+              {recoverableHasUnknown ? 'Campanha com envios incertos'
+                : recoverableIsLegacy ? 'Campanha antiga parada'
+                  : recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED ? 'Campanha pausada'
+                    : recoverableCampaign.status === CAMPAIGN_STATUS.SCHEDULED ? 'Campanha agendada'
+                      : 'Campanha em andamento'}
               <span>{recoverableCampaign.name}</span>
             </strong>
             <CampaignProgress campaign={recoverableCampaign} />
             <p>
               {recoverableHasUnknown
                 ? 'Envios incertos não são reenviados, para evitar mensagem duplicada.'
-                : 'Quem já recebeu não recebe de novo.'}
+                : recoverableIsLegacy
+                  ? 'Criada antes do envio pelo servidor: não será enviada automaticamente. Cancele e crie de novo se ainda quiser enviar.'
+                  : recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED && recoverableCampaign.last_error
+                    ? 'Pausada automaticamente para proteger o número. Confira o canal antes de retomar.'
+                    : 'O servidor envia aos poucos, mesmo com esta tela fechada. Quem já recebeu não recebe de novo.'}
             </p>
           </div>
           <div className="bc-recover-actions">
-            {(recoverableCampaign.sent_count || 0) < (recoverableCampaign.total_recipients || 0) && (
-              <button type="button" className="primary-button bc-btn" onClick={() => resumeCampaign(recoverableCampaign)} disabled={busy}>
+            {recoverableCanResume && (
+              <button type="button" className="primary-button bc-btn" onClick={() => controlCampaign(recoverableCampaign, 'resume')} disabled={busy}>
                 <Play size={14} /> Retomar envio
+              </button>
+            )}
+            {recoverableCanPause && (
+              <button type="button" className="secondary-button bc-btn" onClick={() => controlCampaign(recoverableCampaign, 'pause')} disabled={busy}>
+                <Pause size={14} /> Pausar
               </button>
             )}
             {recoverableHasUnknown && (
@@ -448,7 +366,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 <RotateCcw size={14} /> Concluir incertos
               </button>
             )}
-            <button type="button" className="bc-text-btn is-danger" onClick={() => cancelCampaign(recoverableCampaign)} disabled={busy}>
+            <button type="button" className="bc-text-btn is-danger" onClick={() => controlCampaign(recoverableCampaign, 'cancel')} disabled={busy}>
               Cancelar campanha
             </button>
           </div>
@@ -566,9 +484,14 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
           </label>
 
+          <label className="bc-consent">
+            <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
+            <span>Confirmo que estes contatos autorizaram receber mensagens desta empresa.</span>
+          </label>
+
           <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
             {busy
-              ? <><Loader2 size={16} className="bc-spin" /> Enviando…</>
+              ? <><Loader2 size={16} className="bc-spin" /> Colocando na fila…</>
               : <><Send size={16} /> {selectedContacts.length ? `Enviar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
           </button>
           {status.message && (
@@ -635,6 +558,8 @@ const CAMPAIGN_STATUS_PRESENTATION = {
   cancelled: { label: 'Cancelada', tone: 'muted' },
   paused: { label: 'Pausada', tone: 'warning' },
   queued: { label: 'Na fila', tone: 'info' },
+  scheduled: { label: 'Agendada', tone: 'info' },
+  draft: { label: 'Rascunho', tone: 'muted' },
   sending: { label: 'Enviando', tone: 'info' },
 };
 

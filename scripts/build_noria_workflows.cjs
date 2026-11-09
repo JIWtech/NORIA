@@ -27,6 +27,8 @@ const RECOVERY_TRIGGER_SECONDS = 30;
 const recoveryCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_recover_core.js'), 'utf8').replace(/\r\n/g, '\n');
 // The follow-up dispatcher ("Processar Follow-ups") is projected from its source, so the CORE never drifts from it.
 const followUpDispatchCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_follow_up_dispatch.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+// The broadcast worker ("Processar Disparos") runs on the same 1-minute schedule as the follow-ups.
+const broadcastWorkerCode = fs.readFileSync(path.join(root, 'n8n/code/broadcast_campaign_worker.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const routerCode = fs.readFileSync(path.join(root, 'n8n/code/command_router.js'), 'utf8').replace(/\r\n/g, '\n');
 const routerInsertStart = routerCode.indexOf('  async function insertEvent(event) {');
 const routerInsertEnd = routerCode.indexOf('  async function loadTenantSettings(', routerInsertStart);
@@ -426,6 +428,29 @@ delete $json.noria_engine_phase;
 const engineCode = enginePrelude + coreCode;
 new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', engineCode);
 
+// Projects the server-side broadcast worker next to the follow-up dispatcher, fed by the same
+// 1-minute schedule trigger. Idempotent: the node is created once and its code always comes from the source.
+function configureBroadcastWorker(workflow, followUpNode) {
+  new AsyncFunction('$env', '$json', broadcastWorkerCode);
+  const trigger = workflow.nodes.find(n => n.name === 'Verificar Follow-ups Vencidos');
+  if (!trigger || trigger.type !== 'n8n-nodes-base.scheduleTrigger') throw new Error('MISSING_FOLLOW_UP_SCHEDULE_TRIGGER');
+  const name = 'Processar Disparos';
+  let node = workflow.nodes.find(n => n.name === name);
+  if (!node) {
+    node = {
+      parameters: {}, id: deterministicNodeId('broadcast_worker', name), name, type: 'n8n-nodes-base.code', typeVersion: 2,
+      position: [followUpNode.position[0], followUpNode.position[1] + 208],
+    };
+    workflow.nodes.push(node);
+  }
+  node.type = 'n8n-nodes-base.code';
+  node.typeVersion = 2;
+  node.parameters = { jsCode: broadcastWorkerCode };
+  const outputs = workflow.connections[trigger.name] ||= { main: [[]] };
+  outputs.main[0] = (outputs.main[0] || []).filter(link => link.node !== name);
+  outputs.main[0].push({ node: name, type: 'main', index: 0 });
+}
+
 function deterministicNodeId(namespace, name) {
   const h = crypto.createHash('sha1').update(namespace + ':' + name).digest('hex');
   return [h.slice(0, 8), h.slice(8, 12), '4' + h.slice(13, 16), '8' + h.slice(17, 20), h.slice(20, 32)].join('-');
@@ -535,6 +560,7 @@ for (const [source, file, prefix, code] of targets) {
     const followUpNode = workflow.nodes.find(n => n.name === 'Processar Follow-ups');
     if (!followUpNode || followUpNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_FOLLOW_UP_DISPATCH_NODE');
     followUpNode.parameters.jsCode = followUpDispatchCode;
+    configureBroadcastWorker(workflow, followUpNode);
     const recoveryTrigger = workflow.nodes.find(n => n.name === 'Recuperar Fila WhatsApp');
     if (!recoveryTrigger || recoveryTrigger.type !== 'n8n-nodes-base.scheduleTrigger') throw new Error('MISSING_TURN_RECOVERY_TRIGGER');
     recoveryTrigger.parameters.rule = { interval: [{ field: 'seconds', secondsInterval: RECOVERY_TRIGGER_SECONDS }] };
@@ -596,6 +622,7 @@ const manifest = {
   })).digest('hex'),
   router_sha256: crypto.createHash('sha256').update(routerSourceCode).digest('hex'),
   recovery_sha256: crypto.createHash('sha256').update(recoveryCode).digest('hex'),
+  broadcast_worker_sha256: crypto.createHash('sha256').update(broadcastWorkerCode).digest('hex'),
   recovery_trigger_seconds: RECOVERY_TRIGGER_SECONDS,
   control_origin_adapter_sha256: crypto.createHash('sha256').update(routerInsertCode).digest('hex'),
   operations_bridge_sha256: crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'scripts/turn_queue_operational_bridge.cjs'))).digest('hex'),
@@ -614,6 +641,7 @@ const manifest = {
     'n8n/code/whatsapp_sales.js',
     'n8n/code/whatsapp_recover_core.js',
     'n8n/code/whatsapp_follow_up_dispatch.js',
+    'n8n/code/broadcast_campaign_worker.js',
     'n8n/code/command_router.js',
     'scripts/turn_queue_operational_bridge.cjs',
   ],

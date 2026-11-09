@@ -995,3 +995,20 @@
     order: 4;
   }
 }
+
+/* Confirmação de consentimento antes de enfileirar o disparo */
+.bc-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.bc-consent input {
+  margin-top: 3px;
+  flex: none;
+  accent-color: var(--brand);
+}
