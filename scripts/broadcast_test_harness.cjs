@@ -20,7 +20,7 @@ const BROADCAST_MIGRATIONS = [
 const OPTIONAL_MIGRATIONS = [
   'supabase/migrations/20261109192353_broadcast_number_protection.sql',
   'supabase/migrations/20261109192425_broadcast_opt_out.sql',
-  'supabase/migrations/20261109200000_broadcast_opt_out_detection.sql',
+  'supabase/migrations/20261109193722_broadcast_opt_out_detection.sql',
 ];
 
 const SUPABASE_URL = 'https://db.test';
