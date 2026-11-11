@@ -123,7 +123,7 @@ html.home-view {
   transition: transform 0.25s var(--lp-ease);
 }
 
-.lp-btn:hover svg {
+.lp-btn:hover svg:last-child {
   transform: translateX(3px);
 }
 
@@ -1623,6 +1623,76 @@ html.home-view {
   text-transform: uppercase;
 }
 
+/* ---------- Botão flutuante WhatsApp ---------- */
+
+.lp-whatsapp-fab {
+  position: fixed;
+  right: clamp(20px, 2.6vw, 36px);
+  bottom: clamp(20px, 2.6vw, 32px);
+  z-index: 55;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 26px 0 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: #25d366;
+  box-shadow:
+    0 14px 32px -8px rgba(37, 211, 102, 0.45),
+    0 6px 16px -4px rgba(0, 0, 0, 0.5);
+  color: #041f10;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  isolation: isolate;
+  transition:
+    transform 0.25s var(--lp-ease),
+    background-color 0.2s ease,
+    box-shadow 0.25s var(--lp-ease);
+}
+
+.lp-whatsapp-fab::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.65);
+  animation: lp-wa-border-pulse 2.2s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+}
+
+.lp-whatsapp-fab:hover {
+  transform: translateY(-3px) scale(1.02);
+  background: #2ee070;
+  box-shadow:
+    0 18px 38px -8px rgba(37, 211, 102, 0.6),
+    0 8px 20px -4px rgba(0, 0, 0, 0.6);
+}
+
+.lp-whatsapp-fab-icon {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.lp-whatsapp-fab-label {
+  white-space: nowrap;
+}
+
+@keyframes lp-wa-border-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.65);
+  }
+  75% {
+    box-shadow: 0 0 0 14px rgba(37, 211, 102, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0);
+  }
+}
+
 /* ---------- Movimento ---------- */
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1975,6 +2045,17 @@ html.home-view {
 
   .lp-footer-cols {
     gap: 48px;
+  }
+
+  .lp-whatsapp-fab {
+    width: 58px;
+    height: 58px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .lp-whatsapp-fab-label {
+    display: none;
   }
 }
 

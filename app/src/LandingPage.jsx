@@ -155,6 +155,26 @@ const KANBAN_COLUMNS = [
 
 const PEAK_HOURS = [22, 38, 64, 90, 72, 48, 80, 96, 58, 30];
 
+function WhatsAppIcon({ size = 18, className = '' }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 21l1.65-3.8a9 9 0 1 1 3.4 2.9L3 21" />
+      <path d="M9 10a.5.5 0 0 0 1 0V9a.5.5 0 0 0-1 0v1Zm0 0a5 5 0 0 0 5 5m0 0h1a.5.5 0 0 0 0-1h-1a.5.5 0 0 0 0 1Z" />
+    </svg>
+  );
+}
+
 function SectionHead({ index, label, title, children }) {
   return (
     <header className="lp-section-head" data-reveal>
@@ -355,7 +375,8 @@ export function HomePage() {
 
   const startWhatsAppConversation = () => {
     if (typeof window !== 'undefined') {
-      window.location.assign(WHATSAPP_CONTACT_URL);
+      const opened = window.open(WHATSAPP_CONTACT_URL, '_blank', 'noopener,noreferrer');
+      if (opened) opened.opener = null;
     }
   };
 
@@ -646,12 +667,18 @@ export function HomePage() {
                 Junte-se às empresas que já automatizaram a qualificação de clientes e aceleraram o fechamento com a NORIA.
               </p>
               <div className="lp-final-actions">
-                <button className="lp-btn lp-btn--primary lp-btn--lg" type="button" onClick={() => goTo('?app=1')}>
-                  Explorar a plataforma <ArrowRight size={18} />
-                </button>
-                <a className="lp-btn lp-btn--quiet lp-btn--lg" href="#calculadora">
-                  Refazer a simulação
+                <a
+                  className="lp-btn lp-btn--primary lp-btn--lg"
+                  href={WHATSAPP_CONTACT_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerPolicy="no-referrer"
+                >
+                  <WhatsAppIcon size={18} /> Falar no WhatsApp <ArrowRight size={18} />
                 </a>
+                <button className="lp-btn lp-btn--quiet lp-btn--lg" type="button" onClick={() => goTo('?app=1')}>
+                  Explorar a plataforma
+                </button>
               </div>
               <p className="lp-final-note lp-mono">Configuração rápida · Sem burocracia · Suporte comercial dedicado</p>
             </div>
@@ -675,6 +702,14 @@ export function HomePage() {
             <div>
               <h4>Acesso</h4>
               <button type="button" onClick={() => goTo('?app=1')}>Área do cliente</button>
+              <a
+                href={WHATSAPP_CONTACT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+              >
+                Falar no WhatsApp
+              </a>
             </div>
           </nav>
         </div>
@@ -683,6 +718,18 @@ export function HomePage() {
           <span className="lp-mono">Inteligência em movimento</span>
         </div>
       </footer>
+
+      <a
+        className="lp-whatsapp-fab"
+        href={WHATSAPP_CONTACT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        aria-label="Falar com a NORIA no WhatsApp"
+      >
+        <WhatsAppIcon size={24} className="lp-whatsapp-fab-icon" />
+        <span className="lp-whatsapp-fab-label">Falar no WhatsApp</span>
+      </a>
     </div>
   );
 }
