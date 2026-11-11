@@ -1,5 +1,7 @@
 # Correcao da selecao de horario
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../INDEX.md) para localizar os exports do NORIA.
+
 ## Diagnostico
 
 Os eventos consultados mostraram service_id=bronze_premium, date=2026-09-30 e
@@ -16,18 +18,9 @@ sempre que a resposta mencionava um horario, exceto em create_appointment.
 - Aceitar correcoes curtas como "Quero 15, ja falei" como evidencia de horario.
 - Manter consulta real, capacidade, verificacao humana de sinal e processamento de audio.
 
-## Publicacao
+## Referência de publicação
 
-Nao ha SQL novo. Nao executar novamente migrations antigas para esta correcao.
-
-No workflow ativo `Mag.IA - WhatsApp JIW (Gemini + audio)`, substituir todo o codigo
-do no `Processar Conversa WhatsApp` pelo arquivo
-`n8n/code/whatsapp_conversation_core.generated.js` atualizado. Salvar e publicar.
-
-Alternativa: substituir o workflow completo pelo
-`n8n/workflows/magia_whatsapp_evolution_mvp.json` atualizado, preservando configuracao
-de ambiente e garantindo que apenas um workflow atenda ao webhook. O JSON tambem
-contem a implementacao de audio. Nao e necessario alterar o workflow de follow-up.
+Para alterações no ambiente atual, siga o [checklist de publicação](production_deploy_checklist.md).
 
 ## Verificacao
 

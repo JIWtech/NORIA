@@ -517,8 +517,7 @@ identidade pelo JWT, nunca por um campo actor fornecido pelo CORE.
 Regerar com node scripts/build_noria_workflows.cjs. Os três nós CORE incorporam o
 fonte canônico. O helper insertEvent do roteador é projetado isoladamente no nó
 Executar Comando1: o restante da versão embutida difere do arquivo local e foi
-preservado. Não foi criado/substituído magia_command_router.json, ausente neste
-checkout. Manifesto registra hash dessa projeção, não paridade integral do roteador.
+preservado. O manifesto registra o hash da projeção parcial do roteador.
 Preservados EXT, CORE → EXT por turno → prepare → EXT comercial → finalize, ambos
 os gates, identidade, sessão, token e contratos de negócio.
 

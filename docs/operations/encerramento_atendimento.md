@@ -1,5 +1,7 @@
 # Encerramento e nova sessao de atendimento
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../INDEX.md) para localizar os exports do NORIA.
+
 ## Diagnostico de 22/09/2026
 
 Consulta somente leitura em channel_events, tenant universo_prata:
@@ -26,28 +28,9 @@ nao publica os workflows no n8n.
 - Em atendimento_humano o botao tambem fica desabilitado, conforme a regra
   solicitada para esta alteracao. O encerramento pelo Kanban nao foi removido.
 
-## Publicacao: duas etapas independentes
+## Referência de publicação
 
-1. Publicar a interface atualizada seguindo o processo de revisao de dev.
-   Somente o build local nao altera o site na Vercel.
-2. Exportar um backup do workflow WhatsApp ativo no n8n.
-3. Atualizar o workflow a partir de
-   n8n/workflows/magia_whatsapp_evolution_mvp.json, preservando/verificando as
-   credenciais da instalacao hospedada. Nao deixar dois workflows disputando
-   POST /webhook/magia-whatsapp.
-4. Antes de publicar, conferir:
-   - Preparar Contexto JIW retorna conversation_session_id, memory_session_key
-     e conversation_state_ok.
-   - Memoria Redis da Conversa usa ={{ $json.memory_session_key }}.
-   - Validar Sessao Antes do Envio e Sessao ainda ativa? estao antes do envio.
-   - O ramo falso responde sem enviar a resposta obsoleta ao WhatsApp.
-5. Salvar e publicar/ativar a versao atualizada; conferir o fluxo de producao,
-   nao apenas uma execucao manual de um node.
-
-Nao requer SQL novo, troca de prompt, limpeza global do Redis ou nova API key.
-O reset troca a chave de memoria por tenant, canal, contato e ID do ultimo
-encerramento. O historico ativo do Supabase tambem e limitado a esse marco.
-Nao substituir a expressao da chave por uma chave fixa.
+Para alterações no ambiente atual, siga o [checklist de publicação](production_deploy_checklist.md).
 
 ## Validacao de aceite
 

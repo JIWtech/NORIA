@@ -1,81 +1,32 @@
-# Documentacao Oficial Mag.IA
+# Documentação do NORIA / Mag.IA
 
-Este indice aponta apenas para documentos uteis para operar, continuar o
-desenvolvimento e preparar hospedagem.
+## Desenvolvimento
 
-## Leitura obrigatoria
+- [Estado do projeto](status/current_project_state.md)
+- [Ambiente local](operations/local_runbook.md)
+- [Fluxo de versionamento](operations/versioning_workflow.md)
+- [Regras para agentes](../AGENTS.md) e [personas de revisão](../.agents/README.md)
+- [Supabase](../supabase/README.md) e [migrações](../supabase/migrations/)
 
-- `status/current_project_state.md`  
-  Estado exato do projeto, o que funciona e o que ainda falta.
+## Workflows n8n
 
-- `operations/local_runbook.md`  
-  Passo a passo para rodar localmente como estamos rodando agora.
+- [Fontes canônicas](../n8n/sources/) e [gerador dos workflows](../scripts/build_noria_workflows.cjs)
+- [Exports disponíveis no repositório](../n8n/workflows/)
+- [NORIA CORE compartilhado](../n8n/workflows/NORIA%20CORE%20_%20WhatsApp%20%2B%20Comandos%20%2B%20Follow-ups%20_%20Motor%20compartilhado%20v2.json) e [motor conversacional](../n8n/workflows/NORIA%20CORE%20_%20Motor%20conversacional.json)
+- [Operação do CORE WhatsApp](operations/whatsapp_conversation_core.md)
 
-- `operations/versioning_workflow.md`  
-  Padrao oficial de Git: desenvolver em `dev`, testar e promover para `prod`.
+Antes de uma publicação autorizada, confira no n8n os IDs e as versões ativas e compare com os artefatos locais.
 
-- `operations/hosting_preparation.md`  
-  Checklist para sair do ambiente local e hospedar o piloto JIW.
+## Operação
 
-- `operations/production_deploy_checklist.md`  
-  Checklist objetivo para publicar Supabase, n8n e interface sem usar workflows legados.
+- [Conversas em tempo real e envio manual](operations/realtime_conversations_manual_replies.md)
+- [Disparos e agendamentos](operations/broadcasts_and_appointments.md)
+- [Follow-ups no WhatsApp](operations/whatsapp_follow_up.md)
+- [Configuração de um tenant](operations/onboarding_tenant.md)
+- [Checklist de publicação](operations/production_deploy_checklist.md)
 
-- `operations/estado_producao_core_2026-10-21.md`  
-  IDs publicados, variáveis de ambiente e configuração de banco do CORE após a estabilização de 21/10.
+## Histórico
 
-- `architecture/final_architecture.md`  
-  Decisoes de arquitetura SaaS multi-tenant.
-
-## Operacao
-
-- `operations/realtime_conversations_manual_replies.md`  
-  Como funciona a aba Conversas em tempo quase real e envio manual.
-
-- `operations/broadcasts_and_appointments.md`  
-  Como funcionam as abas Disparos e Agendamentos.
-
-- `operations/versioning_workflow.md`  
-  Como versionar, testar e liberar alteracoes nas branches `dev` e `prod`.
-
-- `operations/gemini_jiw_setup.md`  
-  Como ativar Gemini com controle de custo.
-
-- `operations/instagram_jiw_setup.md`  
-  Como conectar Instagram DM da JIW pelo padrao oficial da Meta.
-
-- `operations/jiw_service_catalog_sheet.md`  
-  Como a planilha de servicos da JIW vira base consultavel.
-
-- `operations/onboarding_tenant.md`  
-  Como cadastrar novos clientes no modelo multi-tenant.
-
-- `operations/onboarding_telegram_multitenant.md`  
-  Procedimento oficial para cadastrar novos clientes Telegram no workflow unico multi-tenant.
-
-- `operations/onboarding_telegram_gemini_demo.md`  
-  Passo a passo para configurar um novo cliente de apresentacao com Telegram e Gemini real.
-
-- `operations/whatsapp_evolution_mvp.md`
-  Plano, escopo e criterios de aceite para a integracao WhatsApp via Evolution API.
-
-## Supabase
-
-- `../supabase/README.md`
-- `../supabase/migrations/`
-- `../supabase/seeds/`
-- `../supabase/seeds/new_tenant_telegram_template.sql`
-
-## n8n
-
-- `../n8n/workflows/magia_telegram_multitenant.json`
-- `../n8n/workflows/magia_command_router.json`
-- `../n8n/workflows/magia_whatsapp_evolution_mvp.json`
-
-Arquivos `jiw_*.json` sao legado do piloto e nao devem ser importados como
-fluxos principais de producao.
-
-## Cliente piloto
-
-- `../clients/jiw/docs/status_interface.md`
-- `../clients/jiw/docs/telegram_botfather_n8n.md`
-- `../clients/jiw/planilha_custos_servicos_ti.xlsx`
+- [Registro de produção de 21/10/2026](operations/estado_producao_core_2026-10-21.md)
+- [Histórico CORE × EXT de outubro de 2026](archive/core-ext-2026-10-18/)
+- [Arquivos históricos](archive/)

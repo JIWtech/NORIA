@@ -1,5 +1,7 @@
 # Ativar Wesley no ambiente compartilhado
 
+> Registro histórico da ativação inicial de sales_v1. Para intervenções, consulte o [guia da Gênesis](README.md) e confirme a configuração ativa.
+
 ## Estado
 
 Implementacao local de `sales_v1`, sem novo projeto ou workflow por cliente.
@@ -19,8 +21,6 @@ Nao executar SQLs da Nubia nem trocar variaveis globais de tenant.
   ser repetidos. O 03 aborta deliberadamente se a IA ja estiver ligada.
 - Exporte o workflow WhatsApp instalado e guarde a versao atual do painel.
   Guarde os settings do Wesley em local restrito para comparacao/reversao.
-- Se o webhook Wesley ja aponta para o fluxo antigo, pause somente o webhook
-  da instancia `wesley-carros` durante a publicacao. Nao pause outros clientes.
 - Confirme a fila compartilhada das migrations 017/019 instalada e funcional.
   Nao reaplique todas as migrations anteriores indiscriminadamente.
 
@@ -31,28 +31,9 @@ Adiciona tabelas/RLS/RPCs comerciais e metadados de quadro. Nao altera settings,
 reservas, catalogos ou usuarios de outros tenants. O gatilho de controle humano
 nao altera dados de tenants sem `sales_v1`. Ainda nao ativa o Wesley.
 
-## 3. n8n: substituir o workflow compartilhado
+## 3. Referência de publicação
 
-No workflow existente **Mag.IA - WhatsApp JIW (Gemini + audio)**, importe
-`n8n/workflows/magia_whatsapp_evolution_mvp.json` atualizado desta entrega.
-Substitua o conteudo existente; nao deixe duas copias ativas com o mesmo webhook.
-Se a interface criar uma copia, confira credenciais/URL antes de trocar qual
-versao fica publicada. Preserve autenticacao e caminho atual.
-
-O JSON ja contem Core, roteamento, fila, audio e ramo comercial atualizados.
-Nao precisa colar `whatsapp_conversation_core.generated.js` separadamente.
-Arquivos gerados nao devem ser editados a mao.
-
-- Confira `runSalesTurn` no no `Processar Conversa WhatsApp`.
-- Confira `core_sales` no seletor de motor e em `Registrar Mensagem na Fila`.
-- Salve/publique. A URL de producao continua `/webhook/magia-whatsapp`,
-  nunca `/webhook-test/`.
-- Mantenha Command Router, recuperacao de fila e Follow-up compartilhados.
-  O ramo comercial nao agenda follow-ups automaticamente.
-
-Somente `conversation_capability=sales_v1` entra no novo ramo. Nubia e demais
-tenants continuam no caminho anterior, sem mudar seus settings. Como o artefato
-e compartilhado, ainda e obrigatorio testar regressao depois da publicacao.
+Para alterações no ambiente atual, siga o [checklist de publicação](../../docs/operations/production_deploy_checklist.md).
 
 ## 4. Easypanel e painel
 
@@ -166,6 +147,5 @@ node --env-file=.env scripts/smoke_wesley_model.cjs --live
 Se houver falha, execute `06_pausar_sales.sql`. Desliga apenas sua IA e preserva
 canal ativo para atendimento humano, registros e outros tenants. O Core revalida
 ai_enabled antes do envio; mensagem ja aceita pela Evolution nao pode ser recolhida.
-Nao restaurar workflow global antigo com sales_v1 ativo.
 Para reativar, corrija a causa, homologue e execute o 04 novamente. Conversas
 humanas continuam bloqueadas ate retorno manual autorizado.

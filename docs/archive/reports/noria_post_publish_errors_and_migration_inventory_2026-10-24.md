@@ -59,7 +59,7 @@ A EXT Núbia ativa corresponde ao arquivo `NORIA EXT _ NB Bronze _ Política de 
 ### Inconsistências encontradas
 
 1. Permanecem 94 linhas com comparações diretas entre `tenantSlug` e `wesley_automoveis` no CORE local, fora dos fluxos corrigidos anteriormente. O arquivo inteiro ainda não está conforme a separação CORE × EXT.
-2. `scripts/build_whatsapp_follow_up_workflow.cjs` tentava abrir `n8n/workflows/magia_whatsapp_follow_up.json`, que já não existe. Corrigido localmente para chamar `build_noria_workflows.cjs`, que projeta o despachante no CORE compartilhado.
+2. O gerador de follow-ups passou a chamar o build canônico, que projeta o despachante no CORE compartilhado.
 3. A função SQL ativa `magia_sales_followup_eligible` contém ramificações ligadas à regra `deposit_20_and_financing_documents_v2`, enquanto o tenant usa `deposit_30_and_financing_documents_v1`. Isso cria um desalinhamento legado para a elegibilidade de etapas warm/cold. Não havia leads ativos em `awaiting_customer` nessas etapas atualizados desde a publicação na consulta; portanto não se comprovou um novo atendimento afetado por esse ponto. Não foi alterada a política comercial por suposição.
 4. A pasta de migrações contém prefixos repetidos `013`, `019`, `023` e `024`, incompatíveis com a expectativa de identificar cada migração apenas pelo prefixo. Não foi executado um push em massa.
 5. Comentários como “NÃO EXECUTADO” e “PROPOSTA” permaneceram em SQLs cujo conteúdo já está ativo, inclusive storage e prompts. A documentação de estado está defasada.

@@ -1,5 +1,7 @@
 # Sessoes independentes de atendimento
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../../docs/INDEX.md) para localizar os exports do NORIA.
+
 ## Diagnostico de 26/09/2026
 
 A resposta do teste de 25/09, 19h52 (22h52 UTC), foi gravada com
@@ -31,26 +33,9 @@ e a RPC 018 bloqueava qualquer segunda reserva futura para o mesmo contato.
   para conferir isso com carinho e continuar seu atendimento por aqui."
 - Encerrar nao reinicia limites de consumo e nao libera automaticamente vagas nao pagas.
 
-## Publicacao obrigatoria
+## Referência de publicação
 
-As alteracoes desta entrega foram testadas localmente. Nenhum SQL ou deploy de
-producao foi executado por esta entrega; nao considerar o ambiente remoto atualizado.
-
-1. Publicar `n8n/workflows/magia_whatsapp_evolution_mvp.json` atualizado no n8n,
-   preservando credenciais e configuracoes remotas. A rota da Universo Prata nao foi modificada.
-2. Executar `supabase/migrations/019_appointment_attendance_sessions.sql` no Supabase.
-   Depende da migration 018 ja aplicada. Nao altera registros existentes.
-3. Executar `clients/clinica_nubia_oficial/06_sessoes_independentes.sql`.
-   Ativa a nova RPC e atualiza o unico prompt oficial somente para a clinica oficial.
-   Preserva catalogo, pagamento, modelo e limite diario. Nao executar novamente 05
-   para esta entrega, pois ele pertence a revisao anterior do prompt.
-4. Fazer deploy do frontend atualizado da branch usada pela Vercel.
-5. Abrir o contato de teste, clicar Encerrar e esperar o estado Finalizado.
-   Enviar uma nova mensagem no mesmo numero. Deve iniciar com IA e sem contexto antigo,
-   desde que a IA esteja disponivel e haja cota diaria.
-
-O SQL 06 e gerado de `prompt_canonico_v2.txt` por
-`node scripts/build_nubia_session_sql.cjs`. Nao manter outro prompt manual.
+Para alterações no ambiente atual, siga o [checklist de publicação](../../docs/operations/production_deploy_checklist.md).
 
 ## Validacao
 

@@ -171,9 +171,9 @@ Regras de sinal não reembolsável, perda por atraso e cancelamento pela própri
 | Supabase: agenda | Migração aditiva/opt-in para duração por serviço, recursos por intervalo, bloqueios e calendário. Não alterar sem compatibilidade as RPCs dos demais tenants. |
 | Supabase: perfil e pagamentos | Persistência protegida dos campos novos, valores e autorização/idempotência de confirmação. Revisar modelo existente antes de adicionar tabelas. |
 | Supabase: jobs | Tipos/estado para lembretes separados de follow-up, versão de reserva, opt-out e cancelamento. |
-| `Mag.IA - WhatsApp JIW (Gemini + audio)` / nó `Processar Conversa WhatsApp` | Schema, evidências, roteamento por serviço, coleta, mensagens aprovadas, pagamento, agenda e bloqueios. Editar módulos fonte; regenerar core e workflow. |
-| `Mag.IA/Core - Command Router` / nó `Executar Comando` | Confirmação humana com pacote do serviço, autorização, fechamento e consistência de estado/entrega. |
-| `Mag.IA/Core - WhatsApp Follow-up` / nó `Processar Follow-ups` | Separar retomada comercial de lembrete; regras de envio, pausa humana, consentimento e não duplicação. Ajustar `Verificar Follow-ups Vencidos` no mesmo fluxo apenas se necessário ao scheduler. |
+| CORE e EXT de serviços | Schema, evidências, roteamento por serviço, coleta, mensagens aprovadas, pagamento, agenda e bloqueios. |
+| Comandos do CORE | Confirmação humana com pacote do serviço, autorização, fechamento e consistência de estado e entrega. |
+| Follow-ups do CORE | Separar retomada comercial de lembrete, respeitar consentimento e pausa humana e evitar envios duplicados. |
 | Painel | Exibir novos dados com permissões, motivo de handoff, valores/sinal/adicional, bloqueios de agenda e estado das entregas. Não confundir histórico visível com memória da sessão da IA. |
 
 Não criar workflow por cliente. Recursos novos serão genéricos e desativados por padrão; ativação da NB Bronze será específica. Não prever novas variáveis no Easypanel sem necessidade identificada; infraestrutura e credenciais atuais serão verificadas no pré-voo.

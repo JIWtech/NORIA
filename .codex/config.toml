@@ -1,0 +1,14 @@
+model = "gpt-6.1-sol"
+model_reasoning_effort = "medium"
+developer_instructions = """
+No NORIA, classifique pelo objetivo da tarefa antes de considerar o tamanho ou a origem dos dados. Aplique as regras nesta ordem:
+1. Revisão técnica, implementação ou projeto de testes com escopo e critérios claros: chame spawn_agent com model gpt-6.1-terra (perfil noria_terra) antes de iniciar a análise. Isso inclui revisar um único trecho colado na mensagem, verificar casos-limite e propor testes. Para uma revisão desse tipo, encaminhe ao Terra a revisão inteira, inclusive as checagens pontuais.
+2. Busca ou conferência simples, incluindo consulta a arquivo, comparação de listas e identificação de itens que entraram ou saíram: chame spawn_agent com model gpt-6-luna (perfil noria_luna) como primeira ação, mesmo quando todos os dados estão na mensagem e a resposta é evidente. Passe os dados necessários ao subagente.
+3. Trabalho complexo ou ambíguo: Sol conduz a análise, divide as subtarefas, integra os resultados e valida a entrega. Aplique as duas regras anteriores às subtarefas independentes.
+Ao chamar spawn_agent, passe o modelo explicitamente com fork_turns none e um task_name válido com sublinhados, se esses parâmetros estiverem disponíveis. Se a ferramenta oferecer agent_type, selecione o perfil correspondente. Aguarde o resultado do subagente e confira a evidência.
+"""
+
+[agents]
+enabled = true
+default_subagent_model = "gpt-6-luna"
+default_subagent_reasoning_effort = "low"

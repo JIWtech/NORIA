@@ -1,5 +1,7 @@
 # Genesis: restaurar exclusao de contatos e ativar follow-up
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../../docs/INDEX.md) para localizar os exports do NORIA.
+
 ## Diagnostico confirmado
 
 O workflow enviado em 05/10/2026 nao consulta `contact_exclusion_enabled` nem `tenant_ai_excluded_contacts`. A perda da trava esta no codigo publicado: manter a lista e a flag no Supabase nao basta quando o Core deixa de consulta-las. Nao foi consultado o banco LIVE nesta tarefa, portanto ainda e necessario verificar se os 3.260 numeros importados permanecem cadastrados.
@@ -28,7 +30,7 @@ Se uma conversa foi encaminhada durante uma falha da trava, corrigir a causa e d
 
 Sequencia confirmada pelo responsavel: **3 horas, 24 horas e 15 dias**, contados desde a resposta comercial elegivel, nao somados entre si.
 
-Reutiliza `Mag.IA/Core - WhatsApp Follow-up`; nao criar outro workflow por cliente. A configuracao de intervalos e textos fica no Supabase.
+A configuração de intervalos e textos fica no Supabase.
 
 Elegivel somente quando:
 
@@ -46,27 +48,9 @@ Para esta entrega, as tres retomadas usam **textos neutros configurados**, sem n
 
 Nao ha retroatividade: ativar nao dispara para todas as conversas antigas. Nao foi adicionada janela de horario comercial; a sequencia pode vencer a noite, como os atrasos atuais do scheduler. Se isso nao for desejado, nao ativar o SQL 13 antes de definir a janela.
 
-## Ordem de implantacao
+## Referência de publicação
 
-Enquanto a versao antiga estiver publicada, ela pode continuar respondendo a contatos excluidos. Para conter o incidente, pode-se pausar apenas a Genesis com `06_pausar_sales.sql`; nao desativar o workflow compartilhado nem a NB Bronze. Registrar se `ai_enabled` estava ligado antes da pausa.
-
-1. Fazer backup privado da configuracao Genesis e exportar os dois workflows publicados. Nao reexecutar os pacotes antigos 01 a 05 para corrigir esta falha.
-2. Executar `supabase/migrations/026_tenant_ai_contact_exclusions.sql`. E compativel com a tabela esperada pelo SQL privado antigo, preserva registros e cria a consulta protegida.
-3. Publicar a correcao no workflow **Mag.IA - WhatsApp JIW (Gemini + audio)**. Arquivo completo: `n8n/workflows/magia_whatsapp_evolution_mvp.json`. Preferir atualizar o workflow existente, preservando ID, credenciais, webhook e estado de ativacao.
-4. Se atualizar nos individualmente, sao estes tres, todos no workflow **Mag.IA - WhatsApp JIW (Gemini + audio)**:
-   - **Processar Conversa WhatsApp**: `n8n/code/whatsapp_conversation_core.generated.js`.
-   - **Registrar Mensagem na Fila**: `n8n/code/whatsapp_enqueue_core.js`.
-   - **Selecionar Motor WhatsApp**: `n8n/code/whatsapp_select_core.js`.
-5. Executar `clients/wesley_automoveis/12_restaurar_trava_contatos.sql`. Ele exige pelo menos os 3.260 contatos esperados e habilita somente a flag de exclusao da Genesis. Nao altera prompt, modelo, cota, canal nem `ai_enabled`.
-6. Se o passo 5 informar lista incompleta, conferir o resultado antes de qualquer ativacao. O importador privado continua em `.local/genesis-contact-exclusions/11_importar_contatos.sql`; reexecutar somente se necessario e depois da migration 026. O VCF nao precisa ser lido pelo n8n a cada mensagem.
-7. Testar a trava com um contato conhecido da lista e um numero de teste autorizado fora dela. Se houve pausa, reabilitar exclusivamente `ai_enabled` da Genesis depois da publicacao protegida; nao usar o pacote antigo de ativacao para isso.
-8. Executar `supabase/migrations/027_sales_follow_up_guards.sql`, depois das migrations 019 de follow-up, 021 e 025 ja utilizadas pelo sistema. A migration nao habilita nenhum tenant.
-9. Publicar **Mag.IA/Core - WhatsApp Follow-up**, arquivo `n8n/workflows/magia_whatsapp_follow_up.json`. Se atualizar somente o codigo, o no e **Processar Follow-ups**, do workflow **Mag.IA/Core - WhatsApp Follow-up**, fonte `n8n/code/whatsapp_follow_up_dispatch.js`.
-10. Executar `clients/wesley_automoveis/13_ativar_follow_up.sql`. Esse e o passo que ativa a sequencia somente para Genesis. Validar os textos antes de executar. Jobs pendentes antigos da Genesis sao cancelados; se houver job em processamento, o SQL interrompe e exige aguardar.
-11. Confirmar que o workflow compartilhado de follow-up esta ativo e com scheduler funcionando. Nao criar uma segunda copia ativa.
-12. Executar `clients/wesley_automoveis/14_diagnostico_trava_follow_up.sql` e verificar resultados. A consulta nao lista telefones.
-
-O banco nao consegue comprovar que o codigo correto foi publicado no n8n. Por isso os passos de publicacao e homologacao nao podem ser pulados, mesmo se todos os SQLs concluirem sem erro.
+Para alterações no ambiente atual, siga o [checklist de publicação](../../docs/operations/production_deploy_checklist.md).
 
 ## Easypanel
 

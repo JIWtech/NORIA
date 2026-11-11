@@ -1,5 +1,7 @@
 # WhatsApp: catalogo de fotos e diagnostico
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../INDEX.md) para localizar os exports do NORIA.
+
 ## Verificado em 2026-09-21
 
 - O tenant universo_prata possui quatro categorias e tres imagens por categoria.
@@ -14,22 +16,11 @@
 - Links do Wikimedia retornaram HTTP 429 durante a verificacao. Isso e um risco
   adicional de download; nao explica execucoes que pularam o envio por falta de selecao.
 
-## Arquivos e aplicacao
+## Referências
 
-- Fontes: `n8n/code/whatsapp_prepare_context.js` e `whatsapp_prepare_sent.js`.
-- Gerar JSON: `node scripts/build_whatsapp_media_nodes.cjs`.
-- Testes sem Gemini, WhatsApp ou alteracoes no banco:
-  `node --test scripts/test_whatsapp_media.cjs`.
-- Importar/publicar `n8n/workflows/magia_whatsapp_evolution_mvp.json` no n8n hospedado.
-  Conferir as credenciais Supabase, Redis, Gemini e Evolution apos a importacao.
-  Manter somente um workflow ativo para `/webhook/magia-whatsapp`.
-- Esta correcao nao exige migration nem reaplicar o seed do cliente.
-- O push do frontend foi feito em `dev`. Um site vinculado a `prod` so recebe
-  essas alteracoes apos a promocao aprovada e um novo build/deploy.
-
-O JSON local grava a entrada antes do Gemini. A revisao do catalogo aparece em
-`catalog_diagnostics.workflow_revision = whatsapp-session-reset-2026-09-21`.
-Nao considerar a publicacao ou entrega de fotos validada apenas pelos testes locais.
+- [CORE WhatsApp](whatsapp_conversation_core.md)
+- [Teste local de mídia](../../scripts/test_whatsapp_media.cjs)
+- [Checklist de publicação](production_deploy_checklist.md)
 
 ## Credenciais
 

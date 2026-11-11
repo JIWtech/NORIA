@@ -15,3 +15,4 @@ scratch/
 
 # Configuração MCP local pode conter credenciais.
 /mcp_config.json
+/.agents/mcp_config.json

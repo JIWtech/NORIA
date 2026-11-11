@@ -1,16 +1,10 @@
 # Audio no Core WhatsApp
 
-## Publicacao
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../INDEX.md) para localizar os exports do NORIA.
 
-1. Fazer backup do workflow WhatsApp atual.
-2. Atualizar o workflow completo `n8n/workflows/magia_whatsapp_evolution_mvp.json`.
-   Alternativa: atualizar os dois nos `Registrar Mensagem na Fila` com
-   `n8n/code/whatsapp_enqueue_core.js` e `Processar Conversa WhatsApp` com
-   `n8n/code/whatsapp_conversation_core.generated.js`. Preservar credenciais e modos.
-3. Publicar. Nao manter duas copias publicadas com o webhook `magia-whatsapp`.
-4. Executar `supabase/migrations/024_nubia_whatsapp_audio.sql` no SQL Editor.
-   Nao e necessario reaplicar 022/023. A ativacao e somente da clinica oficial.
-5. Testar com contato autorizado, encerrando primeiro um atendimento humano antigo.
+## Referência de publicação
+
+Para alterações no ambiente atual, siga o [checklist de publicação](production_deploy_checklist.md).
 
 Nao requer nova chave, mudanca de modelo, webhook Base64, Telegram ou FFmpeg.
 Usa o modelo do tenant e as credenciais Evolution/Gemini ja existentes no n8n.

@@ -744,17 +744,14 @@ Não definir número/nome final de migração antes do inventário. Não reaplic
 
 ### 21.2 Fluxos e nós
 
-| Workflow | Nó | Escopo |
-|---|---|---|
-| `Mag.IA - WhatsApp JIW (Gemini + audio)` | `Processar Conversa WhatsApp` | Ações, coleta, fatos, mensagens, agenda, pagamento e controle humano |
-| `Mag.IA - WhatsApp JIW (Gemini + audio)` | `Registrar Mensagem na Fila` | Somente se contrato de mídia, metadados ou entrada precisar mudar |
-| `Mag.IA - WhatsApp JIW (Gemini + audio)` | `Selecionar Motor WhatsApp` | Somente se necessário para seleção de capacidade/versionamento |
-| `Mag.IA - WhatsApp JIW (Gemini + audio)` | `Recuperar Fila WhatsApp` / `Ler Fila WhatsApp` | Verificar recuperação, não duplicação e consistência de estados |
-| `Mag.IA/Core - Command Router` | `Executar Comando` | Autorização, confirmação humana, encerramento e pacote pós-pagamento |
-| `Mag.IA/Core - WhatsApp Follow-up` | `Processar Follow-ups` | Tipos de job, elegibilidade e transporte idempotente |
-| `Mag.IA/Core - WhatsApp Follow-up` | `Verificar Follow-ups Vencidos` | Ajuste de scheduler somente se necessário |
+| Área | Escopo |
+| --- | --- |
+| CORE compartilhado | Entrada, fila, roteamento, recuperação e idempotência |
+| EXT de serviços | Coleta, fatos, mensagens, agenda e pagamento |
+| Comandos do CORE | Autorização, confirmação humana e encerramento |
+| Follow-ups do CORE | Elegibilidade, agendamento e transporte idempotente |
 
-Nunca entregar instrução “troque este nó” sem mencionar o workflow. Não criar workflow exclusivo da Núbia. Confirmar IDs dos fluxos publicados antes da importação para não ativar webhooks duplicados.
+Consulte as [referências do n8n](../../docs/INDEX.md#workflows-n8n) para identificar as fontes e os exports atuais.
 
 ### 21.3 Módulos de código
 

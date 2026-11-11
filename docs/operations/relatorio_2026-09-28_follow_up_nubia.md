@@ -1,5 +1,7 @@
 # Relatório de alterações — 28/09/2026
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../INDEX.md) para localizar os exports do NORIA.
+
 ## Objetivo do dia
 
 Preparar o follow-up automático do WhatsApp para conversar somente com pessoas
@@ -64,9 +66,7 @@ Quando a cliente responde ao follow-up de 3h, os jobs de 1 dia e 15 dias da
 sequência anterior são cancelados. Se ela ainda não agendar, a IA continua o
 atendimento e cria uma nova sequência a partir da última resposta.
 
-### Workflow separado de envio
-
-Foi criado o workflow `Mag.IA/Core - WhatsApp Follow-up`.
+### Envio de follow-ups
 
 - Executa a cada minuto.
 - Busca jobs vencidos e reserva cada job antes do processamento.
@@ -99,8 +99,6 @@ O painel passou a ler os jobs pendentes e em processamento exclusivamente para
 - `n8n/code/whatsapp_core_overrides.js`
 - `n8n/code/whatsapp_conversation_core.generated.js`
 - `n8n/code/whatsapp_follow_up_dispatch.js`
-- `n8n/workflows/magia_whatsapp_evolution_mvp.json`
-- `n8n/workflows/magia_whatsapp_follow_up.json`
 - `supabase/migrations/019_follow_up_jobs.sql`
 - `supabase/migrations/020_nubia_follow_up_kanban.sql`
 - `supabase/migrations/021_follow_up_cancel_on_appointment.sql`
@@ -124,35 +122,6 @@ Os commits estão com autor `IzzeiWTB <wesleyteles.bastos@gmail.com>`.
 
 Não foram executadas migrations nem testes reais de envio em produção.
 
-## Próximos passos para ativar
+## Referência de operação
 
-1. Executar no Supabase, nesta ordem:
-   - `019_follow_up_jobs.sql`
-   - `020_nubia_follow_up_kanban.sql`
-   - `021_follow_up_cancel_on_appointment.sql`
-
-2. Ativar a política da Núbia:
-
-```sql
-update public.follow_up_policies policy
-set enabled = true, updated_at = now()
-from public.tenants tenant
-where tenant.id = policy.tenant_id
-  and tenant.slug = 'clinica_nubia_oficial'
-  and policy.channel_type = 'whatsapp'
-  and policy.name = 'Sequencia padrao';
-```
-
-3. No workflow WhatsApp já ativo, atualizar somente o código do nó
-   `Processar Conversa WhatsApp` com
-   `n8n/code/whatsapp_conversation_core.generated.js`.
-
-4. Importar e ativar no n8n o workflow
-   `n8n/workflows/magia_whatsapp_follow_up.json`.
-
-5. Confirmar que o ambiente do n8n contém `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL` e as variáveis
-   Evolution já usadas pela Clínica da Núbia.
-
-6. Aguardar o deploy automático do Vercel ou publicar o deploy do painel para
-   exibir a coluna `Follow Ups`.
+Consulte o [guia de follow-ups do NORIA](whatsapp_follow_up.md).

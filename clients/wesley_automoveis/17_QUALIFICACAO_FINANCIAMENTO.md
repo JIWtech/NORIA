@@ -1,5 +1,7 @@
 # Qualificacao de financiamento - Genesis
 
+> Registro histórico. Os nomes de workflows e comandos de publicação desta fase foram substituídos. Consulte o [índice atual](../../docs/INDEX.md) para localizar os exports do NORIA.
+
 ## Regra confirmada
 
 Lead quente exige simultaneamente:
@@ -36,16 +38,9 @@ Diagnostico baseado no codigo da branch prod e no workflow anteriormente forneci
 - Intencao de compra ja registrada nao e descartada por uma resposta posterior desconhecida do modelo.
 - A reconsulta de estoque antes de concluir a qualificacao evita usar um produto/preco desatualizado.
 
-## Aplicacao em producao
+## Referência de publicação
 
-1. Executar `supabase/migrations/028_sales_financing_qualification.sql`. Nao ativa a regra em nenhum tenant.
-2. No workflow **Mag.IA - WhatsApp JIW (Gemini + audio)**, atualizar somente o no **Processar Conversa WhatsApp** com `n8n/code/whatsapp_conversation_core.generated.js` e publicar. O arquivo completo `n8n/workflows/magia_whatsapp_evolution_mvp.json` tambem contem o Core atualizado.
-3. Publicar o frontend atualizado no Easypanel para exibir os resumos nos cards. Nao mudar variaveis de ambiente.
-4. Executar `clients/wesley_automoveis/17_qualificacao_financiamento.sql`. Preserva o prompt atual e acrescenta uma instrucao especifica, sem substituir o texto inteiro. Preserva ativacao/pausa, modelo, limites, exclusoes e follow-up.
-5. Executar `clients/wesley_automoveis/18_diagnostico_qualificacao.sql` para verificar a configuracao e os indicadores dos leads, sem expor documentos pessoais.
-6. Testar com um contato de teste que nao esteja na lista de exclusao e uma conversa em qualificacao com a IA liberada.
-
-Nao republicar **Mag.IA/Core - WhatsApp Follow-up**. Nao reexecutar o cadastro, a ativacao original do tenant nem o SQL 16 do Kanban.
+Para alterações no ambiente atual, siga o [checklist de publicação](../../docs/operations/production_deploy_checklist.md).
 
 ## Validacao
 

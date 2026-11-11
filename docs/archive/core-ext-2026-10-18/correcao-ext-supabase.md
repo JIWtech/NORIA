@@ -1,10 +1,7 @@
----
-trigger: manual
----
-
 # NORIA — Correção das regras comerciais CORE/EXT × Supabase
 
-**Arquivo:** `.agents/context/correcao-ext-supabase.md`  
+> Plano histórico de outubro de 2026. Confira o código atual antes de retomar qualquer item e siga o [AGENTS.md](../../../AGENTS.md) para validar alterações.
+
 **Prioridade:** P0/P1  
 **Escopo:** Exclusivamente inconsistências comerciais entre Supabase, CORE e EXT Gênesis.
 
@@ -12,7 +9,6 @@ trigger: manual
 
 Corrigir diretamente o código existente, com mudanças mínimas e objetivas.
 
-**NÃO executar baterias de testes. NÃO criar testes novos. NÃO realizar simulações extensas, benchmarks ou auditorias adicionais.**
 
 - Não alterar dados, configurações, políticas ou estruturas do Supabase.
 - Não executar migrações SQL.
@@ -28,7 +24,6 @@ Corrigir diretamente o código existente, com mudanças mínimas e objetivas.
 - Alterar as fontes canônicas em `n8n/sources/`, ajustando o gerador existente para refletir as mudanças nos JSONs.
 - Não editar somente os JSONs gerados se o build puder sobrescrever as correções.
 
-**Validação permitida:** conferir sintaxe, consistência dos contratos alterados e diff final. Não executar suítes de testes.
 
 ## 2. PRINCÍPIO ARQUITETURAL INEGOCIÁVEL
 
@@ -314,4 +309,4 @@ A planilha sincronizada no Supabase é a referência autorizada para preço come
 
 Não substituir valores por preços antigos, capturas de anúncios ou catálogo WhatsApp sem autorização configurada.
 
-Distinguir preço atual,anterior
+Distinguir o preço atual do preço anterior.

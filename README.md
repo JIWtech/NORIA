@@ -1,10 +1,6 @@
 # Mag.IA
 
-Plataforma multi-tenant de atendimento, automacao e IA para empresas.
-
-Esta e a pasta oficial do projeto. Todo arquivo necessario para desenvolvimento,
-operacao local, workflows n8n, Supabase, cliente piloto e preparacao de hospedagem
-deve ficar aqui.
+Plataforma multi-tenant para atendimento WhatsApp, automação de conversas, CRM Kanban e agendamentos.
 
 ## Acessos locais
 
@@ -13,9 +9,7 @@ deve ficar aqui.
 
 O parâmetro `app=1` abre a plataforma; remova-o para visualizar a landing page.
 
-Para configurar o MCP local, copie `mcp_config.example.json` para
-`mcp_config.json` e preencha as credenciais apenas nessa cópia, ignorada pelo Git.
-Nunca versione tokens pessoais ou chaves de acesso.
+Nesta instalação, o Antigravity usa o MCP de Supabase em `~/.gemini/config/mcp_config.json`. Para configurar outra máquina, use o [exemplo sem credenciais](.agents/mcp_config.example.json) como referência e adicione a entrada ao arquivo global, preservando os demais servidores.
 
 ## Organização dos arquivos
 
@@ -27,106 +21,23 @@ Nunca versione tokens pessoais ou chaves de acesso.
 - `scripts/`: ferramentas mantidas; `scripts/archive/` guarda patches históricos.
 - `docs/archive/`: imagens e diffs históricos antes soltos na raiz.
 
-## Estado Atual
+## Estado do projeto
 
-Estado operacional atual:
+A plataforma reúne atendimento WhatsApp via Evolution API, conversas e envio manual no painel, CRM Kanban e agendamentos. O CORE do n8n compartilha o processamento dos turnos. As EXT aplicam as regras comerciais de cada operação com dados e configurações do Supabase.
 
-```text
-Modelo: SaaS multi-tenant
-Canais ativos no core: Telegram e envio manual pela interface
-IA: Gemini por tenant via configuracao no Supabase
-Interface local: http://localhost:5174
-n8n local: http://localhost:5678
-Supabase: remoto, multi-tenant
-```
+- [Estado do código e dos tenants](docs/status/current_project_state.md)
+- [Fontes canônicas](n8n/sources/) e [workflows exportados](n8n/workflows/)
+- [Gerador do NORIA CORE e das EXT mantidas pelo build](scripts/build_noria_workflows.cjs)
 
-O que ja esta funcional localmente:
+## Desenvolvimento local
 
-- interface React/Vite da Mag.IA;
-- leitura real de conversas via Supabase;
-- atualizacao da aba Conversas via Realtime com polling de apoio;
-- envio manual pela interface para Telegram;
-- workflow n8n multi-tenant para receber mensagens Telegram;
-- workflow n8n generico `Mag.IA/Core - Command Router` para comandos da interface;
-- prompts, configuracoes de IA e dados por cliente via Supabase;
-- tabela `channel_events` recebendo mensagens de entrada e saida.
+Consulte o [guia de ambiente local](docs/operations/local_runbook.md) para preparar a stack, executar os testes e trabalhar com os exports do n8n.
 
-Em producao, use os workflows oficiais:
+## Documentos principais
 
-```text
-n8n/workflows/magia_telegram_multitenant.json
-n8n/workflows/magia_command_router.json
-```
-
-Os arquivos `jiw_*.json` sao legado/historico do piloto e nao devem ser
-importados como fluxo principal de producao.
-
-## Estrutura Oficial
-
-```text
-magia/
-  app/                    Interface web Mag.IA
-  clients/jiw/            Artefatos e documentacao do cliente piloto
-  docs/                   Documentacao oficial do produto
-  infra/                  Infra local e arquivos de hospedagem
-  n8n/workflows/          Workflows oficiais exportados
-  scripts/                Scripts de apoio operacional
-  supabase/               Migrations e seeds
-  archive/                Historico e material legado preservado
-```
-
-## Inicio Rapido Local
-
-1. Configure os arquivos de ambiente:
-
-```powershell
-copy .env.example .env
-copy app\.env.example app\.env.local
-```
-
-2. Preencha as variaveis obrigatorias em `.env` e `app/.env.local`.
-
-3. Suba a stack local:
-
-```powershell
-docker compose up -d
-```
-
-4. Suba a interface:
-
-```powershell
-cd app
-npm install
-npm run dev -- --host 0.0.0.0 --port 5174
-```
-
-5. Acesse:
-
-```text
-Interface: http://localhost:5174
-n8n:       http://localhost:5678
-```
-
-Para o passo a passo completo, use:
-
-```text
-docs/operations/local_runbook.md
-```
-
-## Documentos Principais
-
-- `docs/INDEX.md`
-- `docs/status/current_project_state.md`
-- `docs/operations/versioning_workflow.md`
-- `docs/operations/local_runbook.md`
-- `docs/operations/hosting_preparation.md`
-- `docs/operations/production_deploy_checklist.md`
-- `docs/operations/realtime_conversations_manual_replies.md`
-- `docs/operations/broadcasts_and_appointments.md`
-- `docs/operations/gemini_jiw_setup.md`
-- `docs/operations/instagram_jiw_setup.md`
-- `docs/architecture/final_architecture.md`
-- `supabase/README.md`
+- [Índice da documentação](docs/INDEX.md)
+- [Fluxo de versionamento](docs/operations/versioning_workflow.md)
+- [Supabase](supabase/README.md)
 
 ## Segredos e Credenciais
 

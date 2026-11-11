@@ -1,8 +1,6 @@
----
-trigger: manual
----
-
 # NORIA — Correções finais CORE × EXT Gênesis
+
+> Plano histórico de outubro de 2026. Confira o código atual antes de retomar qualquer item e siga o [AGENTS.md](../../../AGENTS.md) para validar alterações.
 
 ## 1. Objetivo e escopo
 
@@ -10,7 +8,7 @@ Corrigir os defeitos comerciais e arquiteturais identificados nas auditorias dos
 
 **Não refazer a arquitetura.** A separação `CORE prepare → EXT commercial.decide → CORE finalize` já foi implementada. Preservá-la.
 
-Consultar obrigatoriamente `.agents/context/correcao-ext-supabase.md` e este arquivo.
+Plano relacionado: [CORE/EXT × Supabase](correcao-ext-supabase.md).
 
 Fontes canônicas:
 - `n8n/sources/noria_core.js`
@@ -54,7 +52,6 @@ Valores anteriormente consultados no Supabase do tenant `wesley_automoveis`; rel
 
 ### P0-01 — Estoque bloqueando mensagens independentes
 
-**Arquivo:** `genesis_extension.js` — `commercial.decide`.
 
 A EXT executa `loadSupabaseInventory()` indiscriminadamente e pode retornar `COMMERCIAL_INVENTORY_UNAVAILABLE` até para saudações, horário, localização ou pedido de humano.
 
@@ -71,7 +68,6 @@ Também rejeita todo o turno com `COMMERCIAL_INVENTORY_PRODUCT_UNAVAILABLE` quan
 
 ### P0-02 — Parser monetário interpretando idade como entrada
 
-**Arquivo:** `genesis_extension.js` — `parseBrazilianCurrency()`.
 
 A regex com `tenho` e números isolados pode interpretar "tenho 25 anos" como R$ 25.000 de entrada, alterando `deposit_cents` e a classificação comercial.
 
@@ -85,7 +81,6 @@ A regex com `tenho` e números isolados pode interpretar "tenho 25 anos" como R$
 
 ### P0-03 — Proveniência comercial deve falhar fechado
 
-**Arquivo:** `noria_core.js` — finalização.
 
 A autoridade comercial depende de `commercialDecisionAuthoritative`, mas proveniência inválida não pode permitir retorno às decisões comerciais locais do CORE.
 
@@ -99,7 +94,6 @@ Se inválido, rejeitar explicitamente. Não recalcular política, não persistir
 
 ### P0-04 — Retornos terminais inconsistentes
 
-**Arquivo:** `noria_core.js` e gerador.
 
 O workflow possui `CORE | Turno terminal Genesis?`, mas alguns retornos antecipados podem ter apenas `skipped: true`, sem `noria_terminal: true`.
 
@@ -114,7 +108,6 @@ Não criar bypass permissivo que ignore validação de tenant. Só modificar o p
 
 ### P0-05 — Compra direta confundida com troca
 
-**Arquivo:** `genesis_extension.js` — `vehicle.trade_in` e `commercial.decide`.
 
 `purchaseEvaluation` aplica critérios de marca/ano da compra direta também a ofertas de troca. `requires_human` pode disparar somente quando há marca/ano rejeitado, deixando trocas válidas sem avaliação humana.
 
@@ -150,7 +143,6 @@ Há instruções para solicitar CNH, CPF, data de nascimento e entrada mesmo qua
 
 ### P1-03 — Status e disponibilidade distorcidos
 
-**Arquivo:** `noria_core.js` — `parseCanonicalInventoryRows()` e `salesInventory()`.
 
 Problemas:
 - Status desconhecido ou `nao verificado` pode virar `announced`.
@@ -163,7 +155,6 @@ Problemas:
 
 ### P1-04 — Enum inválido e troca antiga persistindo
 
-**Arquivo:** `genesis_extension.js` — `commercial.decide`.
 
 `commercial_state.intent` pode receber `buy_and_sell`, valor pertencente a `transaction_mode`, não ao enum de intenção do CORE.
 
@@ -173,7 +164,6 @@ Em `buy_only_correction`, `sell_vehicle` pode continuar preenchido.
 
 ### P1-05 — Negação de leilão ou sinistro invertida
 
-**Arquivo:** `genesis_extension.js` — `vehicle.trade_in`.
 
 Regex por simples presença de `leilao`/`sinistro` pode interpretar "não tem leilão" como `reported_yes`.
 
@@ -181,7 +171,6 @@ Regex por simples presença de `leilao`/`sinistro` pode interpretar "não tem le
 
 ### P1-06 — Kanban, garantia e handoff incompletos
 
-**Arquivo:** `genesis_extension.js` — `commercial.decide`, `stageRoles`.
 
 A seleção de etapas ignora possíveis estados `warm`, `cold`, `after_sales` e algumas avaliações. Revisar também `warranty_response`, revisão humana de OCR, conflito documental e `human_requested`.
 
@@ -211,7 +200,6 @@ A EXT também emite fatos genéricos de troca quando a política verdadeira é *
 
 ### P1-08 — Hardcodes comerciais no prompt do Gemini
 
-**Arquivo:** `noria_core.js` — `salesGenerate()`.
 
 Remover instruções fixas que mandam pedir CNH, entrada, CPF ou fotos independentemente da modalidade e das configurações.
 
@@ -219,7 +207,6 @@ Construir instruções a partir de fatos e requisitos verificados. Respeitar vis
 
 ### P1-09 — Inicialização incorreta da etapa
 
-**Arquivo:** `noria_core.js` — `salesLoadLead()`.
 
 Verificar referência a `context?.tenant_settings?.settings?.sales?.stage_keys?.qualifying` quando o contexto utiliza `settingsFor(context)`.
 
@@ -236,4 +223,4 @@ Verificar, sem presumir novos defeitos:
 - EXT não provoca finalização comercial sem contrato válido.
 - Handoff e classificação não são sobrescritos depois da EXT.
 - Envio não é duplicado em retry, concorrência ou intervenção humana.
-- Falhas de Gemini, áudio,Supabase e Evolution não deixam turno
+- Verificar o desfecho do turno em caso de falha no Gemini, no processamento de áudio, no Supabase ou na Evolution.
