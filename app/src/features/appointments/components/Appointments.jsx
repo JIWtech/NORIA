@@ -170,9 +170,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
           </div>
           {schedule?.enabled ? <div className="form-row-two">
             <label className="appointment-field-label"><span className="appointment-label-text">Data</span><input type="date" required value={localDate} onChange={event => setLocalDate(event.target.value)} /></label>
-            <label className="appointment-field-label"><span className="appointment-label-text">Horário</span><select required value={localTime} disabled={checking || !availableTimes.length} onChange={event => setLocalTime(event.target.value)}>
-              <option value="">{checking ? 'Consultando...' : 'Selecione'}</option>{availableTimes.map(time => <option key={time}>{time}</option>)}
-            </select></label>
+            <label className="appointment-field-label"><span className="appointment-label-text">Horário</span><NoriaSelect value={localTime} onValueChange={setLocalTime} options={availableTimes.map(time => ({ value: time, label: time }))} placeholder={checking ? 'Consultando...' : (availableTimes.length ? 'Selecione' : 'Sem horários')} ariaLabel="Horário" icon={Clock3} disabled={checking || !availableTimes.length} className="appointment-select" /></label>
           </div> : <div className="form-row-two">
             <label className="appointment-field-label"><span className="appointment-label-text">Início</span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} required /></label>
             <label className="appointment-field-label"><span className="appointment-label-text">Fim</span><input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /></label>

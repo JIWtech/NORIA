@@ -1,9 +1,22 @@
 /* ==========================================================================
    NORIA — Conversas (refatoração visual)
    Camada de apresentação da página de Conversas. Carregada após styles.css.
-   Escopo: tudo sob .conversation-layout (não afeta as demais páginas).
+   Escopo: página de Conversas.
    Somente CSS: nenhuma regra de negócio, dado ou integração é alterada.
    ========================================================================== */
+
+.app-shell:has(> .main[data-page="conversas"]) {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main[data-page="conversas"] {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
 
 .conversation-layout {
   /* Tokens locais da página */
@@ -49,7 +62,7 @@
 }
 
 @media (max-width: 980px) {
-  .conversation-layout { grid-template-columns: 360px minmax(0, 1fr); gap: 10px; }
+  .conversation-layout { grid-template-columns: minmax(250px, 280px) minmax(0, 1fr); gap: 10px; }
 }
 
 /* ---------- Painéis ---------- */
@@ -744,6 +757,7 @@
   background:
     radial-gradient(120% 60% at 50% 0%, rgba(56, 189, 248, 0.05), transparent 60%),
     var(--cv-bg-deep);
+  overscroll-behavior-y: contain;
   scroll-behavior: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
@@ -1639,7 +1653,7 @@
 }
 
 /* ---------- Celular: lista e chat em telas alternadas ---------- */
-@media (max-width: 800px) {
+@media (max-width: 768px) {
   .conversation-layout { gap: 0; }
 
   .conversation-layout .conversation-list.panel,

@@ -700,7 +700,10 @@
 }
 
 .auth-submit-btn:disabled {
-  opacity: 0.75;
+  background: var(--surface-elevated);
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  opacity: 0.85;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;

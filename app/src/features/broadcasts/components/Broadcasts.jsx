@@ -22,6 +22,7 @@ import {
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
 import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
+import { NoriaSelect } from '../../../components/NoriaSelect';
 import {
   createBroadcastCampaign,
   upsertBroadcastContacts,
@@ -446,10 +447,16 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             {conversations.length > 0 && <button type="button" className="bc-chip" onClick={addRecentContacts} disabled={busy}><MessagesSquare size={14} />Conversas recentes</button>}
             {stages.length > 0 && (
               <div className="bc-stage-pick">
-                <select className="bc-select" value={stageFilter} onChange={(event) => { setStageFilter(event.target.value); }} aria-label="Adicionar contatos de uma etapa do quadro">
-                  <option value="">Etapa do quadro</option>
-                  {stages.map((stage) => <option key={stage} value={stage}>{stage}</option>)}
-                </select>
+                <NoriaSelect
+                  value={stageFilter || '__all__'}
+                  onValueChange={(value) => setStageFilter(value === '__all__' ? '' : value)}
+                  options={[
+                    { value: '__all__', label: 'Etapa do quadro' },
+                    ...stages.map((stage) => ({ value: stage, label: stage })),
+                  ]}
+                  ariaLabel="Adicionar contatos de uma etapa do quadro"
+                  className="bc-select"
+                />
                 {stageFilter && <button type="button" className="bc-chip is-accent" onClick={addStageContacts} disabled={busy}>Adicionar</button>}
               </div>
             )}
@@ -511,95 +518,99 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           </ul>
         </section>
 
-        <section className="bc-card bc-compose" aria-labelledby="bc-compose-title">
-          <header className="bc-head">
-            <h2 id="bc-compose-title">Mensagem</h2>
-            {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
-          </header>
+        <div className="bc-side">
+          <section className="bc-card bc-compose" aria-labelledby="bc-compose-title">
+            <header className="bc-head">
+              <h2 id="bc-compose-title">Mensagem</h2>
+              {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
+            </header>
 
-          <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
-            <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={6} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem que todos vão receber…" />
-            <div className="bc-message-foot">
-              <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
+            <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
+              <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={4} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem que todos vão receber…" />
+              <div className="bc-message-foot">
+                <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
+              </div>
             </div>
-          </div>
-          {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
-          {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
+            {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
+            {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
 
-          <p className="bc-hint">Use {'{nome}'} para incluir o primeiro nome de cada contato.</p>
+            <p className="bc-hint">Use {'{nome}'} para incluir o primeiro nome de cada contato.</p>
 
-          {messageText.trim() && (
-            <figure className="bc-preview" aria-label="Prévia da mensagem">
-              <figcaption>Prévia{previewContact ? ` para ${displayContactName(previewContact)}` : ''}</figcaption>
-              <p className="bc-bubble">{renderBroadcastMessage(messageText, previewName)}</p>
-            </figure>
-          )}
+            {messageText.trim() && (
+              <figure className="bc-preview" aria-label="Prévia da mensagem">
+                <figcaption>Prévia{previewContact ? ` para ${displayContactName(previewContact)}` : ''}</figcaption>
+                <p className="bc-bubble">{renderBroadcastMessage(messageText, previewName)}</p>
+              </figure>
+            )}
 
-          <label className="bc-field">
-            <span>Nome da campanha <em>opcional</em></span>
-            <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
-          </label>
+            <div className="bc-fields-row">
+              <label className="bc-field">
+                <span>Nome da campanha <em>opcional</em></span>
+                <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
+              </label>
 
-          <label className="bc-field">
-            <span>Agendar envio <em>opcional, vazio envia agora</em></span>
-            <input type="datetime-local" value={scheduleInput} onChange={(event) => setScheduleInput(event.target.value)} />
-          </label>
-
-          <label className="bc-consent">
-            <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
-            <span>Confirmo que estes contatos autorizaram receber mensagens desta empresa.</span>
-          </label>
-
-          <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
-            {busy
-              ? <><Loader2 size={16} className="bc-spin" /> Colocando na fila…</>
-              : <><Send size={16} /> {selectedContacts.length ? `${scheduleInputToIso(scheduleInput) ? 'Agendar para' : 'Enviar para'} ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
-          </button>
-          {status.message && (
-            <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
-              {status.tone === 'error' ? <AlertTriangle size={14} aria-hidden="true" />
-                : status.tone === 'success' ? <CheckCircle2 size={14} aria-hidden="true" />
-                  : busy || status.tone === 'progress' ? <Loader2 size={14} className="bc-spin" aria-hidden="true" />
-                    : <Info size={14} aria-hidden="true" />}
-              <span>{status.message}</span>
-            </p>
-          )}
-        </section>
-      </div>
-
-      <section className="bc-card bc-history" aria-labelledby="bc-history-title">
-        <header className="bc-head">
-          <h2 id="bc-history-title">Histórico</h2>
-          {campaigns.length > 0 && <span className="bc-count">{campaigns.length} campanha{campaigns.length === 1 ? '' : 's'}</span>}
-        </header>
-        <div className="bc-campaigns">
-          {campaigns.length > 0 && (
-            <div className="bc-campaign bc-campaign-head" aria-hidden="true">
-              <span>Campanha</span><span>Status</span><span>Data</span><span>Resultado</span>
+              <label className="bc-field">
+                <span>Agendar envio <em>opcional</em></span>
+                <input type="datetime-local" value={scheduleInput} onChange={(event) => setScheduleInput(event.target.value)} />
+              </label>
             </div>
-          )}
-          {!ready ? [1, 2].map((i) => <article className="bc-campaign" key={i} style={{ pointerEvents: 'none' }}><SkeletonLine width="140px" /><SkeletonLine width="100%" style={{ marginTop: '10px' }} /></article>) : <>
-            {campaigns.map((campaign) => {
-              const date = campaign.sent_at || campaign.created_at;
-              const metadata = date ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)) : 'Sem data';
-              const presentation = CAMPAIGN_STATUS_PRESENTATION[campaign.status] || CAMPAIGN_STATUS_PRESENTATION.sending;
-              return (
-                <article className="bc-campaign" key={campaign.id}>
-                  <strong className="bc-campaign-name" title={campaign.name}>{campaign.name}</strong>
-                  <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
-                  <span className="bc-campaign-date">{metadata}</span>
-                  <CampaignProgress campaign={campaign} />
-                </article>
-              );
-            })}
-            {!campaigns.length && <div className="bc-empty is-wide">
-              <span className="bc-empty-icon" aria-hidden="true"><Send size={18} /></span>
-              <strong>Nenhum disparo ainda</strong>
-              <span>As campanhas enviadas ficam registradas aqui com o resultado de cada envio.</span>
-            </div>}
-          </>}
+
+            <label className="bc-consent">
+              <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
+              <span>Confirmo que estes contatos autorizaram receber mensagens desta empresa.</span>
+            </label>
+
+            <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
+              {busy
+                ? <><Loader2 size={16} className="bc-spin" /> Colocando na fila…</>
+                : <><Send size={16} /> {selectedContacts.length ? `${scheduleInputToIso(scheduleInput) ? 'Agendar para' : 'Enviar para'} ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
+            </button>
+            {status.message && (
+              <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
+                {status.tone === 'error' ? <AlertTriangle size={14} aria-hidden="true" />
+                  : status.tone === 'success' ? <CheckCircle2 size={14} aria-hidden="true" />
+                    : busy || status.tone === 'progress' ? <Loader2 size={14} className="bc-spin" aria-hidden="true" />
+                      : <Info size={14} aria-hidden="true" />}
+                <span>{status.message}</span>
+              </p>
+            )}
+          </section>
+
+          <section className="bc-card bc-history" aria-labelledby="bc-history-title">
+            <header className="bc-head">
+              <h2 id="bc-history-title">Histórico</h2>
+              {campaigns.length > 0 && <span className="bc-count">{campaigns.length} campanha{campaigns.length === 1 ? '' : 's'}</span>}
+            </header>
+            <div className="bc-campaigns">
+              {campaigns.length > 0 && (
+                <div className="bc-campaign bc-campaign-head" aria-hidden="true">
+                  <span>Campanha</span><span>Status</span><span>Data</span><span>Resultado</span>
+                </div>
+              )}
+              {!ready ? [1, 2].map((i) => <article className="bc-campaign" key={i} style={{ pointerEvents: 'none' }}><SkeletonLine width="140px" /><SkeletonLine width="100%" style={{ marginTop: '10px' }} /></article>) : <>
+                {campaigns.map((campaign) => {
+                  const date = campaign.sent_at || campaign.created_at;
+                  const metadata = date ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)) : 'Sem data';
+                  const presentation = CAMPAIGN_STATUS_PRESENTATION[campaign.status] || CAMPAIGN_STATUS_PRESENTATION.sending;
+                  return (
+                    <article className="bc-campaign" key={campaign.id}>
+                      <strong className="bc-campaign-name" title={campaign.name}>{campaign.name}</strong>
+                      <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
+                      <span className="bc-campaign-date">{metadata}</span>
+                      <CampaignProgress campaign={campaign} />
+                    </article>
+                  );
+                })}
+                {!campaigns.length && <div className="bc-empty is-wide">
+                  <span className="bc-empty-icon" aria-hidden="true"><Send size={18} /></span>
+                  <strong>Nenhum disparo ainda</strong>
+                  <span>As campanhas enviadas ficam registradas aqui com o resultado de cada envio.</span>
+                </div>}
+              </>}
+            </div>
+          </section>
         </div>
-      </section>
+      </div>
     </section>
   );
 }

@@ -26,12 +26,12 @@
 
 @media (max-width: 900px) {
   .conversation-layout {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr);
     gap: 10px;
   }
 }
 
-@media (max-width: 800px) {
+@media (max-width: 768px) {
   .conversation-layout {
     display: flex;
     flex-direction: column;
@@ -520,7 +520,7 @@
   box-shadow: none;
 }
 
-/* Reaproveita a métrica dos controles da toolbar e o gradiente suave oficial NORIA */
+/* Reaproveita a métrica dos controles da toolbar sem competir visualmente com as colunas do Kanban */
 .kanban-toolbar .kanban-ai-flow-button {
   min-height: 36px;
   height: 36px;
@@ -529,28 +529,27 @@
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1;
-  background: var(--brand-gradient);
-  border: 1px solid rgba(0, 224, 255, 0.45);
-  color: #06111f;
-  box-shadow: 0 2px 10px rgba(0, 224, 255, 0.16);
+  background: linear-gradient(135deg, rgba(0, 224, 255, 0.14), rgba(120, 97, 255, 0.16));
+  border: 1px solid rgba(0, 224, 255, 0.34);
+  color: var(--text);
+  box-shadow: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   cursor: pointer;
-  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease, filter 160ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
 .kanban-toolbar .kanban-ai-flow-button:hover:not(:disabled) {
   transform: translateY(-1px);
-  filter: brightness(1.06);
-  border-color: rgba(0, 224, 255, 0.7);
-  box-shadow: 0 4px 14px rgba(0, 224, 255, 0.24);
+  background: linear-gradient(135deg, rgba(0, 224, 255, 0.22), rgba(120, 97, 255, 0.24));
+  border-color: rgba(0, 224, 255, 0.56);
+  box-shadow: 0 4px 12px rgba(0, 224, 255, 0.12);
 }
 
 .kanban-toolbar .kanban-ai-flow-button:active:not(:disabled) {
   transform: translateY(0);
-  filter: brightness(0.96);
 }
 
 .kanban-toolbar .kanban-ai-flow-button:focus-visible {
@@ -569,8 +568,8 @@
 }
 
 .kanban-toolbar .kanban-ai-flow-icon {
-  color: #f59e0b;
-  filter: drop-shadow(0 1px 2px rgba(6, 17, 31, 0.35));
+  color: var(--brand);
+  filter: none;
   flex-shrink: 0;
 }
 

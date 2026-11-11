@@ -265,13 +265,6 @@
   }
 }
 
-@media (max-width: 768px) {
-  .appointments-page .form-row-two {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-}
-
 /* Refinamento visual escopado: Agendamentos */
 .appointments-page {
   display: grid;
@@ -285,6 +278,13 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .appointments-page .form-row-two {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 }
 
 .appointments-page .form-row-two>.appointment-field-label {
@@ -481,6 +481,14 @@
   font-weight: 600;
   background: linear-gradient(135deg, rgba(0, 224, 255, 0.88), rgba(72, 156, 255, 0.82) 58%, rgba(120, 97, 255, 0.8));
   color: #06111f;
+}
+
+.appointment-save-row .primary-button:disabled {
+  background: var(--surface-elevated);
+  border-color: var(--line-strong);
+  color: var(--muted);
+  opacity: 0.85;
+  box-shadow: none;
 }
 
 .appointment-groups {
@@ -818,7 +826,7 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--muted);
   user-select: none;
 }
 

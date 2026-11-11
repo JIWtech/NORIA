@@ -38,7 +38,7 @@ html.home-view {
   --lp-green: var(--green, #34d399);
   --lp-amber: var(--amber, #fbbf24);
   --lp-max: 1680px;
-  --lp-gutter: clamp(20px, 4.5vw, 88px);
+  --lp-gutter: clamp(20px, 3vw, 56px);
   --lp-nav-h: 68px;
   --lp-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
@@ -279,8 +279,8 @@ html.home-view {
 
 .lp-menu-toggle {
   display: none;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -304,6 +304,11 @@ html.home-view {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   align-items: center;
   gap: clamp(32px, 4vw, 80px);
+}
+
+.lp-hero-copy,
+.lp-stage {
+  min-width: 0;
 }
 
 .lp-hero-kicker {
@@ -362,26 +367,25 @@ html.home-view {
   margin-top: clamp(28px, 3vw, 44px);
 }
 
-/* Palco do produto: sangra até a borda direita da tela e endireita com o scroll */
+/* Palco do produto: alinhado ao container com perspectiva sutil no scroll */
 
 .lp-stage {
   position: relative;
-  margin-right: calc(-1 * (var(--lp-gutter) + max(0px, (100vw - var(--lp-max)) / 2)));
   perspective: 2200px;
 }
 
 .lp-stage-frame {
-  border-radius: 16px 0 0 16px;
+  border-radius: 16px;
   overflow: hidden;
   background: var(--lp-bg-deep);
   box-shadow:
     0 0 0 1px var(--lp-line-strong),
     0 50px 100px -40px rgba(0, 0, 0, 0.9);
-  transform-origin: 0% 50%;
+  transform-origin: center center;
   transform:
-    rotateY(calc((1 - var(--hero-progress)) * -10deg))
-    rotateX(calc((1 - var(--hero-progress)) * 4deg))
-    scale(calc(0.96 + var(--hero-progress) * 0.04));
+    rotateY(calc((1 - var(--hero-progress)) * -8deg))
+    rotateX(calc((1 - var(--hero-progress)) * 3deg))
+    scale(calc(0.97 + var(--hero-progress) * 0.03));
   will-change: transform;
 }
 
@@ -1117,10 +1121,12 @@ html.home-view {
 
 .lp-tabs {
   display: flex;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: 4px;
   max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--lp-surface);
   border-radius: 999px;
   scrollbar-width: none;
@@ -1159,6 +1165,10 @@ html.home-view {
   gap: clamp(32px, 5vw, 96px);
   align-items: center;
   animation: lp-panel-in 0.55s var(--lp-ease) both;
+}
+
+.lp-tab-panel > * {
+  min-width: 0;
 }
 
 @keyframes lp-panel-in {
@@ -1209,9 +1219,13 @@ html.home-view {
 .lp-tab-visual {
   display: grid;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .lp-tab-visual > :first-child {
+  min-width: 0;
+  max-width: 100%;
   min-height: 380px;
   padding: 20px;
   border-radius: 20px;
@@ -1560,6 +1574,7 @@ html.home-view {
 
 .lp-footer-cols {
   display: flex;
+  flex-wrap: wrap;
   gap: 80px;
 }
 
@@ -1756,10 +1771,45 @@ html.home-view {
   }
 }
 
+@media (max-width: 960px) {
+  .lp-ledger dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .sim-figure {
+    font-size: clamp(30px, 4.2vw, 48px);
+    white-space: normal;
+  }
+}
+
 @media (max-width: 760px) {
   .home-wrapper {
     font-size: 16px;
     --lp-nav-h: 60px;
+  }
+
+  .lp-section,
+  .lp-final,
+  .lp-footer {
+    overflow-x: clip;
+  }
+
+  .lp-tabs {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .lp-cost-figure strong {
+    font-size: clamp(68px, 18vw, 120px);
+  }
+
+  .lp-final .lp-h2 {
+    font-size: clamp(32px, 8.6vw, 48px);
+  }
+
+  .lp-nav-inner {
+    gap: 12px;
   }
 
   .lp-brand-logo {
@@ -1782,12 +1832,17 @@ html.home-view {
     align-items: stretch;
   }
 
-  .lp-stage {
-    margin-right: calc(-1 * var(--lp-gutter));
+  .lp-hero-ctas .lp-btn--lg,
+  .lp-final-actions .lp-btn--lg {
+    height: auto;
+    min-height: 48px;
+    padding: 12px 18px;
+    white-space: normal;
+    text-align: center;
   }
 
   .lp-stage-frame {
-    border-radius: 12px 0 0 12px;
+    border-radius: 12px;
   }
 
   .lp-proof {
@@ -1920,5 +1975,26 @@ html.home-view {
 
   .lp-footer-cols {
     gap: 48px;
+  }
+}
+
+@media (max-width: 560px) {
+  .lp-h1 {
+    font-size: clamp(32px, 8.8vw, 44px);
+  }
+
+  .lp-dash-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lp-footer-cols {
+    gap: 32px;
+  }
+}
+
+@media (max-width: 380px) {
+  .lp-proof {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
   }
 }

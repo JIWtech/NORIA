@@ -97,10 +97,19 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-.primary-button:hover {
+.primary-button:hover:not(:disabled) {
   background: var(--brand-strong);
   border-color: var(--brand-strong);
   color: #0B1220;
+}
+
+.primary-button:disabled {
+  background: var(--surface-elevated);
+  border-color: var(--line-strong);
+  color: var(--muted);
+  opacity: 0.85;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .secondary-button:hover,

@@ -1723,6 +1723,8 @@
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 9999px;
+  white-space: nowrap;
+  flex-shrink: 0;
   background: color-mix(in srgb, var(--card-accent, #38bdf8) 12%, rgba(255, 255, 255, 0.04));
   border: 1px solid color-mix(in srgb, var(--card-accent, #38bdf8) 28%, rgba(255, 255, 255, 0.08));
   color: color-mix(in srgb, var(--card-accent, #38bdf8) 85%, #ffffff);
@@ -2751,6 +2753,8 @@
   font-size: 12px;
   font-weight: 600;
   padding: 2px 9px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .dashboard-page-container .recent-subtitle {

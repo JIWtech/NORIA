@@ -90,7 +90,11 @@ export function DashboardMetrics({ conversations = [], ready = true }) {
             </div>
           </div>
           <div className="metric-card-chart-wrap">
-            <MetricSparkline color={card.color} values={ready ? card.values : [0]} id={card.id} />
+            <MetricSparkline
+              color={card.color}
+              values={!ready || card.value === '—' || card.value === 0 || card.value === '0%' ? [0] : card.values}
+              id={card.id}
+            />
           </div>
         </article>
       ))}

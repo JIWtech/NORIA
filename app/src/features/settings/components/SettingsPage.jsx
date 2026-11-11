@@ -157,7 +157,7 @@ export function SettingsPage({
   }
 
   const unitOptions = useMemo(() => [
-    { value: '', label: 'Sem unidade vinculada' },
+    { value: '__none__', label: 'Sem unidade vinculada' },
     ...unitsList.map((u) => ({ value: u.displayName || u.name, label: u.displayName || u.name })),
   ], [unitsList]);
 
@@ -407,10 +407,11 @@ export function SettingsPage({
                 Unidade / Filial
                 {unitsList.length > 0 ? (
                   <NoriaSelect
-                    value={branch}
-                    onChange={setBranch}
+                    value={branch || '__none__'}
+                    onValueChange={(value) => setBranch(value === '__none__' ? '' : value)}
                     options={unitOptions}
                     placeholder="Selecione a unidade"
+                    ariaLabel="Unidade ou filial"
                   />
                 ) : (
                   <input
@@ -531,6 +532,7 @@ export function SettingsPage({
                           className="icon-button compact-btn text-danger settings-agent-delete-btn"
                           type="button"
                           title="Excluir atendente"
+                          aria-label={`Excluir atendente ${agent.name}`}
                           onClick={() => onDeleteAgent?.(agent.id)}
                         >
                           <Trash2 size={14} />

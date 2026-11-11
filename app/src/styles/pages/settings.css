@@ -28,9 +28,7 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  height: 154px;
-  min-height: 154px;
-  max-height: 154px;
+  min-height: 124px;
   box-sizing: border-box;
   overflow: visible;
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
@@ -165,7 +163,7 @@
 .settings-kpi-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--muted);
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -750,8 +748,9 @@
 
 .settings-submit-btn:disabled {
   background: var(--surface-elevated);
-  border-color: var(--line);
-  color: var(--text-muted);
+  border-color: var(--line-strong);
+  color: var(--muted);
+  opacity: 0.85;
   box-shadow: none;
 }
 
@@ -978,8 +977,19 @@
 /* 5. Responsividade: Mobile */
 @media (max-width: 640px) {
   .settings-kpi-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .settings-kpi-card {
+    min-height: 112px;
+    padding: 12px 10px;
+  }
+
+  .settings-kpi-title {
+    white-space: normal;
+    line-height: 1.25;
+    font-size: 11.5px;
   }
 
   .settings-main-grid {
@@ -993,9 +1003,9 @@
   }
 
   .settings-team-panel {
-    height: 320px;
-    min-height: 320px;
-    max-height: 320px;
+    height: auto;
+    min-height: 220px;
+    max-height: none;
   }
 
   .settings-form-row {

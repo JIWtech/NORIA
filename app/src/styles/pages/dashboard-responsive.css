@@ -98,8 +98,8 @@
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border-radius: 8px;
     border: 1px solid var(--line);
@@ -173,13 +173,14 @@
   }
 
   .topbar-actions .noria-select-trigger {
-    height: 32px;
-    padding: 0 8px;
-    font-size: 12px;
-    max-width: 175px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+    font-size: 12.5px;
+    max-width: 165px;
     min-width: 0;
     width: auto;
-    border-radius: 6px;
+    border-radius: 8px;
     gap: 6px;
   }
 
@@ -213,14 +214,14 @@
   }
 
   .topbar-utility-buttons .icon-button {
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     padding: 0;
   }
 
   .topbar-utility-buttons .logout-btn {
-    width: 34px;
-    height: 34px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     justify-content: center;
   }

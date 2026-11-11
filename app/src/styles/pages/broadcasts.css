@@ -6,44 +6,71 @@
    =========================================================================== */
 
 .main:has(.bc-page) {
-  overflow-y: auto;
-  scrollbar-width: thin;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .bc-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  flex: none;
+  gap: 16px;
+  flex: 1;
   width: 100%;
-  max-width: 1440px;
+  max-width: none;
   min-width: 0;
-  padding-bottom: 8px;
+  min-height: 0;
+  height: 100%;
+  padding-bottom: 0;
+  overflow: hidden;
   color: var(--text);
 }
 
-/* Duas colunas: público à esquerda, mensagem à direita (fixa ao rolar) */
+/* Console desktop sem rolagem externa: Público ocupa toda a coluna esquerda; Mensagem + Histórico preenchem a direita */
 .bc-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
-  gap: 20px;
-  align-items: start;
+  grid-template-columns: minmax(400px, 0.94fr) minmax(440px, 1.06fr);
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.bc-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
 
 .bc-card {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   min-width: 0;
-  padding: 24px;
+  min-height: 0;
+  padding: 20px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: var(--surface);
 }
 
+.bc-audience {
+  height: 100%;
+  overflow: hidden;
+}
+
 .bc-compose {
-  position: sticky;
-  top: 0;
+  position: static;
+  flex-shrink: 0;
+}
+
+.bc-history {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .bc-head {
@@ -247,9 +274,12 @@
   cursor: default;
 }
 
+.bc-select.noria-select-trigger,
 .bc-select {
   width: auto;
-  max-width: 220px;
+  min-width: 158px;
+  max-width: 240px;
+  height: 36px;
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--line);
@@ -257,7 +287,7 @@
   background: var(--surface-soft);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 13.5px;
   cursor: pointer;
 }
 
@@ -388,7 +418,9 @@
 .bc-list {
   display: flex;
   flex-direction: column;
-  max-height: 440px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   margin: 0 -8px;
   padding: 0;
   overflow-y: auto;
@@ -548,7 +580,8 @@
 }
 
 .bc-message-box .bc-message {
-  min-height: 150px;
+  min-height: 88px;
+  max-height: 148px;
   border: 0;
   border-radius: 14px 14px 0 0;
   background: transparent;
@@ -604,7 +637,7 @@
 .bc-bubble {
   align-self: flex-end;
   max-width: 90%;
-  max-height: 220px;
+  max-height: 96px;
   margin: 0;
   padding: 10px 13px;
   overflow-y: auto;
@@ -618,10 +651,17 @@
   scrollbar-width: thin;
 }
 
+.bc-fields-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
 .bc-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .bc-field > span {
@@ -655,7 +695,10 @@
 }
 
 .bc-send-btn:disabled {
-  opacity: 0.4;
+  background: var(--surface-elevated);
+  border-color: var(--line-strong);
+  color: var(--muted);
+  opacity: 0.85;
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -811,15 +854,24 @@
 .bc-campaigns {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.bc-empty.is-wide {
+  flex: 1;
+  padding: 20px 16px;
 }
 
 .bc-campaign {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) 110px 150px minmax(220px, 2fr);
+  grid-template-columns: minmax(0, 1.7fr) auto auto minmax(140px, 1.4fr);
   align-items: center;
-  gap: 24px;
+  gap: 14px;
   min-width: 0;
-  padding: 16px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -878,10 +930,38 @@
   }
 }
 
-/* Telas médias: uma coluna */
+/* Telas médias: volta para fluxo vertical natural com rolagem única da página */
 @media (max-width: 1100px) {
+  .main:has(.bc-page) {
+    overflow-y: auto;
+    display: block;
+    scrollbar-width: thin;
+  }
+
+  .bc-page {
+    height: auto;
+    overflow: visible;
+    padding-bottom: 12px;
+  }
+
   .bc-layout {
     grid-template-columns: minmax(0, 1fr);
+    flex: none;
+  }
+
+  .bc-audience,
+  .bc-side,
+  .bc-history {
+    height: auto;
+    overflow: visible;
+  }
+
+  .bc-list {
+    max-height: 440px;
+  }
+
+  .bc-campaigns {
+    overflow: visible;
   }
 
   .bc-compose {
@@ -945,9 +1025,21 @@
     flex: 1 1 100%;
   }
 
+  .bc-select.noria-select-trigger,
   .bc-select {
     flex: 1;
+    width: 100%;
     max-width: none;
+    min-height: 44px;
+    height: 44px;
+  }
+
+  .bc-chip {
+    min-height: 44px;
+  }
+
+  .bc-fields-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .bc-list {
