@@ -123,7 +123,8 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
   for (let cIdx = 0; cIdx < columns.length; cIdx += 1) {
     const col = columns[cIdx];
     const idx = (col.cards || []).findIndex((card) =>
-      (!card.channelType || normalizeChannel(card.channelType).type === channelType.type) && (
+      // O card de pedido separado da conversa não recebe as mensagens novas: elas vão para o card da conversa.
+      !card.detachedFromConversation && (!card.channelType || normalizeChannel(card.channelType).type === channelType.type) && (
       card.id === `card-${event.id}` ||
       card.id === conversationId ||
       card.id === legacyConversationId ||

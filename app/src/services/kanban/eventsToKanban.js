@@ -438,6 +438,15 @@ export function eventsToKanban(
         && Date.parse(appointment.startsAt || '') > Date.now()
         && AI_KANBAN_COLUMNS.has(matchingEvent.column.automationKey || matchingEvent.column.id);
       const actionable = openRequest || upcomingConfirmed || appointmentCard.actionType === 'confirm_signal';
+      // Atendimento finalizado depois do pedido: a conversa (finalizada ou já em outra sessão) segue o próprio caminho no
+      // quadro e o pedido fica sozinho na coluna dele, sem herdar nem esconder o estado da conversa.
+      const closeEvent = closeEventsByChat.get(key);
+      const closedAfterRequest = Boolean(closeEvent)
+        && Date.parse(closeEvent.created_at) > Date.parse(appointmentTimestamp(appointment) || appointment.createdAt || 0);
+      if (targetColumn && closedAfterRequest && !heldByHuman) {
+        targetColumn.cards.push(detachedAppointmentCard(appointmentCard, matchingEvent.card, targetColumn));
+        continue;
+      }
       if (targetColumn && (actionable || isMoreRecentRecord(appointment, { updated_at: matchingEvent.occurredAt })) && !heldByHuman) {
         matchingEvent.column.cards = matchingEvent.column.cards.filter((card) => card.id !== matchingEvent.card.id);
         const canonicalCard = mergeAppointmentCard(appointmentCard, matchingEvent.card, targetColumn);
@@ -523,6 +532,23 @@ function appointmentKanbanPriority(status) {
   if (status === 'pending_confirmation') return 2;
   if (['scheduled', 'confirmed', 'reserved', 'pending_payment'].includes(status)) return 1;
   return 0;
+}
+
+// Card do pedido quando a conversa já seguiu outro caminho: mostra o contato e a foto da conversa, mas nada do estado dela
+// (responsável, etapa, encerramento, última atividade).
+function detachedAppointmentCard(appointmentCard, eventCard, targetColumn) {
+  return {
+    ...appointmentCard,
+    targetColumnId: targetColumn.automationKey || targetColumn.id,
+    detachedFromConversation: true,
+    title: eventCard.title || appointmentCard.title,
+    channel: eventCard.channel || appointmentCard.channel,
+    channelType: eventCard.channelType || appointmentCard.channelType,
+    avatarUrl: eventCard.avatarUrl || appointmentCard.avatarUrl || null,
+    externalConversationId: eventCard.externalConversationId || appointmentCard.externalConversationId,
+    contactCategory: eventCard.contactCategory || appointmentCard.contactCategory || 'customer',
+    contactCategoryLabel: eventCard.contactCategoryLabel || appointmentCard.contactCategoryLabel || 'Cliente',
+  };
 }
 
 function mergeAppointmentCard(appointmentCard, eventCard, targetColumn) {
