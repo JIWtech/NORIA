@@ -15,7 +15,7 @@ export function AppointmentDetails({ card, timeZone }) {
   if (!items.length) return null;
   return (
     <ul className="appointment-request-details">
-      {items.map((item) => <li key={item.key}>{item.text}</li>)}
+      {items.map((item) => <li key={item.key} className={`appointment-detail appointment-detail-${item.key}`}>{item.text}</li>)}
     </ul>
   );
 }

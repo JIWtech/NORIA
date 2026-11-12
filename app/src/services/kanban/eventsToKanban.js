@@ -396,6 +396,9 @@ export function eventsToKanban(
       appointmentTitle: appointment.title || '',
       title: appointment.title,
       subtitle: appointment.contactName ? `${appointment.contactName} - ${appointment.when}` : appointment.when,
+      // Nome e horário separados para o card destacar cada um (o subtítulo acima continua para quem o usa).
+      appointmentContactName: appointment.contactName || '',
+      appointmentWhen: appointment.when || '',
       channel: appointment.channelLabel,
       channelType: appointment.channelType,
       value: 'Agenda',
@@ -539,6 +542,8 @@ function mergeAppointmentCard(appointmentCard, eventCard, targetColumn) {
     isClosed: eventCard.isClosed,
     closedSessionId: eventCard.closedSessionId,
     lastControlAt: eventCard.lastControlAt,
+    // A foto do contato vem do card da conversa; o card do agendamento não tem foto própria.
+    avatarUrl: eventCard.avatarUrl || appointmentCard.avatarUrl || null,
     contactCategory: eventCard.contactCategory || appointmentCard.contactCategory || 'customer',
     contactCategoryLabel: eventCard.contactCategoryLabel || appointmentCard.contactCategoryLabel || 'Cliente',
     schedulingLink: eventCard.schedulingLink,

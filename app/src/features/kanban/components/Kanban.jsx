@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertCircle,
   CalendarCheck,
+  CalendarClock,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
@@ -610,6 +611,8 @@ export function Kanban({
                       const openChat = () => onOpenChat(card.externalConversationId || card.id);
                       const link = card.hasSchedulingLink && (card.schedulingLink || schedulingUrl);
                       const preview = formatConversationPreview(card.subtitle);
+                      // Card nascido de agendamento: status primeiro, depois cliente e horário em destaque.
+                      const isBookingCard = String(card.id || '').startsWith('appointment-') && Boolean(card.appointmentContactName || card.appointmentWhen);
                       const menu = [];
 
                       if (hasChat && actionMode !== 'chat') {
@@ -689,7 +692,26 @@ export function Kanban({
                             </span>
                           )}
 
-                          {preview && <p className="card-subtitle" title={preview}>{preview}</p>}
+                          {labels.appointmentStatus && (
+                            <div className={`kanban-card-appointment-summary status-${card.appointmentStatus || 'unknown'}`}>
+                              <CalendarCheck size={14} aria-hidden="true" />
+                              <span>
+                                {labels.appointmentDate && !isBookingCard && <time dateTime={card.appointmentStartsAt}>{labels.appointmentDate}</time>}
+                                <strong>{labels.appointmentStatus}</strong>
+                              </span>
+                            </div>
+                          )}
+
+                          {isBookingCard ? (
+                            <div className="kanban-card-booking">
+                              {card.appointmentContactName && (
+                                <span className="booking-client"><UserRound size={14} aria-hidden="true" /><strong>{card.appointmentContactName}</strong></span>
+                              )}
+                              {card.appointmentWhen && (
+                                <span className="booking-when"><CalendarClock size={14} aria-hidden="true" /><time dateTime={card.appointmentStartsAt}>{card.appointmentWhen}</time></span>
+                              )}
+                            </div>
+                          ) : preview && <p className="card-subtitle" title={preview}>{preview}</p>}
 
                           {labels.reason && (
                             <div className="kanban-card-note">
@@ -698,15 +720,6 @@ export function Kanban({
                             </div>
                           )}
 
-                          {labels.appointmentStatus && (
-                            <div className={`kanban-card-appointment-summary status-${card.appointmentStatus || 'unknown'}`}>
-                              <CalendarCheck size={14} aria-hidden="true" />
-                              <span>
-                                {labels.appointmentDate && <time dateTime={card.appointmentStartsAt}>{labels.appointmentDate}</time>}
-                                <strong>{labels.appointmentStatus}</strong>
-                              </span>
-                            </div>
-                          )}
 
                           {actionMode !== 'request' && (
                             <AppointmentDetails card={card} timeZone={tenantSettings?.timezone} />

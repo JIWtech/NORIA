@@ -499,3 +499,48 @@
   }
 }
 
+
+/* Card de agendamento: o status vem primeiro, depois quem agendou e quando, depois o serviço.
+   Cada nível tem seu peso: status em faixa colorida, cliente e horário em texto cheio, detalhes em etiquetas legíveis. */
+.kanban-card .kanban-card-appointment-summary {
+  --status-accent: var(--amber);
+  align-self: stretch; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--status-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--status-accent) 15%, var(--surface-elevated));
+}
+.kanban-card .kanban-card-appointment-summary svg { color: var(--status-accent); }
+.kanban-card .kanban-card-appointment-summary strong { color: var(--text); font-size: 12.5px; font-weight: 700; }
+.kanban-card .kanban-card-appointment-summary time { color: var(--text); font-weight: 600; }
+.kanban-card .kanban-card-appointment-summary:is(.status-confirmed, .status-completed, .status-done, .status-scheduled, .status-reserved) { --status-accent: var(--green); }
+.kanban-card .kanban-card-appointment-summary:is(.status-cancelled, .status-no_show) { --status-accent: var(--red); }
+.kanban-card .kanban-card-appointment-summary:is(.status-payment_reported, .status-aguardando_verificacao, .status-pending_payment) { --status-accent: var(--brand); }
+
+.kanban-card .kanban-card-booking {
+  display: grid; gap: 5px; padding: 8px 10px; border-radius: 4px 9px 9px 4px;
+  border-left: 3px solid color-mix(in srgb, var(--kanban-stage-accent, var(--brand)) 80%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, var(--surface-elevated));
+}
+.kanban-card .booking-client, .kanban-card .booking-when { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text); }
+.kanban-card .booking-client svg, .kanban-card .booking-when svg { flex: none; color: color-mix(in srgb, var(--text) 62%, transparent); }
+.kanban-card .booking-client strong { font-size: 14.5px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.kanban-card .booking-when { font-size: 13px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
+
+.kanban-card .appointment-request-details {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; opacity: 1; font-size: 12px;
+}
+.kanban-card .appointment-detail-services { flex: 1 0 100%; color: var(--text); font-size: 13.5px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.kanban-card .appointment-detail:not(.appointment-detail-services) {
+  padding: 2px 9px; border-radius: 999px; color: var(--text); font-size: 11.5px; font-weight: 600; line-height: 1.4;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.kanban-card .appointment-detail-first-visit {
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+/* Iniciais sem foto: borda leve para o avatar não se perder no fundo do card. */
+.kanban-card .kanban-contact-avatar:not(.has-image) {
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, var(--surface-elevated));
+}
