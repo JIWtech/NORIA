@@ -7,7 +7,9 @@
 | Quando usar | Referência |
 | --- | --- |
 | Motor conversacional, política comercial, prompts ou fallbacks | [Regras CORE × EXT](rules/anti-hardcode-core-ext.md) |
+| Corte CORE/EXT, correções do Salon e piloto da Núbia v2 | [Contexto para continuidade](context/noria-core-ext-salon-nubia-handoff.md) |
 | Homepage e páginas comerciais | [Diretrizes da landing page](context/landing-page.md) |
+| Design System, tokens e arquitetura CSS do frontend | [Design System NORIA](../docs/architecture/design_system_modern_css_uiverse.md) |
 | Estrutura atual e documentação de operação | [Índice do projeto](../docs/INDEX.md) |
 
 ## Personas do GitHub Copilot

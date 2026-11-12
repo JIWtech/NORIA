@@ -12,6 +12,12 @@
       "env": {
         "SUPABASE_ACCESS_TOKEN": ""
       }
+    },
+    "n8n-mcp": {
+      "url": "https://auton8n-n8n.tplv5d.easypanel.host/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer <YOUR_ACCESS_TOKEN_HERE>"
+      }
     }
   }
 }
