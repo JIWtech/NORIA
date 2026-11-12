@@ -11,7 +11,8 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const mode = process.argv[2] || 'check';
 const WORKFLOWS_DIR = path.join(root, 'n8n/workflows');
-const REFERENCE_DIR = path.join(WORKFLOWS_DIR, 'backup_pre_correcao_2026-11-12');
+// Referência: exports locais antes das correções desta rodada (conferidos contra o n8n ativo em 12/11/2026, após a publicação de 15:00 UTC).
+const REFERENCE_DIR = path.join(WORKFLOWS_DIR, 'backup_pre_ondas_2026-11-12');
 // A publicação de 05:51 UTC já avançou quatro workflows além do backup acima.
 // Seus recibos são a referência imutável para esta publicação seguinte.
 // Recibos de cada publicação anterior, do mais antigo ao mais recente: o último recibo de cada workflow é a versão esperada.
