@@ -142,7 +142,10 @@ async function main(helpers) {
   // O envio e a mudança do agendamento já aconteceram: falha ao gravar o evento no histórico não pode virar erro
   // (o painel diria "não enviado" e ofereceria novo envio). Devolve null e o chamador sinaliza o aviso.
   async function recordSentEvent(event) {
-    try { return await insertEvent(event); } catch (error) { return null; }
+    try { return await insertEvent(event); } catch (error) {
+      if (String(error?.message || '').startsWith('TURN_CONTROL_RPC_UNAVAILABLE')) throw error;
+      return null;
+    }
   }
   const eventWarning = saved => (saved ? {} : { event_warning: 'EVENT_NOT_RECORDED' });
 
@@ -773,8 +776,9 @@ async function main(helpers) {
         stage: 'Agendamento confirmado', handoff: true, response_text: null, ai_provider: 'operator_confirmation',
         sent_by_user: user.email || user.id, delivery_status: 'sent', command_id: commandId,
         raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0] } };
-      const saved = await recordSentEvent(event);
-      return { ok:true, command, appointment: updated[0], saved, ...eventWarning(saved) };
+      // Evento de controle do atendimento (handoff): se não for gravado, a IA continuaria na conversa. O erro continua visível.
+      const saved = await insertEvent(event);
+      return { ok:true, command, appointment: updated[0], saved };
     }
     const confirmationText = messageText || paymentSignalConfirmationMessage(settings);
 

@@ -1,5 +1,5 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Clock3,
   Search,
@@ -23,15 +23,12 @@ import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import { NoriaSelect } from '../../../components/NoriaSelect';
 import {
   createBroadcastCampaign,
-  updateBroadcastCampaign,
-  updateBroadcastRecipient,
   upsertBroadcastContacts,
 } from '../../../dataService';
 import { createBroadcastOperations } from '../../../services/broadcasts/broadcastOperations.js';
 import {
   RECIPIENT_STATUS,
   CAMPAIGN_STATUS,
-  calculateCampaignCounters,
 } from '../../../services/broadcasts/broadcastStateMachine.js';
 import { getAuthClient, getCurrentSession } from '../../../services/auth/authService.js';
 import { CHANNEL_OPTIONS } from '../../../services/tenants/tenantAccess.js';
@@ -244,6 +241,20 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     }
   }
 
+  async function pauseCampaign(campaignToPause) {
+    if (busy || !campaignToPause) return;
+    setBusy(true);
+    try {
+      await broadcastOps.controlBroadcastCampaign(campaignToPause.id, 'pause');
+      setStatus(`Campanha "${campaignToPause.name}" pausada. Nenhuma mensagem nova sai até você retomar.`, 'success');
+      await onChanged?.();
+    } catch (error) {
+      setStatus(userFacingError(error, 'Falha ao pausar campanha.'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function reconcileUnknownRecipients(campaignToReconcile, targetStatus = RECIPIENT_STATUS.FAILED) {
     if (!campaignToReconcile || busy) return;
     setBusy(true);
@@ -353,9 +364,14 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             </p>
           </div>
           <div className="bc-recover-actions">
-            {(recoverableCampaign.sent_count || 0) < (recoverableCampaign.total_recipients || 0) && (
+            {recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED && (recoverableCampaign.sent_count || 0) < (recoverableCampaign.total_recipients || 0) && (
               <button type="button" className="primary-button bc-btn" onClick={() => resumeCampaign(recoverableCampaign)} disabled={busy}>
                 <Play size={14} /> Retomar envio
+              </button>
+            )}
+            {[CAMPAIGN_STATUS.QUEUED, CAMPAIGN_STATUS.SENDING].includes(recoverableCampaign.status) && (
+              <button type="button" className="secondary-button bc-btn" onClick={() => pauseCampaign(recoverableCampaign)} disabled={busy}>
+                Pausar envio
               </button>
             )}
             {recoverableHasUnknown && (

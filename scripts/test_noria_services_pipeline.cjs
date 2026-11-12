@@ -633,3 +633,16 @@ test('composição: abertura igual à de uma resposta recente da empresa é trat
   assert.equal(flow.calls.compose.length, 2, 'recompõe sem a abertura');
   assert.equal(result.composed.value.reply, 'Tudo certo com o seu horário.');
 });
+
+// Revisão: fato numérico (preço) não tem termos para comparar; afirmação longa sobre o preço não pode ser reprovada por isso.
+test('auditoria: fato numérico não reprova afirmação longa sobre o valor (sem falso negativo por sobreposição)', () => {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
+    SERVICES_ASSERTION_CATEGORIES: ['price', 'service', 'conversational'], SERVICES_SUPPORT_KINDS: ['fact', 'block', 'none'],
+    SERVICES_SUPPORT_RULES: { price: ['fact', 'block'], service: ['fact', 'block'], conversational: ['fact', 'block', 'none'] },
+  }).servicesVerifySemanticReport;
+  const base = { decision: { facts: [{ fact_id: 'p1', value: '80.00' }], approved_blocks: [] }, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+    proof: null, semantic: { slots: {} }, blocks: [] };
+  const report = { covers_entire_reply: true, assertions: [{ category: 'price', support: 'fact', reference: 'p1', quote: '80.00', polarity: 'affirms',
+    text: 'A escova progressiva custa R$ 80,00 e dura cerca de duas horas por sessão' }] };
+  assert.equal(verify(report, base).status, 'approved');
+});

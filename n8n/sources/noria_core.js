@@ -84,8 +84,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_12',
-  built_at: '2026-11-12T19:54:40.863Z',
-  core_sha256: 'bc0b879b3448073eb06fa4cff8845caf63f313b8533d7e88a87b806b3300656b',
+  built_at: '2026-11-12T20:17:40.542Z',
+  core_sha256: '06ccbb187eaa1a40ac97e788c8fa9d31f5053b5f51d75d731425a57964af5ffe',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5530,6 +5530,8 @@ function servicesAssertionSharesAuthorityTerms(assertionText, authorityText, nor
   const claimed = terms(assertionText);
   if (claimed.length < 3) return true;
   const authority = String(authorityText || '');
+  // Autoridade sem termos comparáveis (valor numérico, por exemplo): a conferência de valores já cobre esse caso.
+  if (!terms(authority).length) return true;
   const stem = term => term.slice(0, Math.max(4, term.length - 2));
   return claimed.some(term => authority.includes(stem(term)));
 }
@@ -5738,7 +5740,7 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   if (composed.value.reply.trim()) {
     // Salvaguarda técnica contra falso negativo do auditor (IA-04): comparação de texto, não de significado. Se as duas primeiras
     // palavras da resposta repetem as de uma das últimas mensagens da empresa, é abertura repetida.
-    const openingWords = value => String(value || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter(Boolean).slice(0, 2).join(' ');
+    const openingWords = value => String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(Boolean).slice(0, 2).join(' ');
     const repeatsRecentOpening = reply => {
       const current = openingWords(reply);
       return Boolean(current) && (history || []).filter(row => row.direction === 'outbound' && row.message_text).slice(-4).some(row => openingWords(row.message_text) === current);
