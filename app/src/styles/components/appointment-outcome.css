@@ -62,3 +62,45 @@
   cursor: wait;
   opacity: 0.65;
 }
+
+.kanban-card .appointment-outcome-actions {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  max-width: 100%;
+}
+
+.kanban-card .outcome-button {
+  flex: 0 0 auto;
+  width: fit-content;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.kanban-card .outcome-button svg {
+  flex-shrink: 0;
+}
+
+.kanban-card .outcome-button--attended svg {
+  color: var(--green);
+}
+
+.kanban-card .outcome-button--no_show svg {
+  color: var(--red);
+}
+
+.kanban-card .outcome-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  filter: none;
+}
+
+.kanban-card .outcome-button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}

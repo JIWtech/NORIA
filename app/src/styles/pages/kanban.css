@@ -49,15 +49,6 @@
     padding: 12px 10px;
   }
 
-  .kanban-card-quick-actions {
-    display: flex;
-  }
-
-  .card-quick-btn {
-    min-height: 32px;
-    padding: 5px 6px;
-    font-size: 11px;
-  }
 }
 
 @keyframes spin {

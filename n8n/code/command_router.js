@@ -386,15 +386,18 @@ async function main(helpers) {
     if (isConfirm && row.status === 'confirmed') return { ok: true, command, already_confirmed: true, appointment: row };
     if (row.status !== 'pending_confirmation') throw new Error('Este pedido nao esta mais aguardando confirmacao');
     const metadata = row.metadata || {};
+    const currentClaimPath = (claim, state) => openPath + '&metadata->>confirmation_state=eq.' + state
+      + '&metadata->>confirmation_command=eq.' + encodeURIComponent(claim.confirmation_command);
 
     // Grava o resultado depois da entrega comprovada. O evento não é de controle: a IA continua na conversa.
-    const finish = async (claimedMetadata, messageId, text) => {
+    const finish = async (claimedMetadata, state, messageId, text) => {
       const now = new Date().toISOString();
-      const done = messageRef => ({ ...claimedMetadata, confirmation_state: 'sent', confirmation_message_id: messageRef,
+      const { confirmation_echo_text: _echoText, ...settledMetadata } = claimedMetadata;
+      const done = messageRef => ({ ...settledMetadata, confirmation_state: 'sent', confirmation_message_id: messageRef,
         ...(claimedMetadata.confirmation_action === 'confirm' ? { confirmed_by: user.id, confirmed_at: now }
           : { cancel_reason: 'slot_rejected', cancelled_by: user.id, cancelled_at: now }) });
       const isConfirmAction = claimedMetadata.confirmation_action === 'confirm';
-      const updated = await httpJson('PATCH', openPath, serviceHeaders('return=representation'), {
+      const updated = await httpJson('PATCH', currentClaimPath(claimedMetadata, state), serviceHeaders('return=representation'), {
         status: isConfirmAction ? 'confirmed' : 'cancelled', updated_at: now, metadata: done(messageId) });
       if (updated.length !== 1) throw new Error('Mensagem enviada, mas registro alterado simultaneamente. Verifique o agendamento.');
       if (!messageId) return { ok: true, command, appointment: updated[0], resolved: true };
@@ -403,17 +406,19 @@ async function main(helpers) {
         contact_name: row.contact_name || 'Contato', message_text: text,
         service: isConfirmAction ? 'appointment_request_confirmed' : 'appointment_request_rejected',
         stage: isConfirmAction ? 'Agendamento confirmado' : 'Horario indisponivel', handoff: false, response_text: null,
-        ai_provider: 'operator_confirmation', sent_by_user: user.email || user.id, delivery_status: 'sent', command_id: commandId,
+        ai_provider: 'operator_confirmation', sent_by_user: null, delivery_status: 'sent', command_id: claimedMetadata.confirmation_command,
         raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0] } });
       return { ok: true, command, appointment: updated[0], saved };
     };
 
     if (payload.uncertain_resolution) {
-      if (!metadata.confirmation_state) throw new Error('Este pedido nao tem entrega pendente de verificacao');
-      if (payload.uncertain_resolution === 'delivered') return await finish(metadata, null, '');
+      if (metadata.confirmation_state !== 'uncertain' || !metadata.confirmation_command) throw new Error('Este pedido nao tem entrega incerta para verificar');
+      if (payload.uncertain_resolution === 'delivered') return await finish(metadata, 'uncertain', null, '');
       if (payload.uncertain_resolution !== 'not_delivered') throw new Error('Resolucao invalida');
-      const { confirmation_state: _state, confirmation_action: _action, confirmation_command: _command, ...cleared } = metadata;
-      const updated = await httpJson('PATCH', openPath, serviceHeaders('return=representation'), { metadata: cleared, updated_at: new Date().toISOString() });
+      const { confirmation_state: _state, confirmation_action: _action, confirmation_command: _command, confirmation_echo_text: _echoText, ...cleared } = metadata;
+      const updated = await httpJson('PATCH', currentClaimPath(metadata, 'uncertain'), serviceHeaders('return=representation'),
+        { metadata: cleared, updated_at: new Date().toISOString() });
+      if (updated.length !== 1) throw new Error('Pedido alterado por outro operador. Atualize o quadro.');
       return { ok: true, command, appointment: updated[0], resolved: true };
     }
     if (metadata.confirmation_state) throw new Error('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.');
@@ -426,7 +431,8 @@ async function main(helpers) {
         { p_tenant: tenant.id, p_appointment: appointmentId });
       if (Array.isArray(conflicts) && conflicts.length) return { ok: true, command, requires_acknowledgement: true, conflicts };
     }
-    const claimedMetadata = { ...metadata, confirmation_state: 'sending', confirmation_action: isConfirm ? 'confirm' : 'reject', confirmation_command: commandId };
+    const claimedMetadata = { ...metadata, confirmation_state: 'sending', confirmation_action: isConfirm ? 'confirm' : 'reject',
+      confirmation_command: commandId, ...(config.reply_mode === 'contextual' ? { confirmation_echo_text: text } : {}) };
     const claimed = await httpJson('PATCH', openPath + '&updated_at=eq.' + encodeURIComponent(row.updated_at), serviceHeaders('return=representation'),
       { metadata: claimedMetadata, updated_at: new Date().toISOString() });
     if (claimed.length !== 1) throw new Error('Pedido alterado por outro operador. Atualize o quadro.');
@@ -435,10 +441,11 @@ async function main(helpers) {
       sent = await sendWhatsApp(evolution, externalConversationId, text);
       if (!sent.messageId) throw new Error('Evolution nao retornou identificador da mensagem');
     } catch (error) {
-      await httpJson('PATCH', appointmentPath, serviceHeaders(), { metadata: { ...claimedMetadata, confirmation_state: 'uncertain' }, updated_at: new Date().toISOString() });
+      await httpJson('PATCH', currentClaimPath(claimedMetadata, 'sending'), serviceHeaders(),
+        { metadata: { ...claimedMetadata, confirmation_state: 'uncertain' }, updated_at: new Date().toISOString() });
       throw new Error('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.');
     }
-    return await finish(claimedMetadata, sent.messageId, text);
+    return await finish(claimedMetadata, 'sending', sent.messageId, text);
   }
 
   if (command === 'confirm_payment_signal') {
@@ -534,6 +541,8 @@ async function main(helpers) {
   if (command === 'assign_conversation') {
     const assignee = payload.assignee || {};
     const assigneeName = assignee.name || payload.assignee_name || payload.sent_by_user || user.email || 'Atendimento humano';
+    const request = normalizedChannel === 'whatsapp' ? (await loadTenantSettings(tenant.id)).appointment_request : null;
+    const reviewOnly = request?.mode === 'operator_confirmation' && request.team_review_control === 'manual_reply';
     const event = {
       tenant_id: tenant.id,
       tenant_slug: tenantSlug,
@@ -544,18 +553,18 @@ async function main(helpers) {
       sender_type: 'system',
       contact_name: payload.contact_name || 'Contato',
       message_text: messageText,
-      service: 'conversation_assigned',
-      stage: 'Atendimento humano',
-      handoff: true,
+      service: reviewOnly ? 'atendimento_humano' : 'conversation_assigned',
+      stage: reviewOnly ? 'Conversas IA' : 'Atendimento humano',
+      handoff: !reviewOnly,
       response_text: null,
-      ai_provider: 'human_lock',
+      ai_provider: reviewOnly ? 'operator_review' : 'human_lock',
       ai_model: null,
       ai_error: '',
       ai_usage: {},
-      sent_by_user: assigneeName,
+      sent_by_user: reviewOnly ? null : assigneeName,
       delivery_status: 'assigned',
       command_id: commandId,
-      raw_payload: {
+      raw_payload: reviewOnly ? { command, team_review_requested: true, requested_by: user.id, reviewer: { id: assignee.id || null, name: assigneeName } } : {
         command,
         assigned_by: user.email || 'Operador Mag.IA',
         assignee: {

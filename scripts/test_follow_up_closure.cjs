@@ -55,13 +55,37 @@ async function run({ sales = false, modelText = '{"action":"send","reply":"Oi! F
   return { result, calls, finishes, sends, models, prompt };
 }
 
-test('despachante: cliente encerrou na conversa de origem → cancela sem gerar nem enviar', async () => {
-  for (const value of ['closed', 'declined', 'deferred']) {
+test('despachante: cliente encerrou ou recusou na conversa de origem → cancela sem gerar nem enviar', async () => {
+  for (const value of ['closed', 'declined']) {
     const r = await run({ anchor: { grounding: { customer_disposition: { value, evidence_ids: ['in-1'] } } } });
     assert.equal(r.sends, 0); assert.equal(r.models, 0);
     assert.equal(r.finishes[0].p_status, 'cancelled');
     assert.equal(r.finishes[0].p_error, 'customer_' + value);
   }
+});
+
+// Decisão do responsável: quem ADIA ("vou pensar", "te aviso") ainda recebe uma retomada gerada pela IA; só recusa/encerramento calam.
+test('despachante: cliente adiou na conversa de origem → gera e envia a retomada (não cancela)', async () => {
+  const r = await run({ anchor: { grounding: { customer_disposition: { value: 'deferred', evidence_ids: ['in-1'] } } } });
+  assert.equal(r.models, 1); assert.equal(r.sends, 1);
+  assert.equal(r.finishes[0].p_status, 'sent');
+});
+
+test('despachante: instruções separam recusa/encerramento (skip) de adiamento (retomada acolhedora via send)', async () => {
+  const r = await run();
+  const rules = JSON.parse(r.prompt.contents[0].parts[0].text).rules;
+  const all = rules.join(' ');
+  const skipRule = rules.find(x => /encerrou|recusou/.test(x));
+  assert.ok(skipRule && /skip/.test(skipRule));
+  assert.doesNotMatch(skipRule, /volta depois|adi/i, 'adiamento nao pode estar na regra de skip');
+  const deferRule = rules.find(x => /adiou|adiamento/i.test(x));
+  assert.ok(deferRule, 'regra de adiamento ausente');
+  assert.match(deferRule, /send/);
+  assert.match(deferRule, /acolhedor/i);
+  assert.match(deferRule, /ponto em que a conversa parou/);
+  assert.match(deferRule, /system prompt/);
+  assert.doesNotMatch(all, /deu tempo/i, 'sem texto fixo de resposta');
+  for (const needed of [/humano, pagamento, cancelamento ou remarcacao/, /unica mensagem curta/, /Nao invente preco/, /nao mencione tempo de espera/]) assert.match(all, needed);
 });
 
 test('despachante: conversa ativa segue o fluxo normal', async () => {
@@ -124,13 +148,58 @@ test('CORE: encerramento validado cancela pendentes e não agenda; conversa ativ
       async (_, reason) => { log.cancelled.push(reason); }, async () => { log.scheduled++; return 2; }, p => p, () => ({}), 'chat', { messages: [{ name: 'Ana' }] }, 'Ana',
       [{ tenant: { id: 'tenant' } }, { id: 'sent' }, { service: 'geral', handoff: false, raw_payload: { grounding } }]) };
   };
-  for (const value of ['closed', 'declined', 'deferred']) {
+  for (const value of ['closed', 'declined']) {
     const { log, call } = build({ customer_disposition: { value, evidence_ids: ['in-1'] } });
     assert.equal(await call(), 0);
     assert.deepEqual(log.cancelled, ['customer_' + value]);
     assert.equal(log.scheduled, 0);
   }
+  // Adiamento não cancela os pendentes e segue o agendamento normal.
+  const deferred = build({ customer_disposition: { value: 'deferred', evidence_ids: ['in-1'] } });
+  assert.equal(await deferred.call(), 2);
+  assert.equal(deferred.log.cancelled.length, 0);
+  assert.equal(deferred.log.scheduled, 1);
   const active = build({ customer_disposition: { value: 'active', evidence_ids: [] } });
   assert.equal(await active.call(), 2);
   assert.equal(active.log.cancelled.length, 0);
+});
+
+// Vendas: o adiamento so mantem e agenda a retomada quando a EXT devolveu a acao 'resume' (configuracao do tenant).
+// Sem ela, nada muda: adiamento nao agenda, recusa/encerramento/resolvido continuam como antes.
+test('CORE vendas: acao resume agenda UMA retomada no adiamento; demais disposicoes e acoes seguem como antes', async () => {
+  const build = (raw, { structured = true, event = {} } = {}) => {
+    const log = { cancelled: [], scheduled: 0 };
+    const fn = new AsyncFunction('settingsFor', 'salesEnabled', 'salesUsesStructuredDialogue', 'cancelPendingFollowUps', 'httpJson', 'supabaseUrl', 'supabaseHeaders', 'chatId', 'turn', 'firstName',
+      'async ' + slice('scheduleFollowUps') + '; return scheduleFollowUps(...arguments[10]);');
+    return { log, call: () => fn(() => ({ follow_up_enabled: true, sales_follow_up: { enabled: true } }), () => true, () => structured,
+      async (_, reason) => { log.cancelled.push(reason); }, async () => { log.scheduled++; return 3; }, p => p, () => ({}), 'chat', { messages: [{ name: 'Ana' }] }, 'Ana',
+      [{ tenant: { id: 'tenant' } }, { id: 'sent' }, { service: 'sales_qualification', handoff: false, raw_payload: raw, ...event }]) };
+  };
+  const cases = [
+    // [descricao, raw_payload, cancelados, agendamentos, retorno]
+    ['adiamento + resume agenda sem cancelar', { follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'resume' }, [], 1, 3],
+    ['adiamento + keep nao agenda', { follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'keep' }, [], 0, 0],
+    ['adiamento + undecided nao agenda', { follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'undecided' }, [], 0, 0],
+    ['adiamento sem acao nao agenda', { follow_up_disposition: 'deferred_by_customer' }, [], 0, 0],
+    ['adiamento + cancel cancela', { follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'cancel' }, ['deferred_by_customer'], 0, 0],
+    ['recusa + resume nao agenda nem cancela', { follow_up_disposition: 'declined', follow_up_policy_action: 'resume' }, [], 0, 0],
+    ['encerramento + resume nao agenda', { follow_up_disposition: 'closed_by_customer', follow_up_policy_action: 'resume' }, [], 0, 0],
+    ['recusa + cancel cancela', { follow_up_disposition: 'declined', follow_up_policy_action: 'cancel' }, ['declined'], 0, 0],
+    ['resolvido cancela mesmo com resume', { follow_up_disposition: 'resolved', follow_up_policy_action: 'resume' }, ['resolved'], 0, 0],
+    ['silencio do cliente agenda como antes', { follow_up_disposition: 'awaiting_customer' }, [], 1, 3],
+  ];
+  for (const [name, raw, cancelled, scheduled, returned] of cases) {
+    const { log, call } = build(raw);
+    assert.equal(await call(), returned, name);
+    assert.deepEqual(log.cancelled, cancelled, name);
+    assert.equal(log.scheduled, scheduled, name);
+  }
+  // Travas operacionais valem tambem para a retomada.
+  for (const event of [{ handoff: true }, { service: 'agendamento' }, { raw_payload: { follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'resume', interest_registered: true } }]) {
+    const { log, call } = build({ follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'resume' }, { event });
+    assert.equal(await call(), 0); assert.equal(log.scheduled, 0);
+  }
+  // Fora do dialogo estruturado a acao e ignorada: o adiamento cancela como antes.
+  const legacy = build({ follow_up_disposition: 'deferred_by_customer', follow_up_policy_action: 'resume' }, { structured: false });
+  assert.equal(await legacy.call(), 0); assert.deepEqual(legacy.log.cancelled, ['deferred_by_customer']); assert.equal(legacy.log.scheduled, 0);
 });

@@ -11,13 +11,14 @@ const source = (file) => fs.readFileSync(path.join(__dirname, '../../src', file)
 function fakeClient() {
   const calls = [];
   const chain = (table) => {
+    let result = [];
     const query = {
       insert(payload) { calls.push({ table, op: 'insert', payload }); return query; },
       update(payload) { calls.push({ table, op: 'update', payload }); return query; },
-      upsert(payload) { calls.push({ table, op: 'upsert', payload }); return query; },
+      upsert(payload, options) { calls.push({ table, op: 'upsert', payload, options }); result = payload; return query; },
       select() { return query; }, eq() { return query; }, neq() { return query; }, in() { return query; },
       single: async () => ({ data: { id: 'campaign-1', status: 'draft' }, error: null }),
-      then(resolve) { return Promise.resolve({ data: [], error: null }).then(resolve); },
+      then(resolve) { return Promise.resolve({ data: result, error: null }).then(resolve); },
     };
     return query;
   };
@@ -91,4 +92,22 @@ test('a tela enfileira e acompanha: sem envio local, com confirmação de consen
   assert.match(screen, /enqueueBroadcastCampaign/);
   assert.match(screen, /controlBroadcastCampaign/);
   assert.match(screen, /consentConfirmed/);
+});
+
+test('salvar contatos não preenche campos opcionais ausentes ao atualizar', async () => {
+  const client = fakeClient();
+  const saved = await operations(client).upsertBroadcastContacts('salao', [
+    { name: 'Ana', channelType: 'whatsapp', externalConversationId: '5511' },
+    { name: 'Bia', channelType: 'whatsapp', externalConversationId: '5522', tags: ['cliente'], email: 'bia@example.com' },
+  ]);
+  const batches = client.calls.filter((call) => call.table === 'broadcast_contacts' && call.op === 'upsert');
+  assert.equal(batches.length, 2);
+  assert.equal(saved.length, 2);
+  assert.ok(batches.every((batch) => batch.options.defaultToNull === false));
+  const rows = batches.flatMap((batch) => batch.payload);
+  const ana = rows.find((row) => row.name === 'Ana');
+  for (const key of ['phone', 'email', 'tags', 'metadata', 'source']) assert.equal(Object.hasOwn(ana, key), false, key);
+  assert.deepEqual(rows.find((row) => row.name === 'Bia').tags, ['cliente']);
+  assert.equal(rows.find((row) => row.name === 'Bia').email, 'bia@example.com');
+  for (const batch of batches) assert.ok(batch.payload.every((row) => Object.keys(row).sort().join(',') === Object.keys(batch.payload[0]).sort().join(',')));
 });

@@ -4,6 +4,8 @@ export { GENESIS_SALES_STAGE_DEFAULT_NAMES } from './commercialStages.js';
 
 export function findKanbanColumn(columns, targetKey) {
   if (!columns || !columns.length || !targetKey) return null;
+  const exact = columns.find((column) => [column.automationKey, column.automation_key, column.id, column.boardColumnId].includes(targetKey));
+  if (exact) return exact;
   const target = canonicalKanbanKey(targetKey);
   const targetNorm = normalizeKey(targetKey);
   return columns.find((column) => (

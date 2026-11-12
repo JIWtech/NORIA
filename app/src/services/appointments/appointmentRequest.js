@@ -7,7 +7,8 @@ export function appointmentRequestState({ startsAt, metadata } = {}, { now = Dat
   const data = metadata || {};
   const version = Number(data.request_version) || 0;
   const expired = Date.parse(startsAt || '') <= now;
-  const uncertain = Boolean(data.confirmation_state);
+  const sending = data.confirmation_state === 'sending';
+  const uncertain = data.confirmation_state === 'uncertain';
   const updatedAt = Date.parse(data.request_updated_at || '');
   const stale = Number(staleHours) > 0 && Number.isFinite(updatedAt) && now - updatedAt >= Number(staleHours) * 3600000;
   return {
@@ -18,9 +19,10 @@ export function appointmentRequestState({ startsAt, metadata } = {}, { now = Dat
     version,
     expired,
     stale,
+    sending,
     uncertain,
-    canConfirm: !expired && !uncertain,
-    canReject: !uncertain,
+    canConfirm: !expired && !data.confirmation_state,
+    canReject: !data.confirmation_state,
   };
 }
 

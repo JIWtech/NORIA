@@ -12,7 +12,8 @@ const col = (automationKey, title, extra = {}) => ({ id: automationKey, automati
 const humanCol = col('com_humano', 'Com humano', { icon: 'user-round', tone: 'pink', ownerRole: 'human' });
 const aiCol = col('conversas_ia', 'Conversas IA', { icon: 'bot', tone: 'cyan', ownerRole: 'ai' });
 const scheduleCol = col('agendamentos', 'Agendamentos', { icon: 'calendar-days', tone: 'indigo', ownerRole: 'neutral' });
-const card = (column) => ({ kanbanColumn: column });
+const abandonedCol = col('conversas_abandonadas', 'Conversas abandonadas', { icon: 'inbox', tone: 'red', ownerRole: 'neutral' });
+const card = (column, extra = {}) => ({ kanbanColumn: column, targetColumnId: column?.automationKey || column?.id, ...extra });
 const human = { isHuman: true, isClosed: false, assignee: null, stageLabel: 'Atendimento humano' };
 const named = { ...human, assignee: 'Wesley' };
 const ai = { isHuman: false, isAiActive: true, isClosed: false, assignee: null, stageLabel: 'Qualificação' };
@@ -77,4 +78,29 @@ test('selo sem dados de coluna é neutro e não quebra', () => {
   assert.deepEqual(conversationStageChip({ title: 'Qualificação' }), { label: 'Qualificação', tone: 'slate', Icon: Inbox });
   assert.equal(conversationStageChip(null), null);
   assert.equal(conversationStageChip({ title: '' }), null);
+});
+
+test('conversa abandonada ou sem responsável não exibe badge IA na lista nem no cabeçalho', () => {
+  const abandonedPresentation = {
+    lifecycle: 'none',
+    ownerMode: 'none',
+    isClosed: false,
+    isHuman: false,
+    isAiActive: false,
+    assignee: null,
+    stageLabel: 'Conversas abandonadas',
+  };
+  assert.deepEqual(conversationListTags(abandonedPresentation, card(abandonedCol, { ownerKind: 'none' })), {
+    owner: null,
+    column: abandonedCol,
+  });
+  // Mesmo se presentation vier com isAiActive legado, a coluna conversas_abandonadas não mostra dono IA
+  assert.deepEqual(conversationListTags(ai, card(abandonedCol, { ownerKind: 'none' })), {
+    owner: null,
+    column: abandonedCol,
+  });
+  assert.deepEqual(conversationListTags({ ...ai, stageLabel: 'Conversas abandonadas' }, null, abandonedCol), {
+    owner: null,
+    column: abandonedCol,
+  });
 });

@@ -45,18 +45,21 @@ export function pendingNotifications({ tenantId, userId, role, settings, kanbanC
 
 export function waitingConversationNotifications({ tenantId, userId, role, kanbanColumns, now }) {
   if (!tenantId || !userId || !canOperateNotifications(role)) return [];
-  return kanbanColumns.filter(column => (column.automationKey || column.id) === 'aguardando_humano')
-    .flatMap(column => column.cards || []).flatMap(card => {
-      const createdAt = card.lastActivityAt;
+  return kanbanColumns.flatMap(column => (column.cards || []).flatMap(card => {
+      const teamReview = Boolean(card.teamReviewRequestedAt);
+      if (!teamReview && (column.automationKey || column.id) !== 'aguardando_humano') return [];
+      const createdAt = card.teamReviewRequestedAt || card.lastActivityAt;
       if (!card.externalConversationId || !Number.isFinite(Date.parse(createdAt))) return [];
+      const identity = teamReview ? `${card.channelType || 'whatsapp'}:${card.externalConversationId}` : card.id;
       const overdue = now - Date.parse(createdAt) >= HUMAN_REPLY_OVERDUE_MS;
       return [{
-        id: `pending:handoff:${card.id}:${createdAt}`, tenantId, kind: 'handoff', category: 'conversations',
+        id: `pending:handoff:${identity}:${createdAt}`, tenantId, kind: teamReview ? 'team-review' : 'handoff', category: 'conversations',
         chatId: card.externalConversationId, channel: card.channelType, createdAt, contact: card.title,
-        pending: true, tracked: true, overdue, unread: true, title: 'Cliente aguardando a equipe',
-        description: 'Abra a conversa para dar continuidade ao atendimento.',
+        pending: true, tracked: true, overdue, unread: true,
+        title: teamReview ? 'Solicitação para a equipe' : 'Cliente aguardando a equipe',
+        description: teamReview ? 'A IA continua respondendo até a equipe enviar uma mensagem.' : 'Abra a conversa para dar continuidade ao atendimento.',
       }];
-    });
+    }));
 }
 
 export function inboxNotification(item, replyStatus) {

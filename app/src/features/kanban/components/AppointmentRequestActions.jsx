@@ -72,6 +72,7 @@ export function AppointmentRequestActions({ card, tenantSlug, staleHours, onChan
       {state.expired && (
         <span className="appointment-request-alert"><AlertTriangle size={12} /> O horário já passou</span>
       )}
+      {state.sending && <span className="appointment-request-alert">Enviando mensagem pelo WhatsApp…</span>}
       {state.uncertain ? (
         <>
           <span className="appointment-request-alert"><AlertTriangle size={12} /> Veja no WhatsApp se a mensagem chegou</span>

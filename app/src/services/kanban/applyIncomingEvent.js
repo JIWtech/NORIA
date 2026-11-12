@@ -3,75 +3,61 @@ import { formatDate } from '../../utils/dateFormatting.js';
 import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
 import { TECHNICAL_MEDIA_LABELS } from '../../utils/audioUtils.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
-import { normalizeStage, normalizeLocation, resolveConversationOwnerDetails } from '../conversations/conversationPresentation.js';
+import { normalizeLocation, resolveConversationOwnerDetails } from '../conversations/conversationPresentation.js';
 import { normalizeMedia } from '../media/mediaNormalization.js';
 import { isGeneratedMediaLabel, mediaPreview } from '../media/mediaPresentation.js';
 import { extractPayloadAvatar } from '../contacts/contactPayload.js';
 import { normalizeAvatarUrl } from '../contacts/contactIdentity.js';
 import { cleanAgentName } from '../agents/agentNames.js';
-import { canEventMoveOwnershipToAi } from '../conversations/ownershipEvidence.js';
+import { canEventMoveOwnershipToAi, eventSessionId, isExplicitAiOwnershipTransition } from '../conversations/ownershipEvidence.js';
+import { isCustomerInboundEvent, isFollowUpOutboundEvent } from '../conversations/conversationEventState.js';
+import { technicalEventPresentation } from '../conversations/technicalEventPresentation.js';
+import { isConversationWaitingForFollowUp } from '../timeline/conversationFilters.js';
 
 import { findKanbanColumn } from './stageResolution.js';
 import { closedColumnReason, isClosedKanbanColumn } from './kanbanCardReason.js';
-import { isGenesisSalesTenant } from './commercialStages.js';
+import { GENESIS_SALES_STAGE_KEYS, isGenesisSalesTenant } from './commercialStages.js';
+import { canonicalKanbanKey } from './kanbanHelpers.js';
+import {
+  conversationKanbanCandidates,
+  extractFollowUpStepKey,
+  findKanbanDestination,
+  followUpCardReason,
+  followUpStepLabel,
+  humanKanbanStage,
+  isKanbanClosed,
+  nextTeamReviewRequestedAt,
+} from './cardRouting.js';
 
-function resolveEventTargetColumn(event, card, resolvedTenant, columns) {
-  const payload = asObject(event?.raw_payload);
-  const isGenesis = isGenesisSalesTenant(resolvedTenant);
-
-  // 1. Explicit manual transition in raw_payload
-  const manualTransition = payload?.kanban_transition?.to_column;
-  if (manualTransition) {
-    const col = findKanbanColumn(columns, manualTransition);
-    if (col) return col;
-  }
-
-  // 2. Closed conversation
-  const isClosed = normalizeStage(event?.stage) === 'Finalizado'
-    || event?.service === 'conversation_closed'
-    || event?.ai_provider === 'conversation_closed'
-    || payload?.event_type === 'conversation_closed';
-  if (isClosed) {
-    // Mesma regra da carga completa: falta registrada vai para "Não compareceu" quando o quadro tem a coluna.
-    if (!isGenesis && payload?.close_reason === 'no_show') {
-      const missedCol = findKanbanColumn(columns, 'nao_compareceu');
-      if (missedCol) return missedCol;
+function resolveEventTargetColumn(event, columns, card, humanStage, isGenesis, { waitingForFollowUp = false, wasFollowUp = false } = {}) {
+  const payload = asObject(event.raw_payload);
+  const manualColumn = findKanbanColumn(columns, payload.kanban_transition?.to_column);
+  if (manualColumn) return manualColumn;
+  if (isGenesis) {
+    if (isKanbanClosed(event)) return null;
+    const stage = canonicalKanbanKey(payload.sales_stage || event.stage);
+    if (humanStage) return findKanbanColumn(columns, 'sales_human');
+    if (waitingForFollowUp && (!stage || ['sales_new', 'sales_qualifying', 'sales_hot'].includes(stage))) {
+      const followUpCol = findKanbanColumn(columns, 'follow_ups');
+      if (followUpCol) return followUpCol;
     }
-    const closedKey = isGenesis ? 'sales_closed' : 'finalizadas';
-    const col = findKanbanColumn(columns, closedKey);
-    if (col) return col;
+    if (GENESIS_SALES_STAGE_KEYS.has(stage)) return findKanbanColumn(columns, stage);
+    return wasFollowUp && !waitingForFollowUp ? findKanbanColumn(columns, card.salesStageKey || 'sales_qualifying') : null;
   }
-
-  // 3. Sales stage from raw_payload (e.g. sales_financing, sales_human, sales_appraisal, sales_hot, sales_qualifying)
-  const rawSalesStage = payload?.sales_stage;
-  if (rawSalesStage) {
-    const col = findKanbanColumn(columns, rawSalesStage);
-    if (col) return col;
-  }
-
-  // 4. Handoff or assignment to human
-  const isHandoff = Boolean(event?.handoff)
-    || event?.service === 'handoff_requested'
-    || event?.service === 'conversation_assigned'
-    || normalizeStage(event?.stage) === 'Atendimento humano'
-    || event?.stage === 'sales_human';
-  if (isHandoff) {
-    const humanKey = isGenesis ? 'sales_human' : 'conversas_humanos';
-    const col = findKanbanColumn(columns, humanKey) || findKanbanColumn(columns, 'com_humano');
-    if (col) return col;
-  }
-
-  // 5. Stage specified in event.stage (if present and maps to a column)
-  if (event?.stage) {
-    const col = findKanbanColumn(columns, event.stage);
-    if (col) return col;
-  }
-
-  return null;
+  if (card.actionType === 'confirm_signal') return null;
+  if (card.actionType === 'confirm_request' && !humanStage) return null;
+  return findKanbanDestination(columns, conversationKanbanCandidates(event, {
+    humanStage,
+    columns,
+    live: true,
+    waitingForFollowUp,
+    resumedFromFollowUp: wasFollowUp && !waitingForFollowUp,
+  }));
 }
 
 export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '', teamAgents = []) {
-  if (!event || isInternalOperationalEvent(event) || !Array.isArray(columns)) return columns;
+  if (!event || !Array.isArray(columns)) return columns;
+  if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) return columns;
   const channelType = normalizeChannel(event.channel_type);
   const resolvedTenant = tenantSlug || event.tenant_slug || '';
   const canonicalKey = canonicalConversationKey(
@@ -90,6 +76,7 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
   const trimmedText = String(event.message_text || '').trim().toLowerCase();
   const service = String(event.service || '').toLowerCase();
   const payload = asObject(event.raw_payload);
+  if (isInternalOperationalEvent(event) && !payload.kanban_transition?.to_column) return columns;
   const isReaction = service === 'reaction'
     || String(payload?.messageType || '').toLowerCase() === 'reactionmessage'
     || String(payload?.event || '').toLowerCase() === 'messages.reaction'
@@ -123,7 +110,8 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
 
   for (let cIdx = 0; cIdx < columns.length; cIdx += 1) {
     const col = columns[cIdx];
-    const idx = (col.cards || []).findIndex((card) => (
+    const idx = (col.cards || []).findIndex((card) =>
+      (!card.channelType || normalizeChannel(card.channelType).type === channelType.type) && (
       card.id === `card-${event.id}` ||
       card.id === conversationId ||
       card.id === legacyConversationId ||
@@ -142,6 +130,18 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
 
   if (!matchedCard) return columns;
 
+  const eventTime = Date.parse(event.created_at || '');
+  const cardTime = Date.parse(matchedCard.lastControlAt || matchedCard.lastActivityAt || '');
+  const isNewerControl = !Number.isFinite(cardTime)
+    || (Number.isFinite(eventTime) && eventTime >= cardTime);
+  const wasClosed = matchedCard.isClosed || isClosedKanbanColumn(columns[sourceColIndex].automationKey || columns[sourceColIndex].id);
+  const isCloseEvent = isKanbanClosed(event);
+  const isGenesis = isGenesisSalesTenant(resolvedTenant);
+  const incomingSession = eventSessionId(event);
+  const reopens = wasClosed && isNewerControl && event.direction === 'inbound' && event.sender_type !== 'system'
+    && (!incomingSession || incomingSession !== matchedCard.closedSessionId);
+  if (wasClosed && !reopens && !isCloseEvent && !payload.kanban_transition?.to_column) return columns;
+
   const incomingPayloadAvatar = extractPayloadAvatar(event);
   const incomingEventAvatar = normalizeAvatarUrl(event.avatar_url);
 
@@ -150,27 +150,67 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
   const newAssigneeName = cleanAgentName(candidateAssignee);
   const hasExplicitAssignment = Boolean(newAssigneeName);
 
-  const isHandoff = Boolean(event.handoff)
-    || event.service === 'handoff_requested'
-    || event.service === 'conversation_assigned'
-    || normalizeStage(event.stage) === 'Atendimento humano'
-    || payload?.kanban_transition?.to_column === 'sales_human'
-    || payload?.kanban_transition?.to_column === 'com_humano'
-    || payload?.kanban_transition?.to_column === 'conversas_humanos';
-  const eventTime = Date.parse(event.created_at || '');
-  const cardTime = Date.parse(matchedCard.lastActivityAt || '');
-  const isNewerControl = !Number.isFinite(cardTime)
-    || (Number.isFinite(eventTime) && eventTime >= cardTime);
+  const requestedHumanStage = isGenesis && event.sender_type === 'agent' && !event.handoff
+    && !hasExplicitAssignment && !['manual_reply', 'conversation_assigned'].includes(event.service)
+    ? '' : humanKanbanStage(event);
+  let humanStage = matchedCard.humanKanbanStage || '';
+  if (isNewerControl) {
+    if (isCloseEvent || reopens || isExplicitAiOwnershipTransition(event)) humanStage = '';
+    else if (requestedHumanStage && (!humanStage || requestedHumanStage !== 'aguardando_humano' || event.service === 'handoff_requested')) {
+      humanStage = requestedHumanStage;
+    }
+  }
+  const isHandoff = Boolean(requestedHumanStage);
+  const sourceColKey = columns[sourceColIndex].automationKey || columns[sourceColIndex].id;
+  const wasAbandoned = sourceColKey === 'conversas_abandonadas';
+  const wasFollowUp = Boolean(matchedCard.isFollowUp || sourceColKey === 'follow_ups');
+  const resumesFromInactivity = wasAbandoned && event.direction === 'inbound' && event.sender_type !== 'system';
+
+  const nextLatestInboundAt = isNewerControl && isCustomerInboundEvent(event) && event.created_at
+    ? event.created_at
+    : matchedCard.latestCustomerInboundAt || null;
+  const incomingIsFollowUp = isFollowUpOutboundEvent(event);
+  const fallbackFollowUpAt = matchedCard.isFollowUp ? (matchedCard.lastActivityAt || matchedCard.lastControlAt || null) : null;
+  const nextLatestFollowUpAt = isNewerControl && incomingIsFollowUp && event.created_at
+    ? event.created_at
+    : matchedCard.latestFollowUpAt || fallbackFollowUpAt;
+  const nextFollowUpStepKey = isNewerControl && incomingIsFollowUp
+    ? extractFollowUpStepKey(event)
+    : matchedCard.followUpStepKey || '';
+  const willBeHuman = Boolean(isHandoff || hasExplicitAssignment || (matchedCard.ownerKind === 'agent' && !reopens && !isExplicitAiOwnershipTransition(event)));
+  const willBeClosed = Boolean(isCloseEvent || (wasClosed && !reopens));
+  const nextWaitingForFollowUp = !willBeHuman && !willBeClosed && isConversationWaitingForFollowUp({
+    status: willBeClosed ? 'finalizado' : (willBeHuman ? 'atendimento_humano' : 'ia_ativa'),
+    stage: event.stage || matchedCard.stage,
+    latestFollowUpAt: nextLatestFollowUpAt,
+    latestCustomerInboundAt: nextLatestInboundAt,
+  });
+
+  const targetCol = isNewerControl
+    ? resolveEventTargetColumn(event, columns, matchedCard, humanStage, isGenesis, { waitingForFollowUp: nextWaitingForFollowUp, wasFollowUp })
+      || ((reopens || resumesFromInactivity || (wasFollowUp && !nextWaitingForFollowUp && !isHandoff && !isCloseEvent)) && findKanbanDestination(columns, ['conversas_ia', 'conversas_andamento', 'novas_conversas']))
+    : null;
+  const targetKey = targetCol?.automationKey || targetCol?.id;
+  const closes = isNewerControl && (isClosedKanbanColumn(targetKey) || isCloseEvent);
+  const isClosed = closes || (wasClosed && !reopens && !targetCol);
 
   let nextOwner = matchedCard.owner;
   let nextOwnerId = matchedCard.ownerId;
   let nextOwnerKind = matchedCard.ownerKind;
 
-  if (isNewerControl && canEventMoveOwnershipToAi({
+  if (isClosed) {
+    nextOwner = 'Sem responsável';
+    nextOwnerId = null;
+    nextOwnerKind = 'none';
+  } else if (isNewerControl && ['aguardando_humano', 'conversas_abandonadas'].includes(targetKey)) {
+    nextOwner = 'Sem responsável';
+    nextOwnerId = null;
+    nextOwnerKind = 'none';
+  } else if ((isNewerControl && (reopens || resumesFromInactivity || targetKey === 'follow_ups' || (wasFollowUp && !nextWaitingForFollowUp)) && !isHandoff && !hasExplicitAssignment) || (isNewerControl && canEventMoveOwnershipToAi({
     status: matchedCard.ownerKind === 'agent' ? 'atendimento_humano' : 'ia_ativa',
     handoff: matchedCard.ownerKind === 'agent',
     currentSessionId: matchedCard.sessionId || null,
-  }, event, event.stage)) {
+  }, event, event.stage))) {
     nextOwner = 'Assistente IA';
     nextOwnerId = null;
     nextOwnerKind = 'ai';
@@ -178,7 +218,7 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
     nextOwner = newAssigneeName;
     nextOwnerId = assignee.id ? String(assignee.id) : null;
     nextOwnerKind = 'agent';
-  } else if (isNewerControl && isHandoff && (matchedCard.ownerKind === 'ai' || matchedCard.owner === 'Assistente IA')) {
+  } else if (isNewerControl && isHandoff && matchedCard.ownerKind !== 'agent') {
     let activeAgents = Array.isArray(teamAgents) && teamAgents.length ? teamAgents : null;
     if (!activeAgents && typeof window !== 'undefined' && window.localStorage && resolvedTenant) {
       try {
@@ -197,32 +237,51 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
     nextOwnerKind = humanFallback.kind;
   }
 
+  const effectiveColumnKey = targetKey || sourceColKey;
+  const nextIsFollowUpCard = !isClosed && !isHandoff && !hasExplicitAssignment && nextOwnerKind !== 'agent'
+    && nextWaitingForFollowUp && effectiveColumnKey === 'follow_ups';
+  const resolvedFollowUpLabel = nextIsFollowUpCard ? followUpStepLabel(nextFollowUpStepKey) : '';
+
+  const technicalReview = technicalEventPresentation(event);
+  const updatePreview = !isReaction && !isSecret;
+  let aiReason = matchedCard.aiReason;
+  if (closes) {
+    aiReason = closedColumnReason(targetKey) || closedColumnReason(payload.close_reason === 'no_show' ? 'nao_compareceu' : 'finalizadas');
+  } else if (nextIsFollowUpCard) {
+    aiReason = followUpCardReason(resolvedFollowUpLabel);
+  } else if (isNewerControl && (reopens || technicalReview || nextOwnerKind !== matchedCard.ownerKind
+    || (targetKey && targetKey !== matchedCard.targetColumnId) || wasFollowUp)) {
+    aiReason = '';
+  }
   const updatedCard = {
     ...matchedCard,
-    subtitle: (isReaction || isSecret) ? matchedCard.subtitle : (text || mediaPreview(media) || matchedCard.subtitle),
+    subtitle: updatePreview ? (technicalReview?.title || text || mediaPreview(media) || matchedCard.subtitle) : matchedCard.subtitle,
     avatarUrl: incomingPayloadAvatar || matchedCard.avatarUrl || incomingEventAvatar || null,
     owner: nextOwner,
     ownerId: nextOwnerId,
     ownerKind: nextOwnerKind,
+    humanKanbanStage: humanStage,
+    teamReviewRequestedAt: isNewerControl ? nextTeamReviewRequestedAt(matchedCard.teamReviewRequestedAt, event) : matchedCard.teamReviewRequestedAt,
+    needsReview: isNewerControl && updatePreview ? Boolean(technicalReview) : matchedCard.needsReview,
+    isClosed,
+    isFollowUp: nextIsFollowUpCard,
+    waitingForFollowUp: nextIsFollowUpCard,
+    followUpLabel: resolvedFollowUpLabel,
+    followUpStepKey: nextIsFollowUpCard ? nextFollowUpStepKey : '',
+    latestFollowUpAt: nextLatestFollowUpAt,
+    latestCustomerInboundAt: nextLatestInboundAt,
+    closedSessionId: closes ? incomingSession || matchedCard.closedSessionId : matchedCard.closedSessionId,
+    lastControlAt: isNewerControl ? event.created_at || matchedCard.lastControlAt : matchedCard.lastControlAt,
+    aiReason,
     lastAt: lastAt || matchedCard.lastAt,
     lastActivityAt: event.created_at || matchedCard.lastActivityAt,
   };
 
-  const targetCol = resolveEventTargetColumn(event, updatedCard, resolvedTenant, columns);
   const targetColIndex = targetCol ? columns.findIndex((col) => col.id === targetCol.id) : -1;
 
   if (targetColIndex >= 0 && targetColIndex !== sourceColIndex) {
-    const isGenesis = isGenesisSalesTenant(resolvedTenant);
-    const targetKey = targetCol.automationKey || targetCol.id;
     updatedCard.stage = targetCol.title || targetCol.name || updatedCard.stage;
-    // A coluna e a etiqueta acompanham o card: sem isso o painel acha que ele ainda está na coluna
-    // antiga (arrasto na mesma coluna vira movimento) e o card encerrado segue "IA conduzindo a conversa".
     updatedCard.targetColumnId = targetKey;
-    if (isClosedKanbanColumn(targetKey)) {
-      updatedCard.aiReason = closedColumnReason(targetKey);
-    } else if (isHandoff && updatedCard.aiReason === 'IA conduzindo a conversa') {
-      updatedCard.aiReason = '';
-    }
     if (isGenesis) {
       updatedCard.salesStageKey = targetKey;
     }

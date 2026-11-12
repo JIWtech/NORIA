@@ -25,25 +25,39 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const tenant = await loadTenant(activeTenantSlug);
     if (!tenant) throw new Error('Tenant nao encontrado');
     const clean = contacts
-      .map((contact) => ({
-        tenant_id: tenant.id,
-        name: contact.name || 'Contato',
-        channel_type: contact.channelType || contact.channel_type || 'telegram',
-        external_conversation_id: String(contact.externalConversationId || contact.external_conversation_id || '').trim(),
-        phone: contact.phone || null,
-        email: contact.email || null,
-        source: contact.source || 'manual',
-        tags: contact.tags || [],
-        metadata: contact.metadata || {},
-      }))
+      .map((contact) => {
+        const row = {
+          tenant_id: tenant.id,
+          channel_type: contact.channelType || contact.channel_type || 'telegram',
+          external_conversation_id: String(contact.externalConversationId || contact.external_conversation_id || '').trim(),
+        };
+        for (const field of ['name', 'phone', 'email', 'source', 'tags', 'metadata']) {
+          const value = contact[field];
+          if (value == null || value === '' || (Array.isArray(value) && !value.length)
+            || (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length)) continue;
+          row[field] = value;
+        }
+        return row;
+      })
       .filter((contact) => contact.external_conversation_id);
     if (!clean.length) return [];
-    const { data, error } = await supabase
-      .from('broadcast_contacts')
-      .upsert(clean, { onConflict: 'tenant_id,channel_type,external_conversation_id' })
-      .select('*');
-    if (error) throw error;
-    return data || [];
+    // Cada lote tem as mesmas colunas: o PostgREST atualiza apenas as colunas enviadas.
+    const batches = new Map();
+    for (const row of clean) {
+      const key = Object.keys(row).sort().join(',');
+      if (!batches.has(key)) batches.set(key, []);
+      batches.get(key).push(row);
+    }
+    const saved = [];
+    for (const rows of batches.values()) {
+      const { data, error } = await supabase
+        .from('broadcast_contacts')
+        .upsert(rows, { onConflict: 'tenant_id,channel_type,external_conversation_id', defaultToNull: false })
+        .select('*');
+      if (error) throw error;
+      saved.push(...(data || []));
+    }
+    return saved;
   }
 
   // Sempre cria em rascunho: o worker só enxerga a campanha depois de broadcast_enqueue_campaign.

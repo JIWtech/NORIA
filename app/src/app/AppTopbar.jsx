@@ -21,6 +21,7 @@ export function AppTopbar({
   notificationUserId,
   notificationSettings,
   notificationConversations,
+  notificationConversationViewRef,
   notificationAppointments,
   notificationKanbanColumns,
   onOpenNotificationPage,
@@ -78,6 +79,7 @@ export function AppTopbar({
             role={selectedTenant?.membershipRole}
             settings={notificationSettings}
             conversations={notificationConversations}
+            conversationViewRef={notificationConversationViewRef}
             appointments={notificationAppointments}
             kanbanColumns={notificationKanbanColumns}
             onOpenPage={onOpenNotificationPage}

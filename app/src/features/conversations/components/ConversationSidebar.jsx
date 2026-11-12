@@ -453,7 +453,7 @@ export function ConversationSidebar({
                       <span
                         className="last-message"
                         title={conversation.lastMessageSender
-                          ? `${conversation.lastMessageSender}: ${formatConversationPreview(conversation.lastMessage)}`
+                          ? `${origin}: ${formatConversationPreview(conversation.lastMessage)}`
                           : formatConversationPreview(conversation.lastMessage)}
                       >
                         {isWaitingFollowUp && activeTab === 'follow_up' ? (

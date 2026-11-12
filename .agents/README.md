@@ -8,6 +8,7 @@
 | --- | --- |
 | Motor conversacional, política comercial, prompts ou fallbacks | [Regras CORE × EXT](rules/anti-hardcode-core-ext.md) |
 | Homepage e páginas comerciais | [Diretrizes da landing page](context/landing-page.md) |
+| Design System, tokens e arquitetura CSS do frontend | [Design System NORIA](../docs/architecture/design_system_modern_css_uiverse.md) |
 | Estrutura atual e documentação de operação | [Índice do projeto](../docs/INDEX.md) |
 
 ## Personas do GitHub Copilot

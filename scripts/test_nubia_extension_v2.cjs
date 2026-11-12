@@ -51,6 +51,7 @@ const ref = (service_id, role) => ({ service_id, role, evidence_ids: ['m1'] });
 const slots = { unit_id: 'u1', date: '2030-01-15', time: '10:00', customer_name: 'Maria Silva', evidence_ids: ['m1'], name_evidence_ids: ['m1'] };
 const availability = { source: 'magia_appointment_availability', tenant_id: TENANT, remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN,
   unit_id: 'u1', service_id: 'svc_a', date: '2030-01-15', time: '10:00', available_starts: ['10:00'] };
+const bookingProof = { contract: 'current_booking_authorization_v1', identity: { tenant_id: TENANT, instance: 'inst', remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN }, proposal: { service_id: 'svc_a', unit_id: 'u1', date: slots.date, time: slots.time, customer_name: slots.customer_name }, status: 'accepted', evidence_ids: ['m1'] };
 
 test('consulta informativa não gera disponibilidade nem reserva e aponta bloco aprovado', async () => {
   const d = (await run({ semantic: { primary_intent: 'info_inquiry', services: [ref('svc_a', 'asked_about')], info_requests: [{ topic: 'presentation', service_ids: ['svc_a'], evidence_ids: ['m1'] }] } })).commercial_decision;
@@ -70,7 +71,7 @@ test('seleção de serviço não reserva; reserva exige intenção, disponibilid
   assert.equal(d.actions.check_availability.allowed, true);
   assert.equal(d.actions.create_reservation.allowed, false);
   assert.equal(d.actions.create_reservation.reason, 'AVAILABILITY_NOT_VERIFIED');
-  d = (await run({ semantic: booking, extra: { availability } })).commercial_decision;
+  d = (await run({ semantic: booking, extra: { availability, booking_authorization: { contract: 'current_booking_authorization_v1', identity: { tenant_id: TENANT, instance: 'inst', remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN }, proposal: { service_id: 'svc_a', unit_id: 'u1', date: slots.date, time: slots.time, customer_name: slots.customer_name }, status: 'accepted', evidence_ids: ['m1'] } } })).commercial_decision;
   assert.equal(d.actions.create_reservation.allowed, true);
   assert.equal(d.actions.create_reservation.params.operation, 'magia_reserve_session_appointment');
   d = (await run({ semantic: booking, extra: { availability: { ...availability, turn_token: 'outro' } } })).commercial_decision;
@@ -146,7 +147,7 @@ test('nome: vale se provado em mensagem do cliente da mesma sessão; recusado se
   const booking = { primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots: { ...slots, name_evidence_ids: ['h1'], session_id: 'initial' } };
   const turnWithoutName = turnOf({ messages: [{ event_id: 'm1', text: 'quero agendar amanha' }] });
   const hist = (over = {}) => [{ id: 'h1', text: 'meu nome e Maria Silva', direction: 'inbound', sender_type: 'contact', session_id: 'initial', ...over }];
-  const go = session_evidence => run({ semantic: booking, extra: { availability, session_evidence, turn: turnWithoutName } });
+  const go = session_evidence => run({ semantic: booking, extra: { availability, booking_authorization: bookingProof, session_evidence, turn: turnWithoutName } });
   assert.equal((await go(hist())).commercial_decision.actions.create_reservation.allowed, true);
   assert.equal((await go(hist({ session_id: 'outra' }))).commercial_decision.status, 'refused');
   assert.equal((await go(hist({ direction: 'outbound', sender_type: 'ai' }))).commercial_decision.status, 'refused');
@@ -174,7 +175,7 @@ test('identidade do turno: request_id = <último event_id>:<token>, token uuid, 
 
 test('disponibilidade: prova presa a tenant, conversa, sessão, solicitação, turno, serviço, unidade, data e horário', async () => {
   const booking = { primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots };
-  const decide = async proof => (await run({ semantic: booking, extra: { availability: proof } })).commercial_decision.actions.create_reservation;
+  const decide = async proof => (await run({ semantic: booking, extra: { availability: proof, booking_authorization: bookingProof } })).commercial_decision.actions.create_reservation;
   const ok = await decide(availability);
   assert.equal(ok.allowed, true);
   assert.equal(ok.idempotency_key, 'whatsapp:m1');
@@ -195,4 +196,161 @@ test('saúde/segurança: sem fonte autorizada a EXT não deixa informar e exige 
   assert.equal(d.actions.handoff.required, true);
   assert.ok(d.reason_codes.includes('NO_AUTHORIZED_SOURCE_FOR_TOPIC'));
   assert.deepEqual(d.approved_blocks, []);
+});
+
+
+test('auditoria de reserva é vinculada ao turno e à proposta', async () => {
+ const booking = { primary_intent:'booking_intent', services:[ref('svc_a','booking_target')], slots };
+ const proposal = { service_id:'svc_a', unit_id:'u1', date:slots.date, time:slots.time, customer_name:slots.customer_name };
+ const identity = { tenant_id:TENANT, instance:'inst', remote_jid:'5500@s.whatsapp.net', session_id:'initial', request_id:'m1:'+TOKEN, turn_token:TOKEN };
+ const proof = { contract:'current_booking_authorization_v1', identity, proposal, status:'accepted', evidence_ids:['m1'] };
+ let d=(await run({semantic:booking})).commercial_decision;
+ assert.deepEqual(d.actions.create_reservation.candidate,proposal);
+ d=(await run({semantic:booking,extra:{availability}})).commercial_decision;
+ assert.equal(d.actions.create_reservation.reason,'BOOKING_AUTHORIZATION_REQUIRED');
+ d=(await run({semantic:booking,extra:{availability,booking_authorization:proof}})).commercial_decision;
+ assert.equal(d.actions.create_reservation.allowed,true);
+ for(const bad of [{...proof,proposal:{...proposal,customer_name:'Outro Nome'}},{...proof,evidence_ids:['outro']},{...proof,status:'unavailable'}]) {
+  d=(await run({semantic:booking,extra:{availability,booking_authorization:bad}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.handoff.required,true);
+ }
+ for(const status of ['blocked_real_name','blocked_audience']) {
+  d=(await run({semantic:booking,extra:{availability,booking_authorization:{...proof,status}}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.create_reservation.reason,status.toUpperCase());
+ }
+});
+
+
+test('dados oficiais de Pix são autorizados apenas quando configurados', async () => {
+ const settings=baseSettings(); settings.payment.pix_key='chave-teste'; settings.payment.pix_holder='Titular Teste'; settings.payment.pix_institution='Banco Teste';
+ const d=(await run({settings,semantic:{primary_intent:'info_inquiry',info_requests:[{topic:'payment_terms',service_ids:[],evidence_ids:['m1']}]}})).commercial_decision;
+ for(const [id,value] of [['payment.pix_key','chave-teste'],['payment.pix_holder','Titular Teste'],['payment.pix_institution','Banco Teste']]) assert.ok(d.facts.some(f=>f.fact_id===id && f.value===value));
+});
+
+
+test('cancelamento ou remarcação e incerteza não autorizam ações incompatíveis', async () => {
+ for (const intent of ['cancellation','reschedule','slot_change']) {
+  const d=(await run({semantic:{primary_intent:intent,secondary_intents:['booking_intent'],services:[ref('svc_a','booking_target')],slots},extra:{availability,booking_authorization:bookingProof}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.handoff.required,true);
+ }
+ const d=(await run({semantic:{primary_intent:'payment_report',confidence:'low',payment:{declared:true,evidence_ids:['m1']}},extra:{reservations:[{id:'a',status:'pending_payment'}]}})).commercial_decision;
+ assert.equal(d.actions.forward_payment_declaration.allowed,false);
+});
+
+
+test('política de público e mensagens de bloqueio vêm da configuração do tenant', async () => {
+ const settings=baseSettings(); settings.business_facts.audience={exclusive_to:'female',allow_proxy_booking_for_female:true,policy:'política oficial',invalid_name_message:'Informe nome real',ineligible_booking_message:'Público definido'};
+ const booking={primary_intent:'booking_intent',services:[ref('svc_a','booking_target')],slots};
+ let d=(await run({settings,semantic:booking})).commercial_decision;
+ assert.deepEqual(d.actions.create_reservation.audience_policy,{exclusive_to:'female',allow_proxy_booking_for_female:true,policy:'política oficial'});
+ for(const [status,value] of [['blocked_real_name','Informe nome real'],['blocked_audience','Público definido']]) {
+  d=(await run({settings,semantic:booking,extra:{availability,booking_authorization:{...bookingProof,status}}})).commercial_decision;
+  assert.ok(d.facts.some(f=>f.fact_id==='booking.block_message' && f.value===value));
+ }
+});
+
+
+// Paridade com a v1 (lacunas encontradas na comparação com a configuração de produção). Fixtures sintéticas.
+test('valor de taxa configurada em business_facts.fees é aceito em bloco aprovado sem serviço; valor desconhecido continua inválido', async () => {
+ const settings=baseSettings(); settings.business_facts.fees={after_hours:10};
+ settings.approved_messages.blocks.blk_rules={text:'Regras gerais. Acréscimo de R$ 10,00 após o horário.',service_ids:[]};
+ settings.approved_messages.blocks.blk_rules_bad={text:'Regras gerais. Acréscimo de R$ 11,00.',service_ids:[]};
+ const d=(await run({settings,semantic:{primary_intent:'other'}})).commercial_decision;
+ assert.ok(!d.config.invalid_approved_blocks.includes('blk_rules'));
+ assert.ok(d.config.invalid_approved_blocks.includes('blk_rules_bad'));
+ const none=baseSettings(); none.approved_messages.blocks.blk_rules={text:'Acréscimo de R$ 10,00.',service_ids:[]};
+ assert.ok((await run({settings:none,semantic:{primary_intent:'other'}})).commercial_decision.config.invalid_approved_blocks.includes('blk_rules'));
+});
+
+test('política de público configurada é exposta como fato, sem texto fixo no código', async () => {
+ const settings=baseSettings(); settings.business_facts.audience={exclusive_to:'female',allow_proxy_booking_for_female:true,policy:'política oficial do público'};
+ let d=(await run({settings,semantic:{primary_intent:'info_inquiry',services:[ref('svc_a','asked_about')]}})).commercial_decision;
+ assert.ok(d.facts.some(f=>f.fact_id==='audience.exclusive_to' && f.value==='female'));
+ assert.ok(d.facts.some(f=>f.fact_id==='audience.policy' && f.value==='política oficial do público'));
+ d=(await run({semantic:{primary_intent:'info_inquiry',services:[ref('svc_a','asked_about')]}})).commercial_decision;
+ assert.ok(!d.facts.some(f=>f.fact_id.startsWith('audience.')));
+});
+
+test('atendimento a domicílio vem de service_guidance.home_service e nunca autoriza reserva automática', async () => {
+ const settings=baseSettings();
+ settings.business_facts.service_guidance.g_spray={services:['svc_b'],booking:'human',home_service:{available:true,booking:'human',price_status:'confirm_with_team',coverage_status:'confirm_with_team',availability_status:'confirm_with_team',source:'texto livre'}};
+ let d=(await run({settings,semantic:{primary_intent:'info_inquiry',services:[ref('svc_b','asked_about')]}})).commercial_decision;
+ for(const [id,value] of [['available','true'],['booking','human'],['price_status','confirm_with_team'],['coverage_status','confirm_with_team'],['availability_status','confirm_with_team']])
+  assert.ok(d.facts.some(f=>f.fact_id==='service.svc_b.home_service.'+id && f.value===value),id);
+ assert.ok(!d.facts.some(f=>f.fact_id==='service.svc_b.home_service.source'));
+ assert.ok(!d.facts.some(f=>f.fact_id.startsWith('service.svc_a.home_service')));
+ d=(await run({settings,semantic:{primary_intent:'booking_intent',services:[ref('svc_b','booking_target')],slots},extra:{availability:{...availability,service_id:'svc_b'}}})).commercial_decision;
+ assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.handoff.required,true);
+});
+
+test('duração e permanência do procedimento caem para o grupo de service_guidance quando o catálogo não as traz', async () => {
+ const settings=baseSettings();
+ Object.assign(settings.business_facts.service_guidance,{
+  g_machine:{services:['svc_a'],procedure_minutes_min:40,procedure_minutes_max:80,stay_minutes:{svc_a:[90,150]}},
+  g_spray:{services:['svc_b'],procedure_minutes:20,stay_minutes:45}});
+ const d=(await run({settings,semantic:{primary_intent:'info_inquiry',services:[ref('svc_a','asked_about'),ref('svc_b','asked_about')]}})).commercial_decision;
+ const fact=id=>d.facts.find(f=>f.fact_id===id)?.value;
+ assert.equal(fact('service.svc_a.procedure_minutes'),'40-80'); assert.equal(fact('service.svc_a.stay_minutes'),'90-150');
+ assert.equal(fact('service.svc_b.procedure_minutes'),'20'); assert.equal(fact('service.svc_b.stay_minutes'),'45');
+});
+
+
+// Decisões do responsável (Q1, Q2, Q3, Q6).
+test('nova reserva havendo outra reserva futura ativa conhecida vai para a equipe; reservas inativas não bloqueiam', async () => {
+ const booking={primary_intent:'booking_intent',services:[ref('svc_a','booking_target')],slots};
+ const extra=reservations=>({availability,booking_authorization:bookingProof,reservations});
+ for (const status of ['pending_payment','payment_reported','confirmed']) {
+  const d=(await run({semantic:booking,extra:extra([{id:'r1',status,service_id:'svc_b',requested_date:'2030-02-01',requested_time:'09:00'}])})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false,status);
+  assert.equal(d.actions.create_reservation.reason,'EXISTING_FUTURE_RESERVATION',status);
+  assert.deepEqual(d.actions.handoff,{required:true,reason:'EXISTING_FUTURE_RESERVATION'},status);
+ }
+ let d=(await run({semantic:booking,extra:extra([{id:'r1',status:'cancelled',service_id:'svc_b'}])})).commercial_decision;
+ assert.equal(d.actions.create_reservation.allowed,true);
+ d=(await run({semantic:booking,extra:extra([{id:'r1',status:'confirmed',service_id:'svc_b',starts_at:'2001-01-01T10:00:00Z'}])})).commercial_decision;
+ assert.equal(d.actions.create_reservation.allowed,true,'reserva passada não bloqueia');
+});
+
+test('tópico payment_terms usa o bloco aprovado que declara esse tópico nos dados do tenant, sem nome de bloco no código', async () => {
+ const settings=baseSettings(); settings.business_facts.fees={after_hours:10};
+ settings.approved_messages.blocks.blk_rules={text:'Regras. Acréscimo de R$ 10,00.',service_ids:[],topics:['payment_terms']};
+ const info={primary_intent:'info_inquiry',info_requests:[{topic:'payment_terms',service_ids:[],evidence_ids:['m1']}]};
+ let d=(await run({settings,semantic:info})).commercial_decision;
+ assert.deepEqual(d.actions.present_information.block_keys,['blk_rules']);
+ assert.equal(d.approved_blocks[0].literal,true);
+ settings.approved_messages.blocks.blk_rules.topics=[];
+ d=(await run({settings,semantic:info})).commercial_decision;
+ assert.deepEqual(d.actions.present_information.block_keys,[]);
+ settings.approved_messages.blocks.blk_rules={text:'Regras. Acréscimo de R$ 99,00.',service_ids:[],topics:['payment_terms']};
+ d=(await run({settings,semantic:info})).commercial_decision;
+ assert.deepEqual(d.actions.present_information.block_keys,[], 'bloco inválido não é apresentado');
+});
+
+test('mensagem de bloqueio de público cai para audience.policy; as chaves específicas prevalecem', async () => {
+ const settings=baseSettings(); settings.business_facts.audience={exclusive_to:'female',policy:'política oficial'};
+ const booking={primary_intent:'booking_intent',services:[ref('svc_a','booking_target')],slots};
+ for(const status of ['blocked_real_name','blocked_audience']) {
+  const d=(await run({settings,semantic:booking,extra:{availability,booking_authorization:{...bookingProof,status}}})).commercial_decision;
+  assert.ok(d.facts.some(f=>f.fact_id==='booking.block_message' && f.value==='política oficial'),status);
+ }
+ settings.business_facts.audience.invalid_name_message='Informe nome real';
+ const d=(await run({settings,semantic:booking,extra:{availability,booking_authorization:{...bookingProof,status:'blocked_real_name'}}})).commercial_decision;
+ assert.equal(d.facts.find(f=>f.fact_id==='booking.block_message').value,'Informe nome real');
+});
+
+test('taxa de horário/dia vem de business_facts.fee_rules e só entra quando o pedido cai na regra', async () => {
+ const settings=baseSettings();
+ settings.business_facts.fees={after_hours:10};
+ settings.business_facts.fee_rules={after_hours:{after_time:'17:00',weekdays:[0],holiday_dates:['2030-03-01']}};
+ const ask=(date,time)=>run({settings,semantic:{primary_intent:'availability_request',services:[ref('svc_a','selected')],slots:{...slots,date,time}}}).then(r=>r.commercial_decision);
+ const fact=(d,id)=>d.facts.find(f=>f.fact_id===id)?.value;
+ let d=await ask('2030-01-15','10:00');
+ assert.equal(fact(d,'booking.fee.after_hours.applies'),'false'); assert.equal(fact(d,'booking.fee.after_hours.amount'),undefined);
+ d=await ask('2030-01-15','17:30'); assert.equal(fact(d,'booking.fee.after_hours.applies'),'true'); assert.equal(fact(d,'booking.fee.after_hours.amount'),'10.00');
+ d=await ask('2030-01-15','17:00'); assert.equal(fact(d,'booking.fee.after_hours.applies'),'false','"após" é estritamente depois do limite');
+ d=await ask('2030-01-20','08:00'); assert.equal(fact(d,'booking.fee.after_hours.applies'),'true','domingo');
+ d=await ask('2030-03-01','09:00'); assert.equal(fact(d,'booking.fee.after_hours.applies'),'true','feriado cadastrado');
+ d=await ask('2030-03-04','09:00'); assert.equal(fact(d,'booking.fee.after_hours.applies'),'false','feriado não cadastrado não é presumido');
+ delete settings.business_facts.fee_rules;
+ d=await ask('2030-01-20','08:00'); assert.equal(fact(d,'booking.fee.after_hours.applies'),undefined,'sem regra configurada nada é presumido');
 });

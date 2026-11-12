@@ -1,0 +1,56 @@
+{
+  "name": "NORIA EXT | NORIA | Política",
+  "pinData": {},
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "ea2586fb-fa1c-4374-887e-49e79024705a",
+      "name": "Entrada da EXT NORIA",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// EXT NORIA: valida identidade e entrega a política canônica configurada no tenant.\n// Somente leitura; a interpretação e a execução permanecem no motor compartilhado.\nconst input = $json || {};\nconst slug = 'noria';\nconst id = String(input.tenant_id || '');\nconst instance = String(input.instance || '');\nif (input.tenant_slug !== slug || input.noria_extension !== slug) throw new Error('NORIA_EXTENSAO_TENANT_INCORRETO');\nif (input.noria_contract_version !== '1.0') throw new Error('NORIA_EXTENSAO_CONTRACT_VERSION_MISMATCH');\nif (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id) || !instance.trim() || !String(input.remoteJid || '').trim()) throw new Error('NORIA_IDENTIDADE_INCOMPLETA');\nconst base = String($env.SUPABASE_URL || '').replace(/\\/$/, '');\nconst key = String($env.SUPABASE_SERVICE_ROLE_KEY || '');\nif (!base || !key) throw new Error('NORIA_CREDENCIAIS_SUPABASE_AUSENTES');\nconst get = endpoint => this.helpers.httpRequest({ method: 'GET', url: base + '/rest/v1/' + endpoint,\n  headers: { apikey: key, Authorization: 'Bearer ' + key }, json: true, timeout: 7000 });\nconst enc = encodeURIComponent;\nconst tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(id) + '&slug=eq.noria&limit=1');\nif (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== id || tenants[0].slug !== slug || tenants[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');\nconst channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(id) + '&type=eq.whatsapp&status=eq.active&limit=25');\nif (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).includes(instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');\nconst rows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(id) + '&limit=1');\nconst policy = Array.isArray(rows) && rows.length === 1 ? rows[0]?.settings?.noria_client_policy : null;\nif (!policy) throw new Error('NORIA_SEM_EXTENSAO_CONFIGURADA: ' + slug);\nreturn { json: { ...input, noria_client_policy: policy },\n  ...(typeof $binary !== 'undefined' && $binary ? { binary: $binary } : {}) };\n"
+      },
+      "id": "b5e7956b-4082-4e4d-8b7c-5a363a9c9ed7",
+      "name": "EXT NORIA - Política",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Entrada da EXT NORIA": {
+      "main": [
+        [
+          {
+            "node": "EXT NORIA - Política",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false
+  }
+}

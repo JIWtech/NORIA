@@ -88,7 +88,27 @@ async function customerEnded(job) {
   const rows = await get('channel_events?select=raw_payload&id=eq.' + encodeURIComponent(job.anchor_event_id)
     + '&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
   const value = rows?.[0]?.raw_payload?.grounding?.customer_disposition?.value;
-  return ['closed', 'declined', 'deferred'].includes(value) ? value : '';
+  // Adiamento ('deferred') nao encerra: o gerador retoma a conversa com tom acolhedor.
+  return ['closed', 'declined'].includes(value) ? value : '';
+}
+
+// Vendas: o tenant decide (settings.sales_follow_up.disposition_actions.deferred_by_customer = 'resume') que quem ADIA recebe uma
+// retomada escrita pela IA. So vale quando a ancora do job registra o adiamento; o silencio do cliente segue com o texto configurado.
+async function resumesAfterDeferral(job, settings) {
+  if (settings.sales_follow_up?.disposition_actions?.deferred_by_customer !== 'resume') return false;
+  const rows = await get('channel_events?select=raw_payload&id=eq.' + encodeURIComponent(job.anchor_event_id)
+    + '&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
+  return rows?.[0]?.raw_payload?.follow_up_disposition === 'deferred_by_customer';
+}
+// Uma unica retomada apos o adiamento: as demais etapas pendentes da mesma ancora (mesmo tenant) deixam de valer.
+async function cancelRemainingSteps(job, reason) {
+  try {
+    await patch('follow_up_jobs?tenant_id=eq.' + encodeURIComponent(job.tenant_id)
+      + '&channel_type=eq.' + encodeURIComponent(job.channel_type)
+      + '&external_conversation_id=eq.' + encodeURIComponent(job.external_conversation_id)
+      + '&anchor_event_id=eq.' + encodeURIComponent(job.anchor_event_id) + '&status=eq.pending',
+      { status: 'cancelled', error: reason, updated_at: new Date().toISOString() });
+  } catch (_) { }
 }
 
 async function hasFutureAppointment(job) {
@@ -179,7 +199,8 @@ async function generate(job, settings, history) {
     rules: [
       'Este envio e uma retomada da conversa, horas depois: nao responda a ultima mensagem como se fosse agora.',
       'Nunca escreva despedida ou agradecimento (por nada, obrigada pela preferencia, tenha um otimo dia): isso nao e retomada.',
-      'Se o cliente encerrou, recusou ou disse que volta depois, ou se nao houver o que retomar, retorne action skip com reply vazio.',
+      'Se o cliente encerrou a conversa, recusou a oferta ou nao houver o que retomar, retorne action skip com reply vazio.',
+      'Se o cliente apenas adiou a decisao (disse que vai pensar, que avisa ou que volta depois), nao e recusa: retorne action send com uma retomada acolhedora e educada, escrita por voce conforme o contexto, que retome o ponto em que a conversa parou, sem cobrar resposta, e respeite a personalidade do system prompt.',
       'Escreva uma unica mensagem curta, em portugues do Brasil.',
       'Respeite integralmente a personalidade, fatos e limites do system prompt.',
       'Nao invente preco, disponibilidade, desconto, endereco ou pagamento.',
@@ -216,7 +237,7 @@ async function generate(job, settings, history) {
 const jobs = await rpc('magia_claim_followup_jobs', { p_limit: 20 });
 const outcome = [];
 for (const job of Array.isArray(jobs) ? jobs : []) {
-  let sendAttempted = false;
+  let sendAttempted = false, aiResume = false;
   try {
     const settingsRows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
     const settings = settingsRows?.[0]?.settings || {};
@@ -247,8 +268,9 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
       outcome.push({ id: job.id, status: 'cancelled', reason: 'appointment_exists' });
       continue;
     }
+    aiResume = sales && await resumesAfterDeferral(job, settings);
     const [history, channelRows] = await Promise.all([
-      sales ? [] : get('channel_events?select=direction,message_text,created_at&tenant_id=eq.' + encodeURIComponent(job.tenant_id)
+      sales && !aiResume ? [] : get('channel_events?select=direction,message_text,created_at&tenant_id=eq.' + encodeURIComponent(job.tenant_id)
         + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeURIComponent(job.external_conversation_id)
         + '&order=created_at.desc&limit=16'),
       get('channels?select=external_id,config&tenant_id=eq.' + encodeURIComponent(job.tenant_id)
@@ -256,10 +278,11 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     ]);
     const channel = channelRows?.[0];
     if (!channel?.external_id) throw new Error('Canal WhatsApp ativo nao encontrado');
-    const generated = sales ? salesFollowUp(job, settings)
+    const generated = sales && !aiResume ? salesFollowUp(job, settings)
       : await generate.call(this, job, settings, Array.isArray(history) ? history.reverse() : []);
     if (generated.skip) {
       await finish(job, 'cancelled', null, 'follow_up_not_applicable');
+      if (aiResume) await cancelRemainingSteps(job, 'follow_up_not_applicable');
       outcome.push({ id: job.id, status: 'cancelled', reason: 'follow_up_not_applicable' });
       continue;
     }
@@ -298,17 +321,19 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
       tenant_id: job.tenant_id, tenant_slug: job.tenant_slug, channel_type: 'whatsapp', external_conversation_id: job.external_conversation_id,
       external_message_id: String(messageId), direction: 'outbound', sender_type: 'assistant', contact_name: job.contact_name || 'Contato',
       message_text: generated.reply, service: 'follow_up', stage: 'Follow-up ' + job.step_key, handoff: false,
-      ai_provider: sales ? 'configured_follow_up' : 'gemini_follow_up', ai_model: generated.model, ai_usage: generated.usage, delivery_status: 'sent',
+      ai_provider: sales && !aiResume ? 'configured_follow_up' : 'gemini_follow_up', ai_model: generated.model, ai_usage: generated.usage, delivery_status: 'sent',
       raw_payload: { follow_up: { job_id: job.id, step_key: job.step_key, objective: job.objective, anchor_event_id: job.anchor_event_id } },
     });
     const event = Array.isArray(saved) ? saved[0] : saved;
     await finish(job, 'sent', event?.id || null);
+    if (aiResume) await cancelRemainingSteps(job, 'resume_after_deferral_sent');
     outcome.push({ id: job.id, status: 'sent', step: job.step_key });
   } catch (error) {
     const message = String(error?.message || error).slice(0, 500);
     // Sending can have unknown delivery after a transport failure; do not retry it blindly.
     const status = sendAttempted ? 'uncertain' : 'failed';
     await finish(job, status, null, message).catch(() => {});
+    if (aiResume && status === 'uncertain') await cancelRemainingSteps(job, 'resume_after_deferral_uncertain');
     outcome.push({ id: job.id, status, error: message });
   }
 }

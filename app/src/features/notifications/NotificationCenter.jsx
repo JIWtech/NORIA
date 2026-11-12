@@ -11,9 +11,9 @@ const EMPTY = [];
 const pages = { leads: 'kanban', appointments: 'agendamentos', campaigns: 'disparos', conversations: 'conversas', attention: 'conversas' };
 
 export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, role, settings,
-  conversations = EMPTY, appointments = EMPTY, kanbanColumns = EMPTY, onOpenConversation, onOpenPage, onOpenCard }) {
+  conversationViewRef, conversations = EMPTY, appointments = EMPTY, kanbanColumns = EMPTY, onOpenConversation, onOpenPage, onOpenCard }) {
   const inbox = useNotifications(tenantId, userId);
-  const activity = useOperatorNotifications({ tenantId, tenantSlug, userId, appointments, kanbanColumns });
+  const activity = useOperatorNotifications({ tenantId, tenantSlug, userId, conversationViewRef, appointments, kanbanColumns });
   const sound = useNotificationSound(notificationScope(tenantId, userId));
   const previousSoundSequence = useRef(0);
   const remoteSeen = useRef(null);
@@ -55,6 +55,7 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
       .map(item => ({ ...item, unread: !activity.pendingReads.has(item.id) })),
     ...activity.items.filter(item => !item.tracked
       && !(item.kind === 'handoff' && handoffs.some(other => sameConversation(item, other)))
+      && !(item.kind === 'team-review' && tracked.some(other => other.kind === 'team-review' && sameConversation(item, other)))
       && !(item.appointmentId && currentAppointments.get(item.appointmentId) === item.appointmentStatus))];
   }, [tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
 

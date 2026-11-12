@@ -47,6 +47,11 @@ test('build repetido mantém todos os bytes, inclusive quando o relógio cruza a
   const first = new Map([...build.writes].map(([file, bytes]) => [file, bytes.toString('base64')]));
   build.run('2031-01-01T00:00:01.000Z');
   assert.equal(build.writes.size, first.size);
+  // Topologia: o build escreve o roteador leve, o motor (uma cópia) e a EXT NORIA própria, cada um com seu nome de arquivo.
+  const written = name => [...build.writes].find(([file]) => path.basename(file) === name)?.[1];
+  assert.ok(written('NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json').length < 300 * 1024, 'roteador leve');
+  assert.equal(JSON.parse(written('NORIA CORE _ Motor conversacional.json')).name, 'NORIA CORE | Motor de Atendimento');
+  assert.equal(JSON.parse(written('NORIA EXT _ NORIA _ Política.json')).name, 'NORIA EXT | NORIA | Política');
   const changed = [...build.writes].filter(([file, bytes]) => first.get(file) !== bytes.toString('base64')).map(([file]) => path.relative(root, file));
   assert.deepEqual(changed, []);
 });

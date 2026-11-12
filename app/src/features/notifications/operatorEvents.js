@@ -1,4 +1,4 @@
-import { normalizeExternalConversationId } from '../../services/identity/conversationIdentity.js';
+import { canonicalConversationKey, normalizeExternalConversationId } from '../../services/identity/conversationIdentity.js';
 import { formatConversationPreview } from '../../utils/audioUtils.js';
 import { normalizeMedia } from '../../services/media/mediaNormalization.js';
 import { mediaPreview } from '../../services/media/mediaPresentation.js';
@@ -23,6 +23,11 @@ export function findNotificationConversation(item, conversations) {
     && normalizeExternalConversationId(channel, entry.externalConversationId) === id) || null;
 }
 
+export function shouldPlayOperatorNotification(item, tenantSlug, visibleConversationKey) {
+  if (item.kind !== 'message' || !item.chatId || !visibleConversationKey) return true;
+  return canonicalConversationKey(item.channel, item.chatId, '', tenantSlug) !== visibleConversationKey;
+}
+
 const stageLabels = {
   sales_new: 'Novos contatos', sales_qualifying: 'Em qualificação', sales_hot: 'Lead quente', sales_human: 'Atendimento humano',
   sales_appraisal: 'Avaliação de troca', sales_financing: 'Financiamento', sales_closed: 'Negócio fechado',
@@ -41,7 +46,8 @@ export function operatorEvents(payload, scope, now = Date.now()) {
   const add = (kind, title, description, category = 'conversations', attention = false, version = '') => {
     notifications.push({ id: `${payload.table}:${row.id}:${kind}:${version}`, tenantId, kind, title, description, category, attention,
       ...(payload.table === 'appointments' ? { appointmentId: row.id, appointmentStatus: row.status } : {}),
-      chatId: row.external_conversation_id || row.chat_id || '', channel: row.channel_type || 'whatsapp',
+      chatId: row.external_conversation_id || row.chat_id || (kind === 'message' ? row.contact_handle : '') || '',
+      channel: row.channel_type || 'whatsapp',
       contact: row.contact_name || '', createdAt: row.updated_at || row.created_at || new Date(now).toISOString(), unread: true });
   };
   if (payload.table === 'channel_events') {
@@ -64,7 +70,9 @@ export function operatorEvents(payload, scope, now = Date.now()) {
       conversation_reopened: ['reopened', 'Cliente retomou o contato', 'Uma conversa encerrada voltou a receber atendimento.', true],
       technical_error: ['interrupted', 'Atendimento precisa de ajuda', 'O atendimento encontrou uma dificuldade. Abra a conversa para ajudar o cliente.', true],
     };
-    if (inserted && serviceEvents[service]) {
+    if (inserted && row.direction === 'outbound' && raw.team_review_requested === true) {
+      add('team-review', 'Solicitação para a equipe', 'Confira o pedido na conversa.', 'conversations', true);
+    } else if (inserted && serviceEvents[service]) {
       const [kind, title, description, attention] = serviceEvents[service];
       add(kind, title, description, 'conversations', attention);
     } else if (inserted && row.direction === 'inbound' && row.sender_type !== 'system' && !row.is_internal && !raw.is_internal

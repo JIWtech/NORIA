@@ -1,17 +1,24 @@
 import { canonicalKanbanKey } from '../kanban/kanbanHelpers.js';
 
 export async function loadSalesLeads(supabase, tenantId) {
-  const { data, error } = await supabase
-    .from('sales_leads')
-    .select('id, tenant_id, channel_type, chat_id, stage_key, ai_locked, revision, state, product, hot, interest_registered, updated_at')
-    .eq('tenant_id', tenantId)
-    .order('updated_at', { ascending: false });
+  const leads = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('sales_leads')
+      .select('id, tenant_id, channel_type, chat_id, stage_key, ai_locked, revision, state, product, hot, interest_registered, updated_at')
+      .eq('tenant_id', tenantId)
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
 
-  if (error) {
-    console.warn('Sales leads fallback:', error.message);
-    return [];
+    if (error) {
+      console.warn('Sales leads fallback:', error.message);
+      return [];
+    }
+    leads.push(...(data || []));
+    if (!data || data.length < pageSize) return leads;
   }
-  return data || [];
 }
 
 export function buildSalesLeadIndex(salesLeads = [], canonicalConversationKey, isMoreRecentRecord) {

@@ -33,8 +33,12 @@ test('nenhum turno de fila termina em "evento ignorado"; só eventos de webhook 
 });
 
 test('a EXT Núbia v1 exige exatamente o que o roteador do CORE entrega', () => {
-  const router = fs.readFileSync(path.join(root, 'n8n/sources/noria_router_core.js'), 'utf8');
+  // O roteador publicado é o que o gerador embute no nó "CORE - Resolver extensão do tenant" (n8n/sources/noria_router.js).
+  const router = fs.readFileSync(path.join(root, 'n8n/sources/noria_router.js'), 'utf8');
+  const embedded = core.nodes.find(n => n.name === 'CORE - Resolver extensão do tenant').parameters.jsCode;
+  assert.equal(embedded, router.replace(/\r\n/g, '\n'), 'o teste cobre o roteador realmente publicado');
   assert.match(router, /clinica_nubia_oficial: 'nubia'/);
+  assert.match(router, /noria_extension: legacyExtension, noria_contract_version: contractVersionByTenant\[tenant_slug\] \|\| '1\.0'/);
   const ext = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json'), 'utf8'));
   const guard = ext.nodes.find(n => n.name === 'Validar identidade e capacidade do tenant').parameters.jsCode;
   assert.match(guard, /expectedExtension = 'nubia'/);

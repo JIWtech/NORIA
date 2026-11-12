@@ -23,13 +23,25 @@ const TENANT = '563a93cd-a5c1-4412-a65f-be2e2d41bb88';
 const offered = { contract: 'noria_turn_pipeline_v1', capability: 'services_v1', contract_version: '2.0', semantic_contract: 'sem_v1', decision_contract: 'dec_v2',
   decision_provenance: 'prov_v1', semantic_vocabulary: { intents: ['a'], roles: ['b'], topics: ['c'], dispositions: ['d'], ambiguity_kinds: ['e'], confidence: ['f'] } };
 const declared = { enabled: true, contract: offered.contract, capability: offered.capability, contract_version: '2.0', semantic_contract: 'sem_v1', decision_contract: 'dec_v2', decision_provenance: 'prov_v1' };
-const selector = ({ policy, settings = {}, version = '2.0' }) => {
-  const core = loadCore(['settingsFor', 'salesEnabled', 'turnPipelineFor'], { tenantBusinessRules: policy, inputJson: { noria_contract_version: version },
+const selector = ({ policy, settings = {}, version = '2.0', input = {} }) => {
+  const core = loadCore(['settingsFor', 'salesEnabled', 'turnPipelineFor'], { tenantBusinessRules: policy, inputJson: { noria_contract_version: version, ...input },
     TURN_PIPELINE_CONTRACT: 'noria_turn_pipeline_v1', TURN_PIPELINE_CAPABILITIES: ['services_v1'],
     TURN_PIPELINE_FIELDS: ['contract', 'capability', 'contract_version', 'semantic_contract', 'decision_contract', 'decision_provenance'] });
   return () => core.turnPipelineFor({ settings: { settings } });
 };
 const servicesPolicy = { contract: 'noria_policy_v2', profile: 'services_booking_v2', capability: 'standard', modules: { turn_pipeline: offered } };
+
+test('rota legada da Núbia escolhida pelo Roteador preserva o processamento durante piloto e transição', () => {
+  const policy = { contract: 'noria_policy_v2', profile: 'nb_bronze_v1', capability: 'standard', modules: {} };
+  const pipeline = { ...declared, rollout: 'pilot', pilot: { allowed_contacts: ['5524999990001'] } };
+  const input = { noria_router: 'core_3wf_v1', noria_extension: 'nubia', noria_dispatch_phase: 'bootstrap' };
+  const select = (config, route) => selector({ policy, version: '1.0', input: route, settings: { noria_turn_pipeline: config } })();
+  assert.equal(select(pipeline, input), null);
+  assert.equal(select({ ...pipeline, rollout: 'all' }, input), null);
+  assert.throws(() => select({ ...pipeline, pilot: { allowed_contacts: [] } }, input), /NORIA_TURN_PIPELINE_CONFIG_INVALID/);
+  assert.throws(() => select(pipeline, { ...input, noria_router: 'services_v2' }), /NORIA_TURN_PIPELINE_CONFIG_INVALID/);
+  assert.throws(() => select(pipeline, { ...input, noria_preclaimed_turn: {} }), /NORIA_TURN_PIPELINE_CONFIG_INVALID/);
+});
 
 test('Gênesis, Núbia v1 e tenant legado não selecionam o pipeline de serviços', () => {
   const genesis = { contract: 'noria_policy_v2', profile: 'vehicle_sales_v1', capability: 'sales_v1', modules: {} };
@@ -228,7 +240,8 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   const by = name => core.nodes.find(n => n.name === name);
 
   // Seleção: o roteador decide; sem declaração válida e ligada, todo tenant segue o caminho de hoje.
-  assert.deepEqual(branches('CORE - Resolver extensão do tenant'), [['CORE | Serviços | Núbia v2?']]);
+  assert.deepEqual(branches('CORE - Resolver extensão do tenant'), [['CORE | É tenant NORIA?']]);
+  assert.deepEqual(branches('CORE | Executar EXT NORIA'), [['CORE | Motor conversacional único | Fase']]);
   assert.deepEqual(branches('CORE | Serviços | Núbia v2?'), [['CORE | Serviços | Executar EXT bootstrap'], ['CORE - É Núbia?']]);
   assert.match(JSON.stringify(by('CORE | Serviços | Núbia v2?').parameters.conditions), /\$json\.noria_pipeline === 'services_v1'/);
   assert.equal(by('CORE - Resolver extensão do tenant').parameters.jsCode, read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n'));
@@ -282,7 +295,7 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   const manifest = JSON.parse(read('n8n/build_manifest.json'));
   const sha = text => require('node:crypto').createHash('sha256').update(text).digest('hex');
   assert.equal(manifest.router_sha256, sha(read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n')));
-  const ext = JSON.parse(read('n8n/workflows/NORIA EXT _ NB Bronze _ Serviços v2.json'));
+  const ext = JSON.parse(read('n8n/workflows/NORIA EXT _ NB Bronze.json'));
   assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode, read('n8n/sources/nubia_extension.js'));
 });
 
@@ -324,6 +337,9 @@ async function route({ input = NUBIA, declared, claimed = [], pins = [], failSet
   const calls = [];
   const httpRequest = async ({ url }) => {
     const endpoint = url.split('/rest/v1/')[1]; calls.push(endpoint);
+    // Identidade do ramo SaaS: tenant e canal coerentes com o item (a confirmação no banco é testada em test_noria_tenant_extension).
+    if (endpoint.startsWith('tenants?')) return [{ id: input.tenant_id, slug: input.tenant_slug, status: 'active' }];
+    if (endpoint.startsWith('channels?')) return [{ external_id: input.instance, status: 'active', config: {} }];
     if (failSettings && endpoint.startsWith('tenant_settings')) throw new Error('db');
     if (endpoint.startsWith('tenant_settings')) return [{ settings: { ...settingsExtra, ...(declared === undefined ? {} : { noria_turn_pipeline: declared }) } }];
     if (endpoint.startsWith('conversation_turn_queue')) return claimed.length ? [{ claimed }] : [];
@@ -405,16 +421,34 @@ test('publicação: a comparação com o n8n ignora a ordem das chaves e ainda a
 test('publicação: o artefato aponta as três chamadas da cadeia para a EXT v2 resolvida pelo nome; ID divergente é recusado', () => {
   const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
   const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
-  const configured = core.nodes.find(n => n.name === 'CORE | Serviços | Executar EXT bootstrap').parameters.workflowId.value;
-  const placeholder = JSON.parse(JSON.stringify(core));
+  // O repositório traz o marcador da EXT NORIA quando o ID do ambiente ainda não foi informado; a publicação o recusa.
+  const withNoriaExt = JSON.parse(JSON.stringify(core));
+  withNoriaExt.nodes.find(n => n.name === 'CORE | Executar EXT NORIA').parameters.workflowId.value = 'EXT-NORIA-REAL-ID';
+  const configured = withNoriaExt.nodes.find(n => n.name === 'CORE | Serviços | Executar EXT bootstrap').parameters.workflowId.value;
+  const placeholder = JSON.parse(JSON.stringify(withNoriaExt));
   for (const n of placeholder.nodes.filter(n => /^CORE \| Serviços \| Executar EXT /.test(n.name))) n.parameters.workflowId.value = 'PREENCHER_ID_EXT_NUBIA_V2';
   const artifact = buildArtifact(placeholder, 'EXT-V2-REAL-ID');
   const ids = artifact.nodes.filter(n => /^CORE \| Serviços \| Executar EXT /.test(n.name)).map(n => n.parameters.workflowId.value);
   assert.deepEqual(ids, ['EXT-V2-REAL-ID', 'EXT-V2-REAL-ID', 'EXT-V2-REAL-ID']);
   assert.ok(!JSON.stringify(artifact).includes('PREENCHER_ID_EXT_NUBIA_V2'));
   assert.equal(artifact.nodes.filter(n => n.name.startsWith('CORE | Serviços | ')).length, 13);
-  assert.ok(buildArtifact(core, configured), 'o ID já configurado e igual ao resolvido é aceito');
-  assert.throws(() => buildArtifact(core, 'OUTRO-ID'), /UNEXPECTED_EXT_NODE/);
+  assert.ok(buildArtifact(withNoriaExt, configured), 'o ID já configurado e igual ao resolvido é aceito');
+  assert.throws(() => buildArtifact(withNoriaExt, 'OUTRO-ID'), /UNEXPECTED_EXT_NODE/);
+});
+
+test('publicação: a proteção recusa topologia incoerente (motor embutido, EXT NORIA sem ID ou usando o ID do motor)', () => {
+  const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
+  const base = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
+  base.nodes.find(n => n.name === 'CORE | Executar EXT NORIA').parameters.workflowId.value = 'EXT-NORIA-REAL-ID';
+  const configured = base.nodes.find(n => n.name === 'CORE | Serviços | Executar EXT bootstrap').parameters.workflowId.value;
+  const mutate = change => { const copy = JSON.parse(JSON.stringify(base)); change(copy); return copy; };
+  const ext = copy => copy.nodes.find(n => n.name === 'CORE | Executar EXT NORIA');
+  const engineCall = copy => copy.nodes.find(n => n.name === 'CORE | Preparar resposta');
+  assert.ok(buildArtifact(base, configured));
+  assert.throws(() => buildArtifact(mutate(copy => { ext(copy).parameters.workflowId.value = 'PREENCHER_ID_EXT_NORIA'; }), configured), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
+  assert.throws(() => buildArtifact(mutate(copy => { ext(copy).parameters.workflowId.value = engineCall(copy).parameters.workflowId.value; }), configured), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
+  assert.throws(() => buildArtifact(mutate(copy => { Object.assign(engineCall(copy), { type: 'n8n-nodes-base.code', parameters: { jsCode: 'return $input.item;' } }); }), configured), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
+  assert.throws(() => buildArtifact(mutate(copy => { engineCall(copy).parameters.workflowId.value = 'PREENCHER_ID_MOTOR'; }), configured), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
 });
 
 test('piloto: só um JID de telefone do ingresso autenticado casa; LID, grupo e configuração com número inválido não', async () => {
@@ -438,4 +472,144 @@ test('lote fixado: desligar a declaração não tira o turno em andamento do pip
     assert.equal(pipelineFor(off, true).capability, 'services_v1', 'lote já despachado: continua no pipeline');
   }
   assert.throws(() => pipelineFor({ ...declared, decision_provenance: 'outra' }, true), /NORIA_TURN_PIPELINE_CONFIG_INVALID/, 'declaração ligada e divergente continua falhando fechado');
+});
+
+// ------------------------------------------------------ reservas de sessões anteriores (somente pipeline v2)
+// Mini PostgREST: aplica à lista de linhas os filtros que o CORE realmente envia (eq, in, not.in, gt), para provar o escopo da consulta.
+function fakeAppointmentsTable(rows) {
+  const seen = [];
+  const get = async url => {
+    seen.push(url);
+    const query = new URL('https://db.test' + url).searchParams;
+    return rows.filter(row => {
+      for (const [key, raw] of query.entries()) {
+        if (['select', 'order', 'limit'].includes(key)) continue;
+        const [op, ...rest] = raw.split('.'), value = rest.join('.');
+        const list = text => text.replace(/^\(|\)$/g, '').split(',');
+        if (op === 'eq' && String(row[key]) !== value) return false;
+        if (op === 'gt' && !(Date.parse(row[key]) > Date.parse(value))) return false;
+        if (op === 'in' && !list(value).includes(row[key])) return false;
+        if (op === 'not' && value.startsWith('in.') && list(value.slice(3)).includes(row[key])) return false;
+      }
+      return true;
+    });
+  };
+  return { get, seen };
+}
+
+test('reservas v2: reservas futuras ativas do mesmo contato e tenant chegam à EXT mesmo de sessões anteriores', async () => {
+  const OTHER_TENANT = '11111111-1111-4111-8111-111111111111';
+  const future = new Date(Date.now() + 5 * 86400000).toISOString(), past = new Date(Date.now() - 5 * 86400000).toISOString();
+  const boundary = new Date(Date.now() - 2 * 86400000).toISOString(), before = new Date(Date.now() - 9 * 86400000).toISOString();
+  const row = (id, extra) => ({ id, tenant_id: TENANT, channel_type: 'whatsapp', external_conversation_id: 'chat-1', status: 'confirmed', starts_at: future,
+    ends_at: future, created_at: before, metadata: { conversation_session_id: 'S1', service_id: 'svc-' + id }, ...extra });
+  const rows = [
+    row('prev-pending', { status: 'pending_payment' }), row('prev-reported', { status: 'payment_reported' }), row('prev-confirmed', {}),
+    row('cur-pending', { status: 'pending_payment', created_at: new Date().toISOString(), metadata: { conversation_session_id: 'S2', service_id: 'svc-cur' } }),
+    row('prev-cancelled', { status: 'cancelled' }), row('prev-past', { starts_at: past }), row('prev-awaiting-owner', { status: 'pending_confirmation' }),
+    row('other-tenant', { tenant_id: OTHER_TENANT, status: 'pending_payment' }), row('other-contact', { external_conversation_id: 'chat-2', status: 'confirmed' }),
+  ];
+  const table = fakeAppointmentsTable(rows);
+  const core = loadCore(['servicesLoadReservations', 'servicesLoadActiveReservationRows', 'loadAppointments', 'encodeFilter'], { supabaseGet: table.get, chatId: 'chat-1',
+    turn: { boundary_id: 'S2', boundary_created_at: boundary } });
+  const loaded = await core.servicesLoadReservations({ tenant: { id: TENANT } });
+  assert.deepEqual(loaded.map(item => item.id).sort(), ['cur-pending', 'prev-confirmed', 'prev-pending', 'prev-reported']);
+  assert.deepEqual(loaded.find(item => item.id === 'prev-pending'), { id: 'prev-pending', status: 'pending_payment', starts_at: future, ends_at: future,
+    service_id: 'svc-prev-pending', requested_date: null, requested_time: null });
+  assert.equal(new Set(loaded.map(item => item.id)).size, loaded.length, 'sem duplicidade com a sessão atual');
+  assert.ok(table.seen.every(url => url.includes('tenant_id=eq.' + TENANT) && url.includes('external_conversation_id=eq.chat-1')), 'toda consulta presa a tenant e contato');
+  // O EXT recebe a reserva anterior e entrega a decisão fechada, sem reservar por conta própria.
+  const ext = read('n8n/sources/nubia_extension.js');
+  assert.match(ext, /reservations\.some\(r => !\(Date\.parse\(r\.starts_at \|\| ''\) <= Date\.now\(\)\)\)[\s\S]{0,200}EXISTING_FUTURE_RESERVATION/);
+});
+
+test('reservas v2: o carregamento da v1 e dos demais perfis continua sem reservas de outras sessões', () => {
+  const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const fn = name => ast.statements.filter(ts.isFunctionDeclaration).find(n => n.name.text === name).getText(ast);
+  // Só o pipeline de serviços usa o novo carregamento; loadAppointments mantém o escopo por sessão (e confirmed entre sessões só no legado).
+  const users = ast.statements.filter(ts.isFunctionDeclaration).filter(n => n.name.text !== 'servicesLoadReservations' && n.getText(ast).includes('servicesLoadReservations(')).map(n => n.name.text);
+  assert.deepEqual(users, ['runServicesTurnPrepare']);
+  assert.ok(fn('loadAppointments').includes("if (includeFutureAcrossSessions && row.status === 'confirmed') return true;"));
+});
+
+// ------------------------------------------------------ pagamento declarado sobre reserva de sessão anterior (somente pipeline v2)
+// O executor localiza a reserva pendente com o mesmo escopo do carregador (tenant, contato, futuras, status ativos), confere cada linha
+// e só atualiza quando há exatamente uma candidata pendente de pagamento.
+const PAYMENT_CORE_NAMES = ['servicesMarkPaymentReported', 'servicesLoadActiveReservationRows', 'loadAppointments', 'encodeFilter']
+  .filter(name => new RegExp('function ' + name + '\\(').test(coreCode));
+function paymentFixture(buildRows) {
+  const OTHER_TENANT = '11111111-1111-4111-8111-111111111111';
+  const future = new Date(Date.now() + 5 * 86400000).toISOString();
+  const boundary = new Date(Date.now() - 2 * 86400000).toISOString(), before = new Date(Date.now() - 9 * 86400000).toISOString();
+  const row = (id, extra) => ({ id, tenant_id: TENANT, channel_type: 'whatsapp', external_conversation_id: 'chat-1', status: 'pending_payment', starts_at: future,
+    ends_at: future, created_at: before, metadata: { conversation_session_id: 'S1', service_id: 'svc-' + id }, ...extra });
+  const table = fakeAppointmentsTable(buildRows(row, OTHER_TENANT));
+  const patches = [];
+  const supabasePatch = async (url, body) => { patches.push({ url, body }); return [{ id: decodeURIComponent(url.match(/id=eq\.([^&]+)/)[1]), status: body.status }]; };
+  const core = loadCore(PAYMENT_CORE_NAMES, { supabaseGet: table.get, supabasePatch, chatId: 'chat-1', turn: { boundary_id: 'S2', boundary_created_at: boundary } });
+  return { mark: (id, keys = ['whatsapp:evt-1']) => core.servicesMarkPaymentReported({ tenant: { id: TENANT } }, id, keys, 'whatsapp:evt-1'), patches, table };
+}
+
+test('pagamento v2: declaração em sessão nova encontra a reserva pendente de sessão anterior, presa a tenant, contato e status', async () => {
+  const fx = paymentFixture((row, OTHER) => [row('prev-pending'), row('other-tenant', { tenant_id: OTHER }), row('other-contact', { external_conversation_id: 'chat-2' })]);
+  const result = await fx.mark('prev-pending');
+  assert.equal(result.updated, true);
+  assert.deepEqual(result.appointment, { id: 'prev-pending', status: 'payment_reported' });
+  assert.equal(result.previous_status, 'pending_payment');
+  assert.equal(fx.patches.length, 1);
+  const { url, body } = fx.patches[0];
+  assert.ok(url.includes('id=eq.prev-pending') && url.includes('tenant_id=eq.' + TENANT) && url.includes('status=eq.pending_payment'), 'atualização presa a id, tenant e status esperado');
+  assert.equal(body.status, 'payment_reported');
+  assert.equal(body.metadata.payment_report_request, 'whatsapp:evt-1');
+  assert.equal(body.metadata.service_id, 'svc-prev-pending', 'metadados da reserva preservados');
+  assert.ok(fx.table.seen.every(u => u.includes('tenant_id=eq.' + TENANT) && u.includes('external_conversation_id=eq.chat-1')), 'toda consulta presa a tenant e contato');
+});
+
+test('pagamento v2: reserva de outro tenant, de outro contato ou fora dos status pendentes não é atualizada', async () => {
+  const fx = paymentFixture((row, OTHER) => [row('other-tenant', { tenant_id: OTHER }), row('other-contact', { external_conversation_id: 'chat-2' }),
+    row('prev-confirmed', { status: 'confirmed' }), row('prev-past', { starts_at: new Date(Date.now() - 86400000).toISOString() })]);
+  for (const id of ['other-tenant', 'other-contact', 'prev-confirmed', 'prev-past']) {
+    assert.deepEqual(await fx.mark(id), { updated: false, reason: 'appointment_not_found' }, id);
+  }
+  assert.equal(fx.patches.length, 0, 'nenhuma escrita');
+});
+
+test('pagamento v2: a checagem por linha rejeita linha de outro tenant ou contato mesmo que a consulta a devolva', async () => {
+  const OTHER = '11111111-1111-4111-8111-111111111111';
+  const future = new Date(Date.now() + 5 * 86400000).toISOString();
+  const leaked = [{ id: 'leak-tenant', tenant_id: OTHER, external_conversation_id: 'chat-1', status: 'pending_payment', starts_at: future, created_at: future, metadata: {} },
+    { id: 'leak-contact', tenant_id: TENANT, external_conversation_id: 'chat-2', status: 'pending_payment', starts_at: future, created_at: future, metadata: {} }];
+  const patches = [];
+  const core = loadCore(PAYMENT_CORE_NAMES, { supabaseGet: async () => leaked, supabasePatch: async (url, body) => { patches.push(url); return [{ id: 'x', status: body.status }]; },
+    chatId: 'chat-1', turn: { boundary_id: 'S2' } });
+  for (const id of ['leak-tenant', 'leak-contact']) {
+    assert.deepEqual(await core.servicesMarkPaymentReported({ tenant: { id: TENANT } }, id, ['k'], 'k'), { updated: false, reason: 'appointment_not_found' }, id);
+  }
+  assert.equal(patches.length, 0);
+});
+
+test('pagamento v2: duas reservas pendentes (anterior e da sessão atual) seguem para a equipe como ambiguidade', async () => {
+  const fx = paymentFixture(row => [row('prev-pending'), row('cur-pending', { created_at: new Date().toISOString(), metadata: { conversation_session_id: 'S2' } })]);
+  assert.deepEqual(await fx.mark('prev-pending'), { updated: false, reason: 'ambiguous_payment_appointment' });
+  assert.deepEqual(await fx.mark('cur-pending'), { updated: false, reason: 'ambiguous_payment_appointment' });
+  assert.equal(fx.patches.length, 0);
+});
+
+test('pagamento v2: id que não é a única candidata pendente continua sem atualização', async () => {
+  const fx = paymentFixture(row => [row('prev-pending'), row('prev-confirmed', { status: 'confirmed' })]);
+  assert.deepEqual(await fx.mark('prev-confirmed'), { updated: false, reason: 'appointment_not_found' });
+  assert.equal(fx.patches.length, 0);
+});
+
+test('pagamento v2: turno repetido reconhece a declaração já encaminhada de sessão anterior em vez de falhar', async () => {
+  const fx = paymentFixture(row => [row('prev-reported', { status: 'payment_reported', metadata: { conversation_session_id: 'S1', payment_report_request: 'whatsapp:evt-1' } })]);
+  assert.deepEqual(await fx.mark('prev-reported'), { updated: false, recovered: true, appointment: { id: 'prev-reported', status: 'payment_reported' } });
+  assert.equal(fx.patches.length, 0);
+});
+
+test('pagamento v2: o carregamento ampliado é exclusivo do pipeline de serviços e reaproveita o escopo do carregador de reservas', () => {
+  const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const users = name => ast.statements.filter(ts.isFunctionDeclaration).filter(n => n.name.text !== name && n.getText(ast).includes(name + '(')).map(n => n.name.text).sort();
+  assert.deepEqual(users('servicesLoadActiveReservationRows'), ['servicesLoadReservations', 'servicesMarkPaymentReported']);
+  assert.deepEqual(users('servicesMarkPaymentReported'), ['runServicesTurnFinalize']);
 });

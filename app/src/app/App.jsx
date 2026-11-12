@@ -71,7 +71,7 @@ import { Kanban } from '../features/kanban/components/Kanban';
 import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
 import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
-import { reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
+import { placeKanbanCard, reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
 import { AuthShell } from '../features/auth/components/AuthShell';
 import { LoginPage } from '../features/auth/components/LoginPage';
@@ -389,11 +389,9 @@ function App() {
         if (matchesTarget) {
           return {
             ...col,
-            cards: sortKanbanCardsByConversationActivity([{
-              ...card,
-              stage: targetStageLabel,
-              targetColumnId: col.automationKey || targetColumnKey,
-            }, ...filteredCards]),
+            cards: sortKanbanCardsByConversationActivity([
+              placeKanbanCard(card, col.automationKey || targetColumnKey, targetStageLabel), ...filteredCards,
+            ]),
           };
         }
         return { ...col, cards: filteredCards };
@@ -587,8 +585,12 @@ function App() {
       ? conversationOrId
       : (appDataRef.current?.conversations || []).find((conv) => conv.id === conversationOrId);
     const conversationId = selectedConversation?.id || conversationOrId;
+    const request = tenantSettings?.tenantId === appDataRef.current?.tenantId ? tenantSettings?.settings?.appointment_request : null;
+    const reviewOnly = (selectedConversation?.channelType || selectedConversation?.channel?.toLowerCase()) === 'whatsapp'
+      && request?.mode === 'operator_confirmation' && request.team_review_control === 'manual_reply';
 
     setAppData((prev) => {
+      if (reviewOnly) return prev;
       const nextConversations = prev.conversations.map((conv) => {
         if (conv.id === conversationId) {
           const newMessages = [
@@ -636,7 +638,7 @@ function App() {
       };
     });
 
-    setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
+    if (!reviewOnly) setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
 
     if (!selectedConversation) return;
     try {
@@ -890,6 +892,7 @@ function App() {
           prev.kanbanColumns,
           incomingEvent,
           activeTenantSlug,
+          prev.teamAgents,
         );
         return {
           ...prev,
@@ -921,6 +924,10 @@ function App() {
       } }));
       if (payload?.table === 'channel_events' && payload?.new) {
         const incomingEvent = payload.new;
+        const conversationKey = canonicalConversationKey(incomingEvent.channel_type, incomingEvent.external_conversation_id,
+          incomingEvent.contact_handle || incomingEvent.id, activeTenantSlug);
+        const isNewConversation = Boolean(incomingEvent.external_conversation_id)
+          && !appDataRef.current?.conversations?.some((conversation) => conversation.canonicalKey === conversationKey);
         const isStoredMediaWaitingForUrl = hasStoredMediaNeedingUrl(incomingEvent);
         applyRealtimeEvent(isStoredMediaWaitingForUrl
           ? withLocalMediaLoadState(incomingEvent, 'resolving')
@@ -930,7 +937,7 @@ function App() {
           void recoverRealtimeMedia(incomingEvent);
         }
 
-        if (shouldRefreshConversationState(incomingEvent)) {
+        if (shouldRefreshConversationState(incomingEvent, { isNewConversation })) {
           refreshFromRealtime();
         }
       } else {
@@ -1133,6 +1140,7 @@ function App() {
           notificationUserId={session?.user?.id || null}
           notificationSettings={tenantSettings?.tenantId === appData.tenantId ? tenantSettings?.settings : null}
           notificationConversations={appData.conversations}
+          notificationConversationViewRef={conversationViewRef}
           notificationAppointments={appData.appointments}
           notificationKanbanColumns={appData.kanbanColumns}
           onOpenNotificationPage={setActive}

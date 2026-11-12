@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { appointmentReminders, belongsToTenant, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, OPERATOR_EVENT, operatorEvents } from './operatorEvents.js';
+import { appointmentReminders, belongsToTenant, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, OPERATOR_EVENT, operatorEvents, shouldPlayOperatorNotification } from './operatorEvents.js';
 
 export function readOperatorNotifications(storage, key, tenantId) {
   if (!key) return [];
@@ -19,7 +19,7 @@ function readPendingReceipts(key) {
   } catch { return []; }
 }
 
-export function useOperatorNotifications({ tenantId, tenantSlug, userId, appointments = [], kanbanColumns = [] }) {
+export function useOperatorNotifications({ tenantId, tenantSlug, userId, conversationViewRef, appointments = [], kanbanColumns = [] }) {
   const key = notificationScope(tenantId, userId);
   const pendingKey = key ? `${key}:pending-reads` : null;
   const [pendingReads, setPendingReads] = useState(() => new Set(readPendingReceipts(pendingKey)));
@@ -30,15 +30,18 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, appoint
   const itemsRef = useRef(items);
   const rows = useRef(new Map());
   const add = useCallback((incoming) => {
-    if (!incoming.length) return;
     const previous = itemsRef.current;
-    const hasNew = incoming.some(item => !previous.some(old => old.id === item.id));
-    if (!hasNew) return;
-    const next = mergeOperatorNotifications(previous, incoming);
+    const newItems = incoming.filter(item => !previous.some(old => old.id === item.id));
+    if (!newItems.length) return;
+    const next = mergeOperatorNotifications(previous, newItems);
     itemsRef.current = next;
     setItems(next);
-    setSoundSequence(value => value + 1);
-  }, []);
+    const view = conversationViewRef?.current;
+    const visibleKey = document.visibilityState === 'visible' && view?.visible ? view.canonicalKey : '';
+    if (newItems.some(item => shouldPlayOperatorNotification(item, tenantSlug, visibleKey))) {
+      setSoundSequence(value => value + 1);
+    }
+  }, [conversationViewRef, tenantSlug]);
 
   useEffect(() => {
     if (!key) return;

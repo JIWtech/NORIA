@@ -288,7 +288,7 @@ async function runExtTradeIn(text, semantic = null, extraPayload = {}) {
 }
 
 test('canonical sources, generated JavaScript and both workflow nodes are byte-identical', () => {
-  assert.equal(coreCode, coreSource);
+  assert.equal(coreCode, "const NORIA_NODE_PHASE = 'single';\n" + coreSource);
   const coreWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
   const extWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json'), 'utf8'));
   const engineWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ Motor conversacional.json'), 'utf8'));

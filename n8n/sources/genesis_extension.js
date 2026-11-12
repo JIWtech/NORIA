@@ -1613,6 +1613,7 @@ const HOT_LEAD_RULE_CRITERIA = {
 // (settings.sales_follow_up.disposition_actions). The CORE executes the action.
 //   cancel     the tenant policy says pending follow-ups are cancelled
 //   keep       the tenant policy says pending follow-ups stay as they are
+//   resume     (only for deferred_by_customer) the tenant policy says the deferral is resumed once by the follow-up generator
 //   undecided  no policy defines it: nothing is cancelled or rescheduled; the decision is pending for the business
 // No disposition has a built-in action. Operational cancellations (handoff, contact exclusion) are not decided here.
 function followUpDispositionPolicy(settings = {}) {
@@ -1621,7 +1622,8 @@ function followUpDispositionPolicy(settings = {}) {
   const actions = {}, sources = {};
   for (const disposition of ['declined', 'closed_by_customer', 'deferred_by_customer']) {
     const configuredAction = Object.prototype.hasOwnProperty.call(configured, disposition) ? configured[disposition] : undefined;
-    if (['cancel', 'keep'].includes(configuredAction)) { actions[disposition] = configuredAction; sources[disposition] = 'tenant_policy'; }
+    const allowed = disposition === 'deferred_by_customer' ? ['cancel', 'keep', 'resume'] : ['cancel', 'keep'];
+    if (allowed.includes(configuredAction)) { actions[disposition] = configuredAction; sources[disposition] = 'tenant_policy'; }
     else { actions[disposition] = 'undecided'; sources[disposition] = 'no_policy_defined'; }
   }
   return { actions, sources };

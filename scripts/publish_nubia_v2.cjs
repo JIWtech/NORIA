@@ -13,7 +13,7 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const args = Object.fromEntries(process.argv.slice(2).filter(a => a.startsWith('--')).map(a => { const [k, v] = a.slice(2).split('='); return [k, v ?? true]; }));
 const CORE_FILE = 'NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json';
-const EXT_FILE = 'NORIA EXT _ NB Bronze _ Serviços v2.json';
+const EXT_FILE = 'NORIA EXT _ NB Bronze.json';
 const LIVE_EXT_FILES = ['NORIA EXT _ Gênesis _ Política comercial v2 (1).json', 'NORIA EXT _ NB Bronze _ Política de negócio v2.json'];
 const PLACEHOLDER = 'PREENCHER_ID_EXT_NUBIA_V2';
 const EXT_NODES = ['CORE | Serviços | Executar EXT bootstrap', 'CORE | Serviços | Executar EXT decisão', 'CORE | Serviços | Executar EXT reavaliação'];
@@ -38,7 +38,32 @@ const byName = async name => ((await api('GET', '/workflows?name=' + encodeURICo
 const stripped = workflow => ({ name: workflow.name, nodes: workflow.nodes, connections: workflow.connections, settings: workflow.settings || {} });
 
 // Pure: builds the publishable CORE from the repository one. Throws on any broken invariant.
+// Guarda de topologia: o roteador só é publicável quando o motor é UM sub-workflow chamado pelas seis fases (sem cópia do motor
+// em nós de código) e quando a EXT NORIA tem ID real, diferente do ID do motor. Qualquer outra forma exige revisão.
+const ENGINE_PHASE_NODES = ['CORE | Preparar resposta', 'CORE | Finalizar resposta', 'CORE | Serviços | Preparar resposta',
+  'CORE | Serviços | Verificar disponibilidade', 'CORE | Serviços | Finalizar resposta'];
+function assertLegacyArchitecture(core) {
+  const fail = () => { throw new Error('NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED'); };
+  const idOf = name => {
+    const node = core.nodes.find(item => item.name === name);
+    return node?.type === 'n8n-nodes-base.executeWorkflow' ? node.parameters?.workflowId?.value : null;
+  };
+  const usable = id => typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id) && !id.startsWith('PREENCHER_');
+  const engineIds = new Set(ENGINE_PHASE_NODES.map(idOf));
+  const engineId = [...engineIds][0];
+  if (engineIds.size !== 1 || !usable(engineId)) fail();
+  const single = idOf('CORE | Motor conversacional único');
+  if (typeof single !== 'string' || !single.includes(engineId)) fail();
+  if (core.nodes.some(node => (node.parameters?.jsCode || '').length > 100 * 1024)) fail();
+  const noria = core.nodes.find(node => node.name === 'CORE | Executar EXT NORIA');
+  if (noria) {
+    const noriaId = idOf('CORE | Executar EXT NORIA');
+    if (!usable(noriaId) || noriaId === engineId) fail();
+  }
+}
+
 function buildArtifact(core, extId) {
+  assertLegacyArchitecture(core);
   const artifact = JSON.parse(JSON.stringify(core));
   const chain = artifact.nodes.filter(node => node.name.startsWith(CHAIN_PREFIX));
   if (chain.length !== 13) throw new Error('CHAIN_INCOMPLETE: ' + chain.length);
@@ -95,6 +120,7 @@ function writeBackups(out, items) {
 
 async function main() {
   const core = read(CORE_FILE), ext = read(EXT_FILE);
+  if (args.apply) assertLegacyArchitecture(core);
   const out = path.resolve(String(args.out || path.join(root, 'dist/nubia_v2_publication')));
   const authorized = process.env.NORIA_PUBLISH_AUTHORIZED === '1';
   if (args.apply && !authorized) throw new Error('NORIA_PUBLISH_AUTHORIZED=1 é obrigatório para --apply');

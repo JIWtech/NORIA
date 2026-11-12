@@ -236,9 +236,9 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                         {outcomeTracking && isDepositRequired(depositIndex, appointment.channelType, appointment.externalConversationId) && (
                           <span
                             className="deposit-required-badge"
-                            title="Este cliente faltou a um agendamento. Novos agendamentos exigem sinal de 50% via Pix."
+                            title="O último desfecho registrado foi uma falta."
                           >
-                            <CircleDollarSign size={12} /> Sinal obrigatório
+                            <CircleDollarSign size={12} /> Sinal em novos agendamentos
                           </span>
                         )}
                         {outcomeTracking && availableOutcomes(appointment).length > 0 && (
@@ -252,7 +252,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                                 title="Registrar que o cliente compareceu"
                               >
                                 <Check size={13} />
-                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Compareceu'}
+                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Registrar comparecimento'}
                               </button>
                             )}
                             {availableOutcomes(appointment).includes('no_show') && (
@@ -264,7 +264,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                                 title="Registrar que o cliente não veio e encerrar a conversa"
                               >
                                 <UserX size={13} />
-                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Cliente não veio'}
+                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Registrar falta'}
                               </button>
                             )}
                           </div>

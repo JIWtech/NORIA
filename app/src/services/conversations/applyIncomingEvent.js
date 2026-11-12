@@ -6,7 +6,7 @@ import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
 import { findKanbanColumn, getStageLabel } from '../kanban/stageResolution.js';
 import { mergeMediaDescriptors, normalizeMedia } from '../media/mediaNormalization.js';
-import { normalizeAudioTranscription, normalizeLocation, normalizeStage, resolveConversationOwnerDetails, resolveEventMessagePreview, resolveEventVisibleText } from './conversationPresentation.js';
+import { normalizeAudioTranscription, normalizeLocation, normalizeStage, resolveConversationOwnerDetails, resolveEventMessagePreview, resolveEventVisibleText, resolveOutboundTimelineAuthor } from './conversationPresentation.js';
 import { cleanAgentName } from '../agents/agentNames.js';
 import { getUsefulTrustedContactName, isUsefulContactName } from '../contacts/contactNames.js';
 import { conversationPhoneFallback } from '../contacts/contactPhones.js';
@@ -71,10 +71,9 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
     }
 
     if (event.direction === 'outbound') {
-      const isOperator = ['agent', 'human', 'operator', 'atendente'].includes(event.sender_type);
+      const author = resolveOutboundTimelineAuthor(event);
       const msg = {
-        from: isOperator ? 'agent' : event.sender_type === 'system' ? 'system' : 'ai',
-        sent_by: event.sent_by_user || (isOperator ? 'Operador' : null),
+        ...author,
         text: technicalEventPresentation(event)?.title || visibleText || event.response_text || '',
         systemEvent: technicalEventPresentation(event),
         at,
@@ -97,6 +96,7 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
         const mergedMedia = mergeMediaDescriptors(prevMedia, media);
         newMessages[existingMsgIndex] = {
           ...newMessages[existingMsgIndex],
+          ...(author.isAppointmentReply ? author : {}),
           status: event.delivery_status || newMessages[existingMsgIndex].status,
           text: msg.text || newMessages[existingMsgIndex].text,
           systemEvent: msg.systemEvent || newMessages[existingMsgIndex].systemEvent,

@@ -1,4 +1,5 @@
 import { isConversationClosed } from '../conversations/conversationLifecycle.js';
+import { visibleAgentName } from '../agents/agentNames.js';
 
 export function isConversationWaitingForFollowUp(conv = {}) {
   const status = String(conv.status || '').toLowerCase();
@@ -167,7 +168,8 @@ export function formatConversationCardOrigin(conversation = {}) {
     return 'Follow-up';
   }
   const senderType = conversation.lastMessageSenderType;
-  const sender = conversation.lastMessageSender;
+  const rawSender = conversation.lastMessageSender;
+  const sender = visibleAgentName(rawSender);
 
   if (senderType === 'contact' || sender === 'Cliente') {
     return 'Cliente';
@@ -176,8 +178,9 @@ export function formatConversationCardOrigin(conversation = {}) {
     return 'IA';
   }
   if (senderType === 'agent' || senderType === 'human' || sender === 'Atendente') {
-    return sender || 'Você';
+    return sender || (rawSender ? 'Atendente' : 'Você');
   }
+  if (senderType === 'system') return 'Sistema';
   if (sender) return sender;
   return 'Cliente';
 }

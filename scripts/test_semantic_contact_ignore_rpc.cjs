@@ -80,10 +80,12 @@ test('sem ingresso autenticado, com tentativa de entrega ou papel errado, recusa
 test('proposta de prompt é guardada por hash, preserva configurações e tem rollback exato', async () => {
   const db = await database();
   try {
-    const before = fs.readFileSync(require.resolve('../clients/clinica_nubia_oficial/prompts/system_prompt_contract_alignment_v5.txt'), 'utf8');
-    const after = fs.readFileSync(require.resolve('../clients/clinica_nubia_oficial/prompts/system_prompt_context_v6.txt'), 'utf8');
-    const apply = fs.readFileSync(require.resolve('../supabase/migrations_pending_review/nubia_context_prompt_v6.sql'), 'utf8');
-    const rollback = fs.readFileSync(require.resolve('../supabase/migrations_pending_review/nubia_context_prompt_v6_rollback.sql'), 'utf8');
+    // O contrato do hash usa os bytes com LF versionados, mesmo em checkouts Windows.
+    const readCanonical = file => fs.readFileSync(require.resolve(file), 'utf8').replace(/\r\n/g, '\n');
+    const before = readCanonical('../clients/clinica_nubia_oficial/prompts/system_prompt_contract_alignment_v5.txt');
+    const after = readCanonical('../clients/clinica_nubia_oficial/prompts/system_prompt_context_v6.txt');
+    const apply = readCanonical('../supabase/migrations_pending_review/nubia_context_prompt_v6.sql');
+    const rollback = readCanonical('../supabase/migrations_pending_review/nubia_context_prompt_v6_rollback.sql');
     await db.query('update tenants set slug=$1 where id=$2', ['clinica_nubia_oficial', tenant]);
     await db.query("update tenant_settings set settings=settings || jsonb_build_object('system_prompt',$1::text)", [before]);
     await db.exec(apply);

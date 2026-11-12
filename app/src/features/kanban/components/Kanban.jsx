@@ -2,9 +2,7 @@ import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertCircle,
-  Bot,
   CalendarCheck,
-  Check,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
@@ -16,7 +14,6 @@ import {
   Search,
   Sparkles,
   UserRound,
-  UserX,
 } from 'lucide-react';
 import { SiInstagram, SiTelegram, SiWhatsapp } from 'react-icons/si';
 
@@ -27,7 +24,8 @@ import {
 } from '../hooks/useKanbanScroll';
 
 import { NoriaSelect } from '../../../components/NoriaSelect';
-import { ChannelIcon } from '../../../components/ui/ChannelIcon';
+import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
+import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { SkeletonLine } from '../../../components/ui/Skeletons';
 
 import {
@@ -39,8 +37,12 @@ import {
 } from '../../../dataService';
 import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { useDepositRequired } from '../../appointments/utils/useDepositRequired';
+import { APPOINTMENT_OUTCOME_ACTIONS, AppointmentOutcomeActions } from '../../appointments/components/AppointmentOutcomeActions.jsx';
 import { AppointmentRequestActions } from './AppointmentRequestActions.jsx';
+import { KanbanCardMenu } from './KanbanCardMenu.jsx';
 import { kanbanColumnPresentation } from '../../../services/kanban/kanbanColumnPresentation.js';
+import { kanbanCardActionMode, kanbanCardLabels } from '../../../services/kanban/kanbanCardReason.js';
+import { kanbanMoveBlockReason } from '../../../services/kanban/cardRouting.js';
 import {
   availableOutcomes,
   isDepositRequired,
@@ -82,7 +84,6 @@ export function Kanban({
   const [channelFilter, setChannelFilter] = useState('todos');
   const [kanbanCardTransition, setKanbanCardTransition] = useState('idle');
   const [searchQuery, setSearchQuery] = useState('');
-  const [copiedCardId, setCopiedCardId] = useState(null);
   const [confirmingCardId, setConfirmingCardId] = useState('');
   const [outcomeCardId, setOutcomeCardId] = useState('');
   const [kanbanActionStatus, setKanbanActionStatus] = useState('');
@@ -210,20 +211,12 @@ export function Kanban({
     }
   }
 
-  function copySchedulingLink(cardId, link) {
-    const targetLink = link || schedulingUrl;
-    if (!targetLink) return;
-    navigator.clipboard.writeText(targetLink);
-    setCopiedCardId(cardId);
-    setTimeout(() => setCopiedCardId(null), 2500);
-  }
-
-  function formatSchedulingLink(link) {
-    if (!link) return '';
+  async function copySchedulingLink(link) {
     try {
-      return new URL(link).host;
-    } catch (e) {
-      return link;
+      await navigator.clipboard.writeText(link);
+      setKanbanActionStatus('Link de agendamento copiado.');
+    } catch {
+      setKanbanActionStatus('Não foi possível copiar o link de agendamento.');
     }
   }
 
@@ -271,12 +264,7 @@ export function Kanban({
       setOutcomeCardId('');
     }
   }
-  const getChannelClass = (type = 'telegram') => {
-    const norm = String(type).toLowerCase();
-    if (norm.includes('whats')) return 'channel-whatsapp';
-    if (norm.includes('insta')) return 'channel-instagram';
-    return 'channel-telegram';
-  };
+  const canSchedule = onOpenAppointment && kanbanColumns.some((column) => (column.automationKey || column.id) === 'agendamentos');
   // Símbolo, cor, rótulo curto e descrição vêm da coluna no banco (kanban_columns, migração 032).
   const getColumnPresentation = (column = {}) => kanbanColumnPresentation(column);
 
@@ -288,7 +276,15 @@ export function Kanban({
         const channelStr = String(card?.channelType || card?.channel || '').toLowerCase();
         const matchesQuery =
           !query ||
-          [card?.title, card?.subtitle, ownerStr, card?.channel, card?.aiReason]
+          [
+            card?.title,
+            card?.subtitle,
+            ownerStr,
+            card?.ownerKind === 'ai' ? 'Assistente IA Atendimento por IA' : '',
+            card?.channel,
+            card?.aiReason,
+            card?.isFollowUp ? (card?.followUpLabel ? `Follow-up ${card.followUpLabel}` : 'Follow-up enviado') : '',
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase()
@@ -379,7 +375,13 @@ export function Kanban({
     const targetColumn = filteredColumns.find(column => String(column.id) === columnId);
     handleDragEnd();
     if (targetColumn && move.sourceColumnId !== targetColumn.id) {
-      onMoveCard?.(move.card, targetColumn.automationKey || targetColumn.id, targetColumn);
+      const target = targetColumn.automationKey || targetColumn.id;
+      const blockReason = kanbanMoveBlockReason(move.card, target);
+      if (blockReason) {
+        setKanbanActionStatus(blockReason);
+        return;
+      }
+      onMoveCard?.(move.card, target, targetColumn);
     }
   };
 
@@ -519,10 +521,12 @@ export function Kanban({
         onDrop={handleDrop}
       >
         {filteredColumns.map((column) => {
-          const isWaitingColumn = column.automationKey === 'aguardando_humano' || column.id === 'aguardando_humano';
-          const isFinishedColumn = column.automationKey === 'finalizadas' || column.id === 'finalizadas';
           const isDragOver = dragOverColumnId === column.id;
           const presentation = getColumnPresentation(column);
+          const isSignalColumn = (column.automationKey || column.id) === 'verificar_sinal';
+          const description = isSignalColumn && ['Aguardando confirmação.', 'Conversas nesta etapa.'].includes(presentation.description)
+            ? 'Pagamentos informados para conferência.'
+            : presentation.description;
           const StageIcon = presentation.Icon;
 
           return (
@@ -539,7 +543,7 @@ export function Kanban({
                 <span className="column-stage-icon" aria-hidden="true"><StageIcon size={19} /></span>
                 <div className="column-heading-copy">
                   <strong className="column-title">{column.title}</strong>
-                  <small className="column-description">{presentation.description}</small>
+                  <small className="column-description">{description}</small>
                 </div>
                 <span className="column-count-badge">{ready ? column.cards.length : '—'}</span>
               </div>
@@ -561,225 +565,164 @@ export function Kanban({
                 ) : (
                   <>
                     {column.cards.map((card) => {
-                      const channelClass = getChannelClass(card.channelType || card.channel);
+                      const channel = card.channelType || card.channel;
                       const isDragging = draggingCardId === card.id;
+                      const labels = kanbanCardLabels(card, column);
+                      const outcomes = cardOutcomes(card);
+                      const canDrag = Boolean(onMoveCard) && !card.isFollowUp;
+                      const aiOwner = card.ownerKind === 'ai' || card.owner === 'Assistente IA';
+                      const depositRequired = outcomeTracking && !labels.closed
+                        && isDepositRequired(depositIndex, card.channelType, card.externalConversationId);
+                      const hasConversation = Boolean(card.externalConversationId || !card.appointmentId);
+                      const hasChat = Boolean(onOpenChat && hasConversation);
+                      const columnKey = column.automationKey || column.id;
+                      const actionMode = kanbanCardActionMode(card, columnKey, outcomes.length > 0, hasChat);
+                      const chatLabel = columnKey === 'conversas_abandonadas' ? 'Retomar conversa' : 'Abrir conversa';
+                      const openChat = () => onOpenChat(card.externalConversationId || card.id);
+                      const link = card.hasSchedulingLink && (card.schedulingLink || schedulingUrl);
+                      const preview = formatConversationPreview(card.subtitle);
+                      const menu = [];
+
+                      if (hasChat && actionMode !== 'chat') {
+                        menu.push({ key: 'chat', Icon: MessageCircle, label: 'Abrir conversa', run: openChat });
+                      }
+                      if (canSchedule) {
+                        menu.push({ key: 'schedule', Icon: CalendarCheck, label: 'Agendar', run: () => onOpenAppointment(card) });
+                      }
+                      if (actionMode !== 'outcomes') {
+                        for (const outcome of outcomes) {
+                          menu.push({
+                            ...APPOINTMENT_OUTCOME_ACTIONS[outcome],
+                            key: outcome,
+                            disabled: Boolean(outcomeCardId),
+                            run: () => handleMarkOutcome(card, outcome),
+                          });
+                        }
+                      }
+                      if (link) {
+                        menu.push(
+                          { key: 'copy-link', Icon: Copy, label: 'Copiar link de agendamento', run: () => copySchedulingLink(link) },
+                          { key: 'open-link', Icon: ExternalLink, label: 'Abrir página de agendamento', href: link },
+                        );
+                      }
+                      if (hasConversation && onFinishConversation && !labels.closed) {
+                        menu.push({ key: 'finish', Icon: CheckCircle2, label: 'Finalizar atendimento', run: () => onFinishConversation(card) });
+                      }
 
                       return (
                         <article
-                          className={`kanban-card ${channelClass} ${isDragging ? 'is-dragging' : ''} ${kanbanCardTransition === 'exiting' ? 'is-channel-exiting' : ''} ${kanbanCardTransition === 'entering' ? 'is-channel-entering' : ''}`}
+                          className={`kanban-card ${isDragging ? 'is-dragging' : ''} ${kanbanCardTransition === 'exiting' ? 'is-channel-exiting' : ''} ${kanbanCardTransition === 'entering' ? 'is-channel-entering' : ''}`}
                           key={card.id}
                           tabIndex={-1}
                           // O card inteiro arrasta para outra etapa; a rolagem do quadro fica no espaço fora dos cards.
-                          draggable={Boolean(onMoveCard)}
-                          onDragStart={onMoveCard ? (e) => handleDragStart(e, card, column) : undefined}
-                          onDragEnd={onMoveCard ? handleDragEnd : undefined}
+                          draggable={canDrag}
+                          onDragStart={canDrag ? (event) => handleDragStart(event, card, column) : undefined}
+                          onDragEnd={canDrag ? handleDragEnd : undefined}
                           data-notification-focus={card.id === focusedCardId ? '' : undefined}
                         >
-                          <div className="kanban-card-header">
-                            <div className="contact-title-line">
-                              <span className={`channel-indicator-icon ${channelClass}`}>
-                                <ChannelIcon channel={card.channelType || card.channel} size={12} />
+                          <header className="kanban-card-header">
+                            <div className="kanban-card-avatar" aria-hidden="true">
+                              {!hasConversation
+                                ? <span className="kanban-appointment-avatar"><CalendarCheck size={17} /></span>
+                                : <ContactAvatar name={card.title} avatarUrl={card.avatarUrl} className="kanban-contact-avatar" />}
+                            </div>
+                            <div className="kanban-card-heading">
+                              <div className="contact-title-line">
+                                <strong className="contact-name" title={card.title}>{card.title}</strong>
+                                {card.lastAt && <small className="card-time">{card.lastAt}</small>}
+                              </div>
+                              <div className="kanban-card-meta">
+                                {channel && (
+                                  <span className={`channel-indicator-icon ${getChannelClass(channel)}`} title={card.channel || channel}>
+                                    <ChannelIcon channel={channel} size={12} />
+                                  </span>
+                                )}
+                                {labels.owner && (
+                                  <span className={aiOwner ? 'kanban-ai-owner' : 'kanban-card-assignee'}>
+                                    {aiOwner && <Sparkles size={11} aria-hidden="true" />}
+                                    {aiOwner ? 'Atendimento por IA' : labels.owner}
+                                  </span>
+                                )}
+                                {card.contactCategoryLabel && <span>{card.contactCategoryLabel}</span>}
+                              </div>
+                            </div>
+                            {canDrag && (
+                              <span className="kanban-card-drag-handle" title="Arraste para mover o card">
+                                <GripVertical size={16} aria-hidden="true" />
                               </span>
-                              <strong className="contact-name">{card.title}</strong>
-                              {card.contactCategoryLabel && (
-                                <span className={`contact-category-pill contact-category-pill--${card.contactCategory || 'customer'}`}>
-                                  {card.contactCategoryLabel}
-                                </span>
-                              )}
-                            </div>
-                            <small className="card-time">{card.lastAt}</small>
-                            {onMoveCard && <span className="kanban-card-drag-handle"
-                              title="Arraste o card para mover para outra etapa">
-                              <GripVertical size={16} aria-hidden="true" />
-                            </span>}
-                          </div>
+                            )}
+                          </header>
 
-                          <p className="card-subtitle" title={formatConversationPreview(card.subtitle)}>{formatConversationPreview(card.subtitle)}</p>
-
-                          {isWaitingColumn && (
-                            <div className="waiting-sla-badge">
-                              <Clock3 size={11} />
-                              <span>Aguardando resposta humana</span>
-                            </div>
-                          )}
-
-                          {card.aiReason && (
-                            <div className="ai-verification-badge">
-                              <Sparkles size={12} className="ai-sparkle-icon" />
-                              <span>{card.aiReason}</span>
-                            </div>
-                          )}
-
-                          {card.hasSchedulingLink && (card.schedulingLink || schedulingUrl) && (
-                            <div className="scheduling-link-box">
-                              <div className="link-info">
-                                <CalendarCheck size={14} className="calendar-icon" />
-                                <span className="link-text" title={card.schedulingLink || schedulingUrl}>
-                                  {formatSchedulingLink(card.schedulingLink || schedulingUrl)}
-                                </span>
-                              </div>
-                              <div className="link-actions">
-                                <button
-                                  type="button"
-                                  className="link-copy-btn"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    copySchedulingLink(card.id, card.schedulingLink);
-                                  }}
-                                  title="Copiar link de agendamento"
-                                >
-                                  {copiedCardId === card.id ? (
-                                    <>
-                                      <Check size={12} color="#10b981" /> Copiado!
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy size={12} /> Copiar
-                                    </>
-                                  )}
-                                </button>
-                                <a
-                                  href={card.schedulingLink || schedulingUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="link-external-btn"
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="Abrir página de agendamento"
-                                >
-                                  <ExternalLink size={12} />
-                                </a>
-                              </div>
-                            </div>
-                          )}
-
-                          {outcomeTracking && isDepositRequired(depositIndex, card.channelType, card.externalConversationId) && (
-                            <span
-                              className="deposit-required-badge"
-                              title="Este cliente faltou a um agendamento. Novos agendamentos exigem sinal de 50% via Pix."
-                            >
-                              <CircleDollarSign size={12} /> Sinal obrigatório
+                          {card.isFollowUp && (
+                            <span className="follow-up-step-badge">
+                              <Clock3 size={11} aria-hidden="true" />
+                              {card.followUpLabel ? `Follow-up ${card.followUpLabel}` : 'Follow-up enviado'}
                             </span>
                           )}
 
-                          {cardOutcomes(card).length > 0 && (
-                            <div className="appointment-outcome-actions">
-                              {cardOutcomes(card).includes('attended') && (
-                                <button
-                                  type="button"
-                                  className="outcome-button attended"
-                                  disabled={Boolean(outcomeCardId)}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleMarkOutcome(card, 'attended');
-                                  }}
-                                  title="Registrar que o cliente compareceu"
-                                >
-                                  <Check size={13} />
-                                  {outcomeCardId === card.id ? 'Salvando...' : 'Compareceu'}
-                                </button>
-                              )}
-                              {cardOutcomes(card).includes('no_show') && (
-                                <button
-                                  type="button"
-                                  className="outcome-button no-show"
-                                  disabled={Boolean(outcomeCardId)}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleMarkOutcome(card, 'no_show');
-                                  }}
-                                  title="Registrar que o cliente não veio e encerrar a conversa"
-                                >
-                                  <UserX size={13} />
-                                  {outcomeCardId === card.id ? 'Salvando...' : 'Cliente não veio'}
-                                </button>
-                              )}
+                          {preview && <p className="card-subtitle" title={preview}>{preview}</p>}
+
+                          {labels.reason && (
+                            <div className="kanban-card-note">
+                              <AlertCircle size={13} aria-hidden="true" />
+                              <span>{labels.reason}</span>
                             </div>
                           )}
 
-                          {card.actionType === 'confirm_request' && (
-                            <AppointmentRequestActions
-                              card={card}
-                              tenantSlug={tenantSlug}
-                              staleHours={tenantSettings?.settings?.appointment_request?.stale_alert_hours}
-                              onChanged={onChanged}
-                              onStatus={setKanbanActionStatus}
-                            />
-                          )}
-
-                          {card.actionType === 'confirm_signal' && (
-                            <button
-                              type="button"
-                              className="confirm-signal-button"
-                              disabled={Boolean(confirmingCardId)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleConfirmSignal(card);
-                              }}
-                              title="Confirmar pagamento do sinal"
-                            >
-                              <CheckCircle2 size={14} />
-                              {confirmingCardId === card.id ? 'Confirmando...' : 'Confirmar'}
-                            </button>
-                          )}
-
-                          <div className="kanban-card-owner">
-                            <div className="card-owner-info">
-                              {card.ownerKind === 'ai' || card.owner === 'Assistente IA' ? (
-                                <Bot size={12} />
-                              ) : (
-                                <UserRound size={12} />
-                              )}
-                              <span>{card.owner || 'Sem responsável'}</span>
+                          {labels.appointmentStatus && (
+                            <div className={`kanban-card-appointment-summary status-${card.appointmentStatus || 'unknown'}`}>
+                              <CalendarCheck size={14} aria-hidden="true" />
+                              <span>
+                                {labels.appointmentDate && <time dateTime={card.appointmentStartsAt}>{labels.appointmentDate}</time>}
+                                <strong>{labels.appointmentStatus}</strong>
+                              </span>
                             </div>
-                          </div>
+                          )}
 
-                          {/* AÇÕES RÁPIDAS NO CARD (ITEM B) */}
-                          <div className="kanban-card-quick-actions">
-                            {onOpenChat && (
-                              <button
-                                type="button"
-                                className="card-quick-btn chat"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenChat(card.externalConversationId || card.id);
-                                }}
-                                title="Abrir e responder no chat"
-                              >
-                                <MessageCircle size={12} />
-                                <span>Responder</span>
-                              </button>
-                            )}
+                          {depositRequired && (
+                            <span className="kanban-card-deposit" title="Exige sinal ao marcar um novo horário">
+                              <CircleDollarSign size={13} aria-hidden="true" /> Exige sinal ao agendar
+                            </span>
+                          )}
 
-                            {onOpenAppointment && kanbanColumns.some((col) => (col.automationKey || col.id) === 'agendamentos') && (
-                              <button
-                                type="button"
-                                className="card-quick-btn schedule"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenAppointment(card);
-                                }}
-                                title="Criar agendamento rápido"
-                              >
-                                <CalendarCheck size={12} />
-                                <span>Agendar</span>
-                              </button>
-                            )}
-
-                            {onFinishConversation && !isFinishedColumn && (
-                              <button
-                                type="button"
-                                className="card-quick-btn finish"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onFinishConversation(card);
-                                }}
-                                title="Concluir e mover para Finalizadas"
-                              >
-                                <CheckCircle2 size={12} />
-                                <span>Finalizar</span>
-                              </button>
-                            )}
-                          </div>
+                          {(actionMode || menu.length > 0) && (
+                            <footer className="kanban-card-footer">
+                              {actionMode === 'chat' && (
+                                <button type="button" className="kanban-card-primary" onClick={openChat}>
+                                  <MessageCircle size={14} aria-hidden="true" /> {chatLabel}
+                                </button>
+                              )}
+                              {actionMode === 'outcomes' && (
+                                <AppointmentOutcomeActions
+                                  outcomes={outcomes}
+                                  disabled={Boolean(outcomeCardId)}
+                                  busy={outcomeCardId === card.id}
+                                  onOutcome={(outcome) => handleMarkOutcome(card, outcome)}
+                                />
+                              )}
+                              {actionMode === 'request' && (
+                                <AppointmentRequestActions
+                                  card={card}
+                                  tenantSlug={tenantSlug}
+                                  staleHours={tenantSettings?.settings?.appointment_request?.stale_alert_hours}
+                                  onChanged={onChanged}
+                                  onStatus={setKanbanActionStatus}
+                                />
+                              )}
+                              {actionMode === 'signal' && (
+                                <button
+                                  type="button"
+                                  className="kanban-card-primary"
+                                  disabled={Boolean(confirmingCardId)}
+                                  onClick={() => handleConfirmSignal(card)}
+                                >
+                                  <CheckCircle2 size={14} aria-hidden="true" />
+                                  {confirmingCardId === card.id ? 'Confirmando…' : 'Confirmar sinal'}
+                                </button>
+                              )}
+                              <KanbanCardMenu actions={menu} title={card.title} />
+                            </footer>
+                          )}
                         </article>
                       );
                     })}

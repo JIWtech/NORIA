@@ -3,6 +3,8 @@
 Atualizado em 05/11/2026. Fonte: `questionario-ic-salon-cesar-medeiros-2026-11-03.json`, revisado pelo Cesar.
 Tenant `ic_salon` · instância Evolution `ic_saloon` · número `5521994037748`.
 
+Registro da revisão de 05/11. A [proposta de 09/11](REVISAO_CATALOGO_ENDERECO_2026-11-09.md) traz os novos dados de corte, mechas e endereço, pendentes de aprovação.
+
 ## 1. Valores de serviços que faltam
 
 O questionário **não traz o valor** destes 13 serviços (o campo de valor veio vazio). O Cesar confirmou que **todos são "a partir de"**.
@@ -58,6 +60,8 @@ Migration `supabase/migrations/030_appointment_outcomes_no_show.sql` e painel (K
 - Quem tem "não veio" como desfecho mais recente aparece com o selo **Sinal obrigatório**. Comparecer depois volta ao normal. Clique errado pode ser corrigido.
 - Vale só para agendamentos feitos no sistema: **nenhum cliente anterior à ativação é considerado**.
 - A IA **ainda não sabe** da lista (o motor só enxerga agendamentos futuros): o selo avisa o dono, que cobra o sinal ao confirmar. Para a IA avisar sozinha é preciso uma mudança genérica no CORE (opcional por tenant), ainda não feita.
+  - Atualização de 11/11/2026, **não publicada**: o motor isolado do Salon (adaptador) lê o histórico do contato e, quando o desfecho mais recente é `no_show`, avisa do sinal de 50% via Pix antes de registrar e marca o pedido com `deposit_required`. Artefato em `.local/ic-salon-engine/ic_salon_motor_isolado_history_deposit.json`.
+  - **Decisão pendente do dono:** a regra do tenant também cita "desmarcação em cima da hora", mas por ora só `no_show` exige sinal, igual à RPC `magia_deposit_required_contacts`. Cancelamentos não entram. Para incluí-los é preciso definir a antecedência mínima e como o cancelamento tardio é marcado.
 - Limite técnico existente: o painel carrega só os 200 primeiros agendamentos por tenant em ordem crescente de data; com mais que isso os recentes deixam de aparecer. Corrigir antes de o salão passar de ~200 agendamentos.
 
 ## 5. Coluna Confirmar agendamento

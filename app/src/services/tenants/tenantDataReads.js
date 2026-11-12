@@ -21,7 +21,7 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     .from('appointments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .order('starts_at', { ascending: true })
+    .order('starts_at', { ascending: false })
     .limit(200);
   if (error) {
     console.warn('Appointments fallback:', error.message);
@@ -31,7 +31,7 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     .from('appointments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .in('status', ['pending_confirmation', 'payment_reported'])
+    .in('status', ['pending_confirmation', 'payment_reported', 'aguardando_verificacao'])
     .order('starts_at', { ascending: true })
     .limit(200);
   if (openError) console.warn('Pending appointments fallback:', openError.message);

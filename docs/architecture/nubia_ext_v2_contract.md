@@ -97,7 +97,7 @@ O pipeline só é usado quando `tenant_settings.settings.noria_turn_pipeline` ex
 - **Homologação local.** `node scripts/homolog/services_executor.cjs` executa as fases reais (EXT bootstrap → despachante → prepare → EXT → availability → EXT → finalize) com Gemini, Supabase, RPCs de agenda e Evolution simulados: consulta informativa, reserva legítima, falha após a reserva (composição, falha retentável com re-claim, entrega incerta), pedido ambíguo, horário indisponível e rejeições do auditor.
 
 ### O que continua faltando antes de ativar a Núbia v2
-1. Preencher o ID real do workflow `NORIA EXT | NB Bronze | Serviços v2` nos nós de execução da cadeia e habilitar/conectar a cadeia (hoje desabilitada).
+1. Preencher o ID real do workflow `NORIA EXT | NB Bronze` nos nós de execução da cadeia e habilitar/conectar a cadeia (hoje desabilitada).
 2. Rotear a Núbia para a cadeia (hoje o roteador usa `byTenant` fixo e contrato `1.0`) com seleção explícita e rollback definidos; nada disso existe.
 3. Configurar `noria_turn_pipeline` em `tenant_settings` (decisão de configuração).
 4. Revisar o auditor frente à necessidade de uma auditoria semântica (3ª chamada) e rodar o executor de serviços também com um modelo real em ambiente autorizado.

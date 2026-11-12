@@ -2,6 +2,7 @@ import { canonicalKanbanKey } from './kanbanHelpers.js';
 import { normalizeChannel } from '../identity/conversationIdentity.js';
 import { GENESIS_SALES_STAGE_KEYS, isGenesisSalesTenant } from './commercialStages.js';
 import { getStageLabel } from './stageResolution.js';
+import { AI_KANBAN_COLUMNS, HUMAN_KANBAN_COLUMNS, kanbanMoveBlockReason } from './cardRouting.js';
 
 export function buildGenesisSalesMovePayload(leadId, stageKey, revision) {
   return {
@@ -116,11 +117,12 @@ async function moveGenesisSalesCard(tenantSlug, card, targetColumnKey, agentName
 
 async function moveKanbanCard(activeTenantSlug, card, targetColumnKey, agentName = null, targetColObj = null) {
   const tenantSlug = activeTenantSlug || 'clinica_nubia';
+  const canonical = canonicalKanbanKey(targetColObj?.automationKey || targetColumnKey);
+  const blockReason = kanbanMoveBlockReason(card, canonical);
+  if (blockReason) throw new Error(blockReason);
   if (isGenesisSalesTenant(tenantSlug)) {
     return moveGenesisSalesCard(tenantSlug, card, targetColumnKey, agentName, targetColObj);
   }
-  const canonical = canonicalKanbanKey(targetColObj?.automationKey || targetColumnKey);
-  const targetTitle = String(targetColObj?.title || targetColObj?.name || targetColumnKey || '').toLowerCase();
   const sourceColumn = canonicalKanbanKey(card.targetColumnId || card.stage || '');
 
   // A mesma etapa não é uma transição e não deve criar auditoria duplicada.
@@ -133,32 +135,21 @@ async function moveKanbanCard(activeTenantSlug, card, targetColumnKey, agentName
   let sentByUser = agentName || null;
   let responseText = null;
 
-  const isHumanTarget = canonical === 'com_humano'
-    || canonical === 'conversas_humanos'
-    || targetTitle.includes('humano')
-    || targetTitle.includes('atendente');
-
-  const isWaitingHumanTarget = canonical === 'aguardando_humano'
-    || targetTitle.includes('aguardando humano')
-    || targetTitle.includes('aguardando atendimento');
-
-  const isFinalizadasTarget = canonical === 'finalizadas'
-    || targetTitle.includes('finalizada')
-    || targetTitle.includes('concluida')
-    || targetTitle.includes('encerrada');
-
-  const isAgendamentosTarget = canonical === 'agendamentos'
-    || targetTitle.includes('agendamento')
-    || targetTitle.includes('agenda');
-
-  const isAbandonedTarget = canonical === 'conversas_abandonadas'
-    || targetTitle.includes('abandonad');
+  const isWaitingHumanTarget = canonical === 'aguardando_humano';
+  const isHumanTarget = HUMAN_KANBAN_COLUMNS.has(canonical) || targetColObj?.ownerRole === 'human';
+  const isFinalizadasTarget = canonical === 'finalizadas';
+  const isAiTarget = AI_KANBAN_COLUMNS.has(canonical) || targetColObj?.ownerRole === 'ai';
 
   if (isFinalizadasTarget) {
     stage = 'Finalizada';
     service = 'conversation_closed';
     handoff = false;
     responseText = 'Atendimento finalizado no painel.';
+  } else if (isWaitingHumanTarget) {
+    stage = 'Atendimento humano';
+    service = 'handoff_requested';
+    handoff = true;
+    responseText = 'Aguardando atendimento humano.';
   } else if (isHumanTarget) {
     stage = 'Atendimento humano';
     service = 'conversation_assigned';
@@ -166,26 +157,12 @@ async function moveKanbanCard(activeTenantSlug, card, targetColumnKey, agentName
     senderType = 'agent';
     sentByUser = agentName || 'Atendente';
     responseText = `Conversa assumida por ${sentByUser}.`;
-  } else if (isWaitingHumanTarget) {
-    stage = 'Atendimento humano';
-    service = 'handoff_requested';
-    handoff = true;
-    responseText = 'Aguardando atendimento humano.';
-  } else if (isAgendamentosTarget) {
-    stage = 'Agendamento';
-    service = 'agendamento';
-    handoff = true;
-    responseText = 'Movido para agendamentos.';
-  } else if (isAbandonedTarget) {
-    stage = 'Finalizada';
-    service = 'conversation_abandoned';
-    handoff = false;
-    responseText = 'Conversa marcada como abandonada.';
-  } else {
-    stage = targetColObj?.title || 'Qualificacao';
-    service = 'ia_active';
-    handoff = false;
+  } else if (isAiTarget) {
+    stage = targetColObj?.title || canonical;
+    service = 'resume_ai';
     responseText = 'Retornado para atendimento da IA.';
+  } else {
+    stage = targetColObj?.title || canonical;
   }
 
   const conversationId = String(card.externalConversationId || card.conversationId || card.id || '');

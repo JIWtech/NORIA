@@ -875,8 +875,8 @@
 .kanban-column {
   --kanban-stage-accent: var(--brand);
   --kanban-stage-tint: rgba(0, 224, 255, 0.1);
-  background: linear-gradient(180deg, var(--kanban-stage-tint) 0, var(--surface) 104px);
-  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, var(--kanban-stage-tint) 0, color-mix(in srgb, var(--surface-sunken) 52%, var(--surface)) 104px);
+  border: 1px solid color-mix(in srgb, var(--kanban-stage-accent) 18%, var(--line-strong));
   border-radius: 12px;
   padding: 10px;
   display: flex;
@@ -888,7 +888,7 @@
   height: 100%;
   overflow: hidden;
   box-sizing: border-box;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
 
 .kanban-column--blue {
@@ -1011,20 +1011,20 @@
 }
 
 .kanban-card {
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--kanban-stage-accent) 7%, var(--surface-soft)) 0%, var(--surface-soft) 68%);
+  border: 1px solid color-mix(in srgb, var(--kanban-stage-accent) 18%, var(--line));
+  border-left: 3px solid color-mix(in srgb, var(--kanban-stage-accent) 76%, transparent);
   border-radius: 10px;
-  min-height: 185px;
-  padding: 12px 11px 11px 14px;
+  padding: 12px;
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  gap: 7px;
-  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  gap: 8px;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
   position: relative;
   box-sizing: border-box;
+  box-shadow: 0 2px 6px rgba(3, 7, 18, 0.22);
   min-width: 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .kanban-card.is-channel-exiting {
@@ -1060,23 +1060,11 @@
   }
 }
 
-.kanban-card::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 11px;
-  bottom: 11px;
-  width: 3px;
-  border-radius: 0 999px 999px 0;
-  background: var(--kanban-stage-accent);
-  opacity: 0.9;
-}
-
 .kanban-card:hover {
-  background: var(--surface-hover);
-  border-color: var(--line-strong);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--kanban-stage-accent) 11%, var(--surface-elevated)) 0%, var(--surface-elevated) 72%);
+  border-color: color-mix(in srgb, var(--kanban-stage-accent) 40%, var(--line-strong));
+  border-left-color: var(--kanban-stage-accent);
+  box-shadow: 0 6px 16px rgba(3, 7, 18, 0.34);
 }
 
 .kanban-card-header {
@@ -1121,7 +1109,7 @@
 }
 
 .contact-title-line .contact-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   overflow: hidden;
@@ -1132,18 +1120,17 @@
 
 .card-time {
   font-size: 11px;
-  color: var(--text);
+  color: var(--muted);
   flex-shrink: 0;
   white-space: nowrap;
-  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
 }
 
 .card-subtitle {
   margin: 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--text);
-  opacity: 0.88;
+  color: color-mix(in srgb, var(--text) 88%, var(--muted));
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1153,32 +1140,6 @@
   flex: 0 0 auto;
   overflow-wrap: break-word;
   word-break: normal;
-  min-height: 36px;
-}
-
-.ai-verification-badge {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  min-height: 25px;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  border: 1px solid rgba(0, 224, 255, 0.25);
-  color: var(--brand);
-  font-size: 11px;
-  font-weight: 600;
-  max-width: 100%;
-  width: fit-content;
-  box-sizing: border-box;
-}
-
-.ai-verification-badge span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
 }
 
 .kanban-card-follow-up {
@@ -1204,89 +1165,6 @@
   border-color: rgba(34, 211, 238, 0.42);
   background: rgba(6, 182, 212, 0.12);
   color: #67e8f9;
-}
-
-.ai-sparkle-icon {
-  color: var(--brand);
-  flex-shrink: 0;
-}
-
-.scheduling-link-box {
-  background: rgba(251, 191, 36, 0.12);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  border-radius: 6px;
-  padding: 6px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.link-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-
-.calendar-icon {
-  color: var(--amber);
-  flex-shrink: 0;
-}
-
-.link-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--amber);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.link-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.link-copy-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  background: rgba(251, 191, 36, 0.15);
-  color: var(--amber);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.link-copy-btn:hover {
-  background: rgba(251, 191, 36, 0.25);
-  color: #ffffff;
-}
-
-.link-external-btn {
-  display: grid;
-  place-items: center;
-  padding: 3px;
-  border-radius: 4px;
-  color: var(--amber);
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.link-external-btn:hover {
-  background: rgba(251, 191, 36, 0.2);
-  color: #ffffff;
 }
 
 .confirm-signal-button {
@@ -1317,16 +1195,6 @@
   opacity: 0.65;
 }
 
-.kanban-card-owner {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  min-width: 0;
-  flex: 0 0 auto;
-  padding-top: 2px;
-}
-
 .kanban-card-footer {
   display: flex;
   align-items: center;
@@ -1334,26 +1202,7 @@
   gap: 8px;
   margin-top: 2px;
   padding-top: 7px;
-  border-top: 1px solid var(--line);
-}
-
-.card-owner-info {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text);
-  font-weight: 500;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-owner-info svg {
-  flex-shrink: 0;
-  color: var(--muted);
+  border-top: 1px solid color-mix(in srgb, var(--kanban-stage-accent) 14%, var(--line));
 }
 
 .open-chat-action-btn {
