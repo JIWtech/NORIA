@@ -19,5 +19,6 @@ Nenhuma reserva foi alterada pela correção. Um pedido pendente só deve ser al
 ## Verificação e rollback
 
 - Testes focados: 30/30; gate de liberação: 485/485; auditoria anti-hardcode: passou. Export do Salon gerado duas vezes com hash idêntico.
-- A verificação local não substitui uma conversa real após a publicação. Conferir primeiro os turnos posteriores ao horário de ativação.
+- Workflow do Salon publicado: `9a72c935-08b5-4185-be7f-cb9f0d7a4bf3` → `cb908b02-8775-4c5d-a0d2-f3af8c592e35`; `activeVersionId === versionId` e os novos campos foram conferidos no código ativo. Backup/recibo: `.local/deploy_backups/2026-11-12T23-45-12-433Z/`.
+- Prompt v11 aplicado ao `ic_salon` no Supabase. Leitura posterior confirmou a revisão nova, ambas as regras de identidade e a remoção do trecho antigo. A verificação local e estrutural não substitui uma conversa real após a publicação; conferir apenas turnos posteriores a ela.
 - Para rollback, aplicar `clients/ic_saloon/18_proposta_prompt_v11_interlocutor_destinatario_rollback.sql` somente se v11 estiver ativo e republicar o backup anterior do workflow do Salon. Reverter as fontes e regenerar o export para manter o repositório alinhado.
