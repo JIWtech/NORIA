@@ -26,6 +26,7 @@ Antes de uma publicação autorizada, confira no n8n os IDs e as versões ativas
 - [Configuração de um tenant](operations/onboarding_tenant.md)
 - [Checklist de publicação](operations/production_deploy_checklist.md)
 - [Correções do Salon e da NB Bronze (12/11/2026)](operations/correcoes_salon_nubia_2026-11-12.md)
+- [Modais, proposta de horário e conferência da publicação (12/11/2026)](operations/modais_agendamento_e_proposta_salon_2026-11-12.md)
 
 ## Histórico
 
