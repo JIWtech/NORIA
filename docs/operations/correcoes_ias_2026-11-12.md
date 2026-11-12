@@ -25,11 +25,12 @@ Referência: [auditoria_funcionamento_ias_2026-11-12.md](auditoria_funcionamento
 | IA-12 | Hook `useModalDialog` nos três modais (foco, Tab preso, Escape) |
 | IA-14 | Salon considera todos os estados de reserva futura aberta |
 | IA-15 | Recarga do Kanban ignora o pin interno |
-| IA-16 | Painel completa a janela de 1.000 eventos com o último evento de cada conversa (depende da migração abaixo) |
+| IA-16 | Painel completa a janela de 1.000 eventos com o último evento de cada conversa, lido em páginas de 1.000 até 2.000 conversas (depende da migração abaixo). O histórico completo já é carregado ao abrir a conversa (`loadConversationFullHistory`). Em produção hoje a janela mostra 55 de 910 conversas da Núbia e 117 de 1.232 da Wesley |
 | IA-17 | Agenda manual usa o fuso do tenant |
 | IA-18, IA-25 | Worker de disparos por lease versionado em `n8n/code/broadcast_campaign_worker.js` e projetado pelo gerador; painel só enfileira (consentimento obrigatório) e controla pausa/retoma/cancela pelo servidor; migrações das RPCs copiadas para o repositório |
 | IA-19 | Normalizador ignora ACK de `messages.update`, usa `remoteJidAlt` em `@lid` e não classifica `@lid` como fixo |
 | IA-20 | Follow-up: fuso da coluna, canal por alias, id do provedor preservado se o evento falhar |
+| IA-22 | Chamadas extras do Salon (revisão, auditoria de preço, reparo) reservam o orçamento diário do tenant antes de sair, por gancho registrado pelo motor (`setGeminiExtraReservation`), sem lease de concorrência aninhada; orçamento esgotado falha fechado |
 | IA-21 | Regex das tags `[AÇÃO: ...]` corrigida (CORE e Salon) |
 | IA-23 | Instância do tenant `noria` sem diferenciar caixa |
 | IA-24 | `loadTenantContext` aceita aliases de instância |
@@ -43,13 +44,17 @@ Referência: [auditoria_funcionamento_ias_2026-11-12.md](auditoria_funcionamento
 - `supabase/migrations/20261112130000_broadcast_interval_floor_41min.sql` — piso de **41 minutos** entre mensagens de disparo, intervalo máximo padrão de 55 min e limite diário padrão de 30. Até ser aplicada, vale a cadência atual do banco (padrão 30 a 90 s).
 - As cinco migrações `20261109192247` a `20261109193722` (disparos) já estavam aplicadas em produção; foram apenas versionadas aqui.
 
+## Revisão posterior (28 commits)
+
+Revisão do diff completo, com estes ajustes: a conferência de fundamentação da auditoria (IA-01) ignora fato numérico, que já é coberto pela conferência de valores; a confirmação de sinal (evento de controle com handoff) volta a falhar de forma visível; os botões da campanha mostram "Retomar" só para campanha pausada e "Pausar" para fila ou envio; imports sem uso removidos; escape explícito na regex de abertura repetida.
+
 ## Não feito ou parcial
 
-- **IA-22** (cota Gemini nas chamadas extras do Salon): não alterado. As chamadas extras ocorrem dentro da reserva da chamada principal; reservar cota própria aninhada pode negar a revisão quando o limite de concorrência for 2 e falhar fechado. Precisa de decisão de desenho.
-- **IA-16**: o histórico completo de uma conversa antiga ainda depende da janela de eventos; só a presença da conversa na lista foi corrigida.
+- Mais de 2.000 conversas por tenant ainda exigem paginação da lista no painel.
+- As conversas antigas passam a aparecer também no Kanban (cada tenant mostra todas as conversas recentes e antigas até o limite).
 - Para publicar: gerar com `node scripts/build_noria_workflows.cjs`, revisar e publicar com autorização.
 
 ## Testes
 
-- `app`: 835/835. `scripts/validate_noria_release.cjs`: 484/484.
+- `app`: 836/836. `scripts/validate_noria_release.cjs`: 485/485.
 - Suítes legadas de `scripts/` que já falhavam antes (módulo `pglite` ausente e fixtures antigas de Gênesis/financiamento) continuam com o mesmo número de falhas; não foram tocadas.

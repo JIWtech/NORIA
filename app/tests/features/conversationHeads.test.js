@@ -27,3 +27,13 @@ test('descarta linhas de outro tenant mesmo que a RPC as devolva (isolamento)', 
   const heads = await loadConversationHeads(supabase, 'nubia');
   assert.deepEqual(heads.map((r) => r.id), ['a']);
 });
+
+test('a lista de conversas é lida em páginas de 1.000 (limite do PostgREST)', async () => {
+  const total = 1500;
+  const all = Array.from({ length: total }, (_, index) => row('e' + index, 'chat' + index, '2026-11-12T10:00:00Z'));
+  const ranges = [];
+  const supabase = { rpc: () => { const call = { range: async (from, to) => { ranges.push([from, to]); return { data: all.slice(from, to + 1), error: null }; } }; return call; } };
+  const heads = await loadConversationHeads(supabase, 'nubia');
+  assert.equal(heads.length, total);
+  assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
+});
