@@ -1,4 +1,5 @@
 import { mapAppointment } from './appointmentPresentation.js';
+import { zonedDateTimeToIso } from './appointmentActions.js';
 
 export function createSaveAppointment({ getClient, loadTenant, currentUserId }) {
 async function saveAppointment(activeTenantSlug, appointment) {
@@ -16,7 +17,9 @@ async function saveAppointment(activeTenantSlug, appointment) {
     });
     if (error) {
       if (error.message?.includes('SCHEDULE_NOT_CONFIGURED')) {
-        const startsAt = new Date(`${appointment.localDate}T${appointment.localTime}:00`).toISOString();
+        // O horário digitado vale no fuso do tenant; sem fuso informado, mantém o do navegador.
+        const startsAt = zonedDateTimeToIso(appointment.localDate, appointment.localTime, appointment.timeZone)
+          || new Date(`${appointment.localDate}T${appointment.localTime}:00`).toISOString();
         const { data: fallbackData, error: insertError } = await supabase
           .from('appointments')
           .insert({

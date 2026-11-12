@@ -28,7 +28,7 @@ import {
 import { isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
 import { archiveAppointment, markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { appointmentAgendaItem, appointmentSections } from '../../../services/appointments/appointmentAgenda.js';
-import { appointmentActionsFor } from '../../../services/appointments/appointmentActions.js';
+import { appointmentActionsFor, localInputToIso } from '../../../services/appointments/appointmentActions.js';
 import { noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { useDepositRequired } from '../utils/useDepositRequired';
 import { AppointmentOutcomeActions } from './AppointmentOutcomeActions.jsx';
@@ -176,9 +176,9 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
       await saveAppointment(tenantSlug, {
         title: title.trim(),
         contactName: contactName.trim(),
-        startsAt: schedule.enabled ? null : new Date(startsAt).toISOString(),
-        unitId, serviceId, localDate, localTime, requestId: requestId.current,
-        endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+        startsAt: schedule.enabled ? null : localInputToIso(startsAt, timeZone),
+        unitId, serviceId, localDate, localTime, timeZone, requestId: requestId.current,
+        endsAt: endsAt ? localInputToIso(endsAt, timeZone) : null,
         notes: notes.trim(),
         channelType: conversations.find(c => c.externalConversationId === selectedConversationId)?.channelType || 'manual',
         externalConversationId: selectedConversationId,
