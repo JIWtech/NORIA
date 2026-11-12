@@ -10,7 +10,12 @@ const eventRaw = text(input.event || input.type);
 const event = normalizeEvent(eventRaw);
 const data = input.data || input;
 const key = data.key || data.message?.key || {};
-const remoteJid = text(key.remoteJid || key.remoteJidAlt || data.remoteJid);
+// Evolution pode entregar o identificador opaco (@lid) em remoteJid e o número real em remoteJidAlt.
+const primaryJid = text(key.remoteJid || data.remoteJid);
+const alternateJid = text(key.remoteJidAlt || data.remoteJidAlt);
+const remoteJid = primaryJid.endsWith('@lid') && alternateJid && !alternateJid.endsWith('@lid')
+  ? alternateJid
+  : text(primaryJid || alternateJid);
 const message = data.message || {};
 const messageType = text(data.messageType || Object.keys(message)[0] || 'conversation');
 const fromMe = key.fromMe === true || data.fromMe === true;
@@ -192,8 +197,9 @@ if (ingressForwardToken) {
 }
 
 // Classificação de tipo de contato: comercial, salvo ou cliente
-const isLandline = (phone.startsWith('55') && phone.length === 12 && ['2', '3', '4', '5'].includes(phone[4]))
-  || (phone.length === 10 && ['2', '3', '4', '5'].includes(phone[2]));
+// Em JIDs @lid os dígitos são um identificador opaco, não um telefone: nunca classificar como fixo.
+const isLandline = !remoteJid.endsWith('@lid') && ((phone.startsWith('55') && phone.length === 12 && ['2', '3', '4', '5'].includes(phone[4]))
+  || (phone.length === 10 && ['2', '3', '4', '5'].includes(phone[2])));
 
 const isBusinessAccount = Boolean(
   data.isBusiness ||
@@ -266,7 +272,9 @@ const eventSupported = !event || ['messages.upsert', 'messages.update'].includes
 // não abrem turno da IA nem contam como resposta manual do atendente.
 const nonConversational = ['reactionMessage', 'protocolMessage', 'pollUpdateMessage', 'senderKeyDistributionMessage', 'keepInChatMessage', 'pinInChatMessage']
   .some(type => messageType === type || (Object.keys(message).length > 0 && Object.keys(message).every(key => key === type || key === 'messageContextInfo')));
-const ignoredReason = !eventSupported ? 'event_not_supported' : !remoteJid ? 'missing_remote_jid' : nonConversational ? 'non_conversational_message' : remoteJid.includes('@g.us') || remoteJid === 'status@broadcast' ? 'group_or_status' : !phone ? 'missing_phone' : '';
+// ACK/recibo de entrega (messages.update sem conteúdo) não é mensagem: não abre turno.
+const statusOnlyUpdate = event === 'messages.update' && Object.keys(message).length === 0;
+const ignoredReason = !eventSupported ? 'event_not_supported' : statusOnlyUpdate ? 'status_update_without_message' : !remoteJid ? 'missing_remote_jid' : nonConversational ? 'non_conversational_message' : remoteJid.includes('@g.us') || remoteJid === 'status@broadcast' ? 'group_or_status' : !phone ? 'missing_phone' : '';
 const candidatePush = fromMe ? '' : text(data.pushName || data.senderName);
 const safeContactName = (!fromMe && candidatePush && !isBusinessOrTenantName(candidatePush, tenantSlug, instance))
   ? candidatePush
