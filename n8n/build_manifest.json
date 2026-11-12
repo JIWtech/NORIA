@@ -42,6 +42,7 @@
     "n8n/code/whatsapp_recover_core.js",
     "n8n/code/whatsapp_follow_up_dispatch.js",
     "n8n/code/broadcast_campaign_worker.js",
+    "n8n/code/whatsapp_sync_contact.js",
     "n8n/code/command_router.js",
     "scripts/turn_queue_operational_bridge.cjs"
   ]

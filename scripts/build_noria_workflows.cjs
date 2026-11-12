@@ -63,6 +63,8 @@ const recoveryCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_recover_
 // The follow-up dispatcher ("Processar Follow-ups") is projected from its source, so the CORE never drifts from it.
 const followUpDispatchCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_follow_up_dispatch.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const routerCode = fs.readFileSync(path.join(root, 'n8n/code/command_router.js'), 'utf8').replace(/\r\n/g, '\n');
+// Sincronização de contato WhatsApp: a mesma fonte testada é projetada no nó do Roteador.
+const syncContactCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_sync_contact.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 // Disparos: fluxo por lease do servidor (broadcast_claim_*), versionado em n8n/code e projetado no nó "Processar Disparos".
 const broadcastWorkerCode = fs.readFileSync(path.join(root, 'n8n/code/broadcast_campaign_worker.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const manualReplyCaptureCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_capture_manual_reply.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
@@ -550,6 +552,10 @@ saveWorkflow('noriaExt', noriaExtWorkflow);
   const followUpNode = workflow.nodes.find(n => n.name === 'Processar Follow-ups');
   if (!followUpNode || followUpNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_FOLLOW_UP_DISPATCH_NODE');
   followUpNode.parameters.jsCode = followUpDispatchCode;
+  const syncContactNode = workflow.nodes.find(n => n.name === 'Sincronizar Contato WhatsApp');
+  if (!syncContactNode || syncContactNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_SYNC_CONTACT_NODE');
+  new AsyncFunction('$json', '$env', syncContactCode);
+  syncContactNode.parameters.jsCode = syncContactCode;
   const broadcastNode = workflow.nodes.find(n => n.name === 'Processar Disparos');
   if (!broadcastNode || broadcastNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_BROADCAST_DISPATCH_NODE');
   new AsyncFunction('$json', '$env', broadcastWorkerCode);
@@ -628,6 +634,7 @@ const manifest = {
     'n8n/code/whatsapp_recover_core.js',
     'n8n/code/whatsapp_follow_up_dispatch.js',
     'n8n/code/broadcast_campaign_worker.js',
+    'n8n/code/whatsapp_sync_contact.js',
     'n8n/code/command_router.js',
     'scripts/turn_queue_operational_bridge.cjs',
   ],
