@@ -633,3 +633,28 @@ test('o motor real registra a reserva extra e ela conta só no orçamento do ten
   assert.doesNotMatch(body, /p_scope|p_max_concurrent/, 'sem lease de concorrência aninhada');
   assert.match(body, /geminiControlError\(String\(result\?\.reason/, 'recusa falha fechada com o mesmo tipo de erro do motor');
 });
+
+// A resposta correta sobre "loiro" virava o texto de preço porque a auditoria truncava em 1.800 tokens.
+test('falha técnica do auditor pede para repetir (texto do tenant); preço reprovado continua indo à equipe', async () => {
+  const settings = { appointment_request: {}, price_rejection_template: priceFallback,
+    price_check_retry_template: 'Não consegui conferir essa informação agora. Pode me mandar sua pergunta de novo, por favor? 😊' };
+  for (const auditFail of ['http429', 'timeout', 'truncated', 'invalid_json']) {
+    const down = await run({ draft: 'Trabalhamos sim! Mechas loiras a partir de R$ 580,00.', verdict: okVerdict, auditFail, settings });
+    assert.equal(down.text, settings.price_check_retry_template, auditFail);
+    assert.equal(down.diagnostics.adapter_outcome, 'price_fallback');
+  }
+  // preço fora do catálogo continua com o texto de preço, não com o pedido para repetir
+  const wrong = await run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration, settings });
+  assert.equal(wrong.text, priceFallback);
+  // sem o texto configurado, o comportamento anterior é mantido
+  const legacy = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail: 'truncated' });
+  assert.equal(legacy.text, priceFallback);
+});
+
+test('revisão e auditoria de preço pedem limite de saída suficiente para a mensagem inteira', async () => {
+  const result = await run({ draft: 'Tudo bem? Como posso ajudar?', verdict: okVerdict });
+  const limits = result.requests.filter(item => item.body && item.body.generationConfig && item.body.generationConfig.responseMimeType === 'application/json')
+    .map(item => item.body.generationConfig.maxOutputTokens);
+  assert.ok(limits.length >= 2, 'revisão e auditoria enviadas');
+  for (const limit of limits) assert.ok(limit >= 4000, 'limite ' + limit);
+});

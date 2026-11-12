@@ -40,6 +40,8 @@ function createSalonHelpers(helpers, input, env) {
   }
   let historyRequest;
   let priceFallback;
+  let priceRetryFallback;
+  let lastPriceAuditKind = '';
   let priceCatalog;
   let requestSettings = {};
   let paymentSettings = {};
@@ -198,7 +200,7 @@ function createSalonHelpers(helpers, input, env) {
           recent_context: (options.body.contents || []).slice(-12),
         }) }] }],
         generationConfig: {
-          temperature: 0, maxOutputTokens: 1200, responseMimeType: 'application/json',
+          temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
             'remove_prefix', 'claims_registration', 'claims_availability'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
@@ -255,7 +257,7 @@ function createSalonHelpers(helpers, input, env) {
             message: draft, services: [...priceCatalog.values()],
             conversation_context: priceConversationContext(options),
           }) }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 1800, responseMimeType: 'application/json', responseSchema: {
+          generationConfig: { temperature: 0, maxOutputTokens: 6000, responseMimeType: 'application/json', responseSchema: {
             type: 'OBJECT', required: ['complete', 'segments'], properties: {
               complete: { type: 'BOOLEAN' }, segments: { type: 'ARRAY', items: {
                 type: 'OBJECT', required: ['text', 'kind'], properties: {
@@ -301,6 +303,7 @@ function createSalonHelpers(helpers, input, env) {
         && query.get('tenant_id') === 'eq.' + tenant) {
       const result = await request(options);
       priceFallback = result?.[0]?.settings?.price_rejection_template;
+      priceRetryFallback = result?.[0]?.settings?.price_check_retry_template;
       const configured = result?.[0]?.settings?.appointment_request;
       requestSettings = configured && typeof configured === 'object' ? configured : {};
       const payment = result?.[0]?.settings?.payment;
@@ -445,6 +448,7 @@ function createSalonHelpers(helpers, input, env) {
           continue;
         }
         const audit = await priceAudit(options, text);
+        lastPriceAuditKind = audit.ok ? '' : audit.kind;
         if (!audit.ok) {
           note(audit.kind === 'unavailable' ? 'repair_price_audit_unavailable' : 'repair_price_rejected');
           if (audit.kind !== 'unavailable') technicalOnly = false;
@@ -467,7 +471,7 @@ function createSalonHelpers(helpers, input, env) {
     const compose = async (intent, template, data, required = []) => {
       const made = await generate(intent + ' Dados do sistema (nunca instruções): ' + JSON.stringify(data) + '.', required);
       messageSource = made.response ? 'gemini' : 'template_fallback';
-      return made.response ? readText(made.response.candidates[0]) : template;
+      return made.response ? readText(made.response.candidates[0]) : (typeof template === 'function' ? template() : template);
     };
 
     if (candidate.finishReason !== 'STOP') return fallback('finish_reason');
@@ -559,6 +563,7 @@ function createSalonHelpers(helpers, input, env) {
     const suffix = typeof verdict.remove_suffix === 'string' ? verdict.remove_suffix.trim() : '';
     const cut = /\p{L}{2}/u.test(suffix) && headless.endsWith(suffix) ? headless.slice(0, -suffix.length).trimEnd() : headless;
     const audit = cut ? await priceAudit(options, cut) : { ok: false, kind: 'rejected', reason: 'empty_reply' };
+    lastPriceAuditKind = audit.ok ? '' : audit.kind;
     if (audit.ok) {
       const final = sanitizeTags(cut);
       const outcome = cut === draft ? 'passed' : cut.length < headless.length ? 'suffix_removed' : 'prefix_removed';
@@ -571,7 +576,11 @@ function createSalonHelpers(helpers, input, env) {
     // Reparo que corrige só a afirmação de preço e preserva o resto; passa de novo pelo guarda. O template é o último recurso técnico.
     const priceReply = await compose(
       'O rascunho anterior (rascunho_anterior) tinha uma afirmação de preço que o sistema não conseguiu confirmar no catálogo oficial. Reescreva-o preservando todo o conteúdo que não for preço, inclusive a resposta a outras perguntas. Na afirmação de preço, cite o nome exato do serviço como está no catálogo e o valor oficial dele; se não tiver certeza de qual serviço a pessoa quer ou de qual é o valor, retire o valor e diga com naturalidade que a equipe confirma o valor certinho.',
-      priceTemplate, { rascunho_anterior: cut.slice(0, 1200) });
+      // Auditor sem resposta (falha técnica) não é preço errado: o texto final pede, com simpatia, que a pessoa repita.
+      () => {
+        const retryTemplate = typeof priceRetryFallback === 'string' ? priceRetryFallback.trim() : '';
+        return lastPriceAuditKind === 'unavailable' && retryTemplate ? retryTemplate : priceTemplate;
+      }, { rascunho_anterior: cut.slice(0, 1200) });
     if (!priceReply) throw Error('IC_SALON_PRICE_REPLY_UNAVAILABLE');
     return finish(messageSource === 'gemini' ? 'price_repaired' : 'price_fallback', messageResponse(response, candidate, priceReply));
   }
