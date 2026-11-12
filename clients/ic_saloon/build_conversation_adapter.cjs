@@ -17,7 +17,7 @@ function buildSalonEngine(source) {
     connections: source.connections,
     settings: {
       executionOrder: 'v1', timezone: 'America/Sao_Paulo', callerPolicy: 'workflowsFromSameOwner',
-      saveDataErrorExecution: 'none', saveDataSuccessExecution: 'none',
+      saveDataErrorExecution: 'all', saveDataSuccessExecution: 'none',
       saveManualExecutions: false, saveExecutionProgress: false,
     },
     active: false,

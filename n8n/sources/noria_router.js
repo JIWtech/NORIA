@@ -23,7 +23,7 @@ if (tenant_slug === 'noria') {
   const tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenant_id) + '&slug=eq.noria&limit=1');
   if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== tenant_id || tenants[0].slug !== 'noria' || tenants[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');
   const channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-  if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).includes(instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+  if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).map(value => String(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')).includes(String(instance).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
   return { json: { ...v, noria_extension: 'noria', noria_contract_version: '1.0', noria_router: 'noria_v1', noria_dispatch_phase: 'bootstrap' },
     ...(typeof $binary !== 'undefined' && $binary ? { binary: $binary } : {}) };
 }

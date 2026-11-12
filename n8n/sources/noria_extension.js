@@ -16,7 +16,7 @@ const enc = encodeURIComponent;
 const tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(id) + '&slug=eq.noria&limit=1');
 if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== id || tenants[0].slug !== slug || tenants[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');
 const channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).includes(instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).map(value => String(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')).includes(String(instance).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
 const rows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(id) + '&limit=1');
 const policy = Array.isArray(rows) && rows.length === 1 ? rows[0]?.settings?.noria_client_policy : null;
 if (!policy) throw new Error('NORIA_SEM_EXTENSAO_CONFIGURADA: ' + slug);
