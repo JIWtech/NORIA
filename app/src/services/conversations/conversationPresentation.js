@@ -46,13 +46,22 @@ export function normalizeLocation(rawPayload, event = null) {
   const isLocationText = trimmedText === '[location]' || trimmedText === 'location' || trimmedText === '[localização]' || trimmedText === '[localizacao]' || trimmedText === '[livelocation]' || trimmedText === 'livelocation';
   const isLocationMsg = String(payload.messageType || payload.data?.messageType || ev.message_type || ev.service || '').toLowerCase().includes('location') || isLocationText || Boolean(loc);
   if (!isLocationMsg && validLat == null && validLng == null && !name && !address) return null;
+  const cacheKey = validLat != null && validLng != null ? `${validLat},${validLng}` : '';
+  if (cacheKey) {
+    const cached = locationDetailsCache.get(cacheKey);
+    if (!name && cached?.name) name = cached.name;
+    if (!address && cached?.address) address = cached.address;
+    if (name || address) locationDetailsCache.set(cacheKey, { name: name || cached?.name || '', address: address || cached?.address || '' });
+  }
+  // Localização ainda sem coordenadas, nome ou endereço: o enriquecimento chega depois.
+  const isResolving = isLocationText && validLat == null && validLng == null && !name && !address && !loc;
   return {
     latitude: validLat,
     longitude: validLng,
     name,
     address,
     url: loc?.url || (validLat != null && validLng != null ? `https://www.google.com/maps?q=${validLat},${validLng}` : ''),
-    isResolving: false,
+    isResolving,
   };
 }
 
