@@ -191,6 +191,7 @@ function createSalonHelpers(helpers, input, env) {
           'ou oferece um horário, turno ou parte do dia como livre. A IA não vê a agenda; só a equipe confirma o encaixe. Perguntar qual dia e',
           'horário a pessoa prefere, repetir o que ela mesma pediu sem dizer que está livre, ou dizer que a equipe confirma não afirmam',
           'disponibilidade. Sem rascunho, use false.',
+          'Em price_unrequested informe, pelo significado, se o rascunho informa preço ou valor de serviço (inclusive "a partir de") e a mensagem atual do cliente e o contexto recente NÃO pedem preço, valor, quanto custa ou orçamento. Dizer que o orçamento é definido na avaliação, sem número, não é preço. Se a pessoa perguntou o valor, use false. Sem rascunho, use false.',
           'Em remove_prefix, se recent_context mostra que a conversa já está em andamento e o rascunho abre repetindo saudação, cumprimento',
           'ou vocativo de abertura, copie exatamente esse trecho inicial, sem incluir o conteúdo útil que o segue. Sem repetição, use texto vazio.',
         ].join(' ') }] },
@@ -202,11 +203,11 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
-            claims_availability: { type: 'BOOLEAN' },
+            claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -560,6 +561,10 @@ function createSalonHelpers(helpers, input, env) {
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.
     if (verdict.claims_availability !== false) {
       return fallback('claims_availability', 'O rascunho anterior afirmava ou sugeria horário livre ou disponibilidade. Você não vê a agenda: não diga que há vaga ou horário nem sugira horários ou turnos como livres. Se ajudar, pergunte qual dia e horário a pessoa prefere e diga que a equipe confirma o encaixe.');
+    }
+    // Preço citado sem a pessoa pedir é leitura do Gemini (price_unrequested); o reparo reescreve a mensagem sem o valor.
+    if (verdict.price_unrequested === true) {
+      return fallback('price_unrequested', 'O rascunho anterior citava preço ou valor que a pessoa não pediu. Não cite preço, valor nem duração. Responda só ao que ela disse, em no máximo três frases curtas, e termine com uma pergunta que leve ao próximo passo (como o dia e o horário preferidos ou, quando o serviço exige, a avaliação presencial gratuita). Não cite o nome do salão.');
     }
     // Saudação repetida e convite indevido são apontados pelo revisor; o adaptador só corta o trecho literal.
     const prefix = typeof verdict.remove_prefix === 'string' ? verdict.remove_prefix.trim() : '';

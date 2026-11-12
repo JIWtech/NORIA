@@ -669,3 +669,22 @@ test('afirmação de pedido combinado recebe orientação de reparo: agradecer, 
   assert.match(repairInstruction, /UMA pergunta com o próximo dado que falta/);
   assert.equal(result.text, repairText);
 });
+
+// Caso real de 12/11 ("Quero loiro e fazer as unhas da mão"): a IA informou o preço sem ninguém pedir.
+test('preço citado sem a pessoa pedir volta para o reparo sem valor; preço pedido passa', async () => {
+  const priceText = 'Que escolha linda! O corte custa R$ 140,00.';
+  const priceSegment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
+  const unrequested = await run({ draft: priceText, verdict: body => ({ ...okVerdict, price_unrequested: body.draft === priceText }), priceReport: message => (message === priceText ? [priceSegment] : undefined) });
+  assert.equal(unrequested.diagnostics.adapter_trail[0], 'price_unrequested');
+  assert.equal(unrequested.text, repairText);
+  const guidance = unrequested.generations[1].map(part => part.text).join(' ');
+  assert.match(guidance, /Não cite preço, valor nem duração/);
+  assert.match(guidance, /no máximo três frases curtas/);
+  const asked = await run({ draft: priceText, verdict: { ...okVerdict, price_unrequested: false }, priceReport: [priceSegment] });
+  assert.equal(asked.text, priceText);
+  assert.equal(asked.diagnostics.adapter_outcome, 'passed');
+  // o schema do revisor exige o campo
+  const review = unrequested.requests.find(item => item.body && item.body.generationConfig && item.body.generationConfig.responseSchema
+    && item.body.generationConfig.responseSchema.required && item.body.generationConfig.responseSchema.required.includes('claims_availability'));
+  assert.ok(review.body.generationConfig.responseSchema.required.includes('price_unrequested'));
+});
