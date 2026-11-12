@@ -15,7 +15,8 @@ const mediaMetaSource = readFileSync(new URL('../../src/features/conversations/c
 const mediaCaptionSource = readFileSync(new URL('../../src/features/conversations/components/MediaCaption.jsx', import.meta.url), 'utf8');
 const mediaPresentationSource = readFileSync(new URL('../../src/features/conversations/utils/mediaPresentation.js', import.meta.url), 'utf8');
 const mediaViewerSource = readFileSync(new URL('../../src/features/conversations/components/MediaViewer.jsx', import.meta.url), 'utf8');
-const mediaAttachmentSource = readFileSync(new URL('../../src/features/conversations/components/MediaAttachment.jsx', import.meta.url), 'utf8');
+const mediaAttachmentSource = readFileSync(new URL('../../src/features/conversations/components/MediaAttachment.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('../../src/features/conversations/components/DocumentAttachment.jsx', import.meta.url), 'utf8');
 const conversationsSource = readFileSync(new URL('../../src/features/conversations/components/Conversations.jsx', import.meta.url), 'utf8');
 const timelineSource = readFileSync(new URL('../../src/features/conversations/components/ConversationTimeline.jsx', import.meta.url), 'utf8');
 
@@ -62,8 +63,8 @@ test('viewer: toolbar é chrome separado e não sobrepõe o stage da imagem', ()
 
 test('viewer: imagens consecutivas do mesmo remetente formam galeria limitada', () => {
   assert.match(mediaPresentationSource, /export function consecutiveImageGallery\(/);
-  assert.match(mediaPresentationSource, /senderKey\(messages\[start - 1\]\) === sender/);
-  assert.match(mediaPresentationSource, /senderKey\(messages\[end \+ 1\]\) === sender/);
+  assert.match(mediaPresentationSource, /sameGroup\(messages\[start - 1\]\)/);
+  assert.match(mediaPresentationSource, /sameGroup\(messages\[end \+ 1\]\)/);
   assert.match(mediaAttachmentSource, /gallery=\{gallery\?\.items \|\| \[\]\}/);
   assert.match(mediaViewerSource, /activeIndex \+ 1\} \/ \{imageGallery\.length\}/);
 });
@@ -114,10 +115,9 @@ test('MediaAttachment: suporte estrutural a diferentes tipos de anexo (product, 
   assert.match(mediaAttachmentSource, /className="media-image-skeleton"/);
   assert.match(mediaAttachmentSource, /Falha no carregamento/);
   assert.match(mediaAttachmentSource, /className="media-video"/);
-  assert.match(mediaAttachmentSource, /<MediaViewer kind="video"/);
-  assert.match(mediaAttachmentSource, /className="document-attachment"/);
-  assert.match(mediaAttachmentSource, /className="document-attachment-action"/);
-  assert.match(mediaAttachmentSource, /formatFriendlyMimeType\(media\.mimeType, fileName\)/);
+  assert.match(mediaAttachmentSource, /<MediaViewer\s+kind="video"/);
+  assert.match(mediaAttachmentSource, /<DocumentAttachment key={effectiveUrl} media={media}/);
+  assert.match(mediaAttachmentSource, /formatFriendlyMimeType\(media\.mimeType, name\)/);
   assert.match(mediaAttachmentSource, /formatFileSize\(media\.size\)/);
   assert.match(mediaAttachmentSource, /className="media-placeholder media-download"/);
   assert.match(mediaAttachmentSource, /title="O arquivo original ainda não foi disponibilizado pelo canal"/);

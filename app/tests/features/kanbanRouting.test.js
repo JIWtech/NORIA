@@ -6,11 +6,14 @@ import { createMoveKanbanCard } from '../../src/services/kanban/kanbanCardMoveme
 import { mapAppointment } from '../../src/services/appointments/appointmentPresentation.js';
 import { waitingConversationNotifications } from '../../src/features/notifications/notificationPending.js';
 
+// Datas relativas ao instante atual: o Kanban abandona conversas antigas, então datas fixas envelhecem.
+const BASE_TIME = Date.now() - 30 * 60 * 1000;
+const iso = (minutes) => new Date(BASE_TIME + minutes * 60 * 1000).toISOString();
 const tenant = 'ic_salon';
 const chat = '5521000000001@s.whatsapp.net';
 const event = (overrides = {}) => ({
   id: 'event-1', tenant_slug: tenant, channel_type: 'whatsapp', external_conversation_id: chat,
-  created_at: '2026-11-09T12:00:00Z', stage: 'Conversas IA', handoff: false,
+  created_at: iso(0), stage: 'Conversas IA', handoff: false,
   direction: 'inbound', sender_type: 'contact', ...overrides,
 });
 const config = { columns: [
@@ -37,7 +40,7 @@ test('carga e tempo real concordam sobre fila, atribuição, pagamento e etapas 
     [{ service: 'technical_error', ai_provider: 'core_error', sender_type: 'system', stage: 'Erro técnico' }, 'aguardando_humano'],
   ];
   for (const [fields, expected] of cases) {
-    const incoming = event({ id: 'event-2', created_at: '2026-11-09T12:05:00Z', ...fields });
+    const incoming = event({ id: 'event-2', created_at: iso(5), ...fields });
     assert.equal(location(load([initial, incoming])), expected, JSON.stringify(fields));
     assert.equal(location(applyIncomingEventToKanban(load([initial]), incoming, tenant)), expected, JSON.stringify(fields));
   }
@@ -45,7 +48,7 @@ test('carga e tempo real concordam sobre fila, atribuição, pagamento e etapas 
 
 test('pagamento informado continua na fila após nova mensagem e falta antiga fica no histórico', () => {
   const initial = event();
-  const incoming = event({ id: 'event-2', created_at: '2026-11-09T12:05:00Z' });
+  const incoming = event({ id: 'event-2', created_at: iso(5) });
   const reported = [appointment('payment_reported')];
   assert.equal(location(load([initial, incoming], reported)), 'verificar_sinal');
   assert.equal(location(applyIncomingEventToKanban(load([initial], reported), incoming, tenant)), 'verificar_sinal');
@@ -55,16 +58,16 @@ test('pagamento informado continua na fila após nova mensagem e falta antiga fi
 });
 
 test('revisão da equipe sobre reserva confirmada fica pendente sem trocar o responsável pela conversa', () => {
-  const initial = event({ created_at: '2026-11-09T12:00:00Z' });
+  const initial = event({ created_at: iso(0) });
   const review = event({ id: 'review', service: 'atendimento_humano', raw_payload: { team_review_requested: true }, direction: 'outbound', sender_type: 'assistant',
-    created_at: '2026-11-09T12:05:00Z' });
-  const ai = event({ id: 'ai-next', service: 'geral', direction: 'outbound', sender_type: 'assistant', created_at: '2026-11-09T12:06:00Z' });
+    created_at: iso(5) });
+  const ai = event({ id: 'ai-next', service: 'geral', direction: 'outbound', sender_type: 'assistant', created_at: iso(6) });
   const manual = event({ id: 'human', service: 'manual_reply', direction: 'outbound', sender_type: 'agent',
-    delivery_status: 'sent', ai_provider: 'human_operator', stage: 'Atendimento humano', handoff: true, created_at: '2026-11-09T12:07:00Z' });
+    delivery_status: 'sent', ai_provider: 'human_operator', stage: 'Atendimento humano', handoff: true, created_at: iso(7) });
   const confirmed = [appointment('confirmed')];
   const realtime = [review, ai].reduce((board, next) => applyIncomingEventToKanban(board, next, tenant), load([initial], confirmed));
   const pending = kanbanColumns => waitingConversationNotifications({ tenantId: 'tenant', userId: 'user', role: 'owner', kanbanColumns,
-    now: Date.parse('2026-11-09T12:07:00Z') });
+    now: Date.parse(iso(7)) });
   for (const columns of [load([initial, review, ai], confirmed), realtime]) {
     const [card] = columns.flatMap(column => column.cards);
     assert.equal(card.ownerKind, 'ai');
