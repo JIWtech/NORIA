@@ -76,6 +76,7 @@ export function AppTopbar({
             userId={notificationUserId}
             tenantName={selectedTenant?.name}
             tenantSlug={activeTenantSlug}
+            dataReady={!loading}
             role={selectedTenant?.membershipRole}
             settings={notificationSettings}
             conversations={notificationConversations}

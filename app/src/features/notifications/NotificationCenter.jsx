@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from './useNotifications.js';
 import { humanReplyStatus } from './notificationService.js';
-import { findNotificationConversation, notificationMakesSound, notificationScope } from './operatorEvents.js';
+import { findNotificationConversation, notificationMakesSound, notificationScope, reconcileNotifications } from './operatorEvents.js';
 import { canOperateNotifications, inboxNotification, pendingNotifications, waitingConversationNotifications } from './notificationPending.js';
 import { useOperatorNotifications } from './useOperatorNotifications.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { NotificationPanel } from './NotificationPanel.jsx';
+import { NotificationToasts } from './NotificationToasts.jsx';
 
 const EMPTY = [];
 const pages = { leads: 'kanban', appointments: 'agendamentos', campaigns: 'disparos', conversations: 'conversas', attention: 'conversas' };
 
-export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, role, settings,
+export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, role, settings, dataReady = true,
   conversationViewRef, conversations = EMPTY, appointments = EMPTY, kanbanColumns = EMPTY, onOpenConversation, onOpenPage, onOpenCard }) {
   const inbox = useNotifications(tenantId, userId);
   const activity = useOperatorNotifications({ tenantId, tenantSlug, userId, conversationViewRef, appointments, kanbanColumns });
@@ -53,13 +54,14 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
     const sameConversation = (a, b) => a.chatId && b.chatId && (a.channel || 'whatsapp') === (b.channel || 'whatsapp')
       && (a.chatId === b.chatId || (findNotificationConversation(a, conversations)?.id
         && findNotificationConversation(a, conversations)?.id === findNotificationConversation(b, conversations)?.id));
-    return [...remote, ...tracked.filter(item => item.kind !== 'handoff' || !activeRemote.some(other => sameConversation(item, other)))
+    const merged = [...remote, ...tracked.filter(item => item.kind !== 'handoff' || !activeRemote.some(other => sameConversation(item, other)))
       .map(item => ({ ...item, unread: !activity.pendingReads.has(item.id) })),
     ...activity.items.filter(item => !item.tracked
       && !(item.kind === 'handoff' && handoffs.some(other => sameConversation(item, other)))
       && !(item.kind === 'team-review' && tracked.some(other => other.kind === 'team-review' && sameConversation(item, other)))
       && !(item.appointmentId && currentAppointments.get(item.appointmentId) === item.appointmentStatus))];
-  }, [tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
+    return reconcileNotifications(merged, { appointments, conversations, ready: dataReady, now });
+  }, [dataReady, tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
 
   const unread = items.filter(item => !item.remote && item.unread).length + (inbox.unread || 0);
   const markRead = item => item.remote ? inbox.markRead(item.remote)
@@ -80,8 +82,19 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
       run: () => onOpenPage(page) } : null;
   };
 
-  return <NotificationPanel tenantName={tenantName} items={items} conversations={conversations} unread={unread}
+  const openToast = (group, conversation) => {
+    for (const toastItem of group.items) activity.markRead(toastItem.id);
+    activity.dismissToasts(group.items.map(toastItem => toastItem.id));
+    if (conversation && onOpenConversation) onOpenConversation(conversation.id);
+    else if (onOpenPage) onOpenPage('conversas');
+  };
+
+  return <>
+  <NotificationToasts toasts={activity.toasts} conversations={conversations} onOpen={openToast}
+    onDismiss={group => activity.dismissToasts(group.items.map(toastItem => toastItem.id))} />
+  <NotificationPanel tenantName={tenantName} items={items} conversations={conversations} unread={unread}
     inbox={inbox} sound={sound} onMarkRead={markRead} onMarkAll={markAll} actionFor={actionFor}
     showPending={canOperateNotifications(role) || items.some(item => item.pending)}
-    onSettings={onOpenPage ? () => onOpenPage('configuracoes') : undefined} />;
+    onSettings={onOpenPage ? () => onOpenPage('configuracoes') : undefined} />
+  </>;
 }

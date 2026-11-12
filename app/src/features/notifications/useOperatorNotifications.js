@@ -27,6 +27,7 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
     try { return readOperatorNotifications(window.localStorage, key, tenantId); } catch { return []; }
   });
   const [soundSequence, setSoundSequence] = useState(0);
+  const [toasts, setToasts] = useState([]);
   const itemsRef = useRef(items);
   const rows = useRef(new Map());
   const add = useCallback((incoming) => {
@@ -41,6 +42,10 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
     if (newItems.some(item => shouldPlayOperatorNotification(item, tenantSlug, visibleKey))) {
       setSoundSequence(value => value + 1);
     }
+    // Mensagem nova de cliente vira pop-up, exceto na conversa que o atendente já está vendo.
+    const popups = newItems.filter(item => item.kind === 'message' && shouldPlayOperatorNotification(item, tenantSlug, visibleKey)
+      && Date.now() - Date.parse(item.createdAt) < 60_000);
+    if (popups.length) setToasts(current => [...current, ...popups].slice(-20));
   }, [conversationViewRef, tenantSlug]);
 
   useEffect(() => {
@@ -110,5 +115,10 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
     setItems(next);
   }, [pendingKey, pendingReads, tenantId]);
 
-  return { items, pendingReads, soundSequence, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
+  const dismissToasts = useCallback((ids) => {
+    const drop = new Set(ids);
+    setToasts(current => current.filter(item => !drop.has(item.id)));
+  }, []);
+
+  return { items, pendingReads, soundSequence, toasts, dismissToasts, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
 }

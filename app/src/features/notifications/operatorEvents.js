@@ -51,9 +51,12 @@ export function operatorEvents(payload, scope, now = Date.now()) {
   const inserted = payload.eventType === 'INSERT';
   const raw = typeof row.raw_payload === 'object' && row.raw_payload ? row.raw_payload : {};
   const notifications = [];
+  const linkedAppointmentId = payload.table === 'channel_events'
+    ? String(raw.appointment_id || raw.appointment?.id || raw.appointment_creation?.appointment?.id || '') : '';
   const add = (kind, title, description, category = 'conversations', attention = false, version = '') => {
     notifications.push({ id: `${payload.table}:${row.id}:${kind}:${version}`, tenantId, kind, title, description, category, attention,
       ...(payload.table === 'appointments' ? { appointmentId: row.id, appointmentStatus: row.status } : {}),
+      ...(linkedAppointmentId ? { appointmentId: linkedAppointmentId } : {}),
       chatId: row.external_conversation_id || row.chat_id || (kind === 'message' ? row.contact_handle : '') || '',
       channel: row.channel_type || 'whatsapp',
       contact: row.contact_name || '', createdAt: row.updated_at || row.created_at || new Date(now).toISOString(), unread: true });
@@ -138,7 +141,30 @@ export function appointmentReminders(appointments, tenantId, now = Date.now()) {
     if (!['scheduled', 'confirmed'].includes(appointment.status) || !Number.isFinite(starts) || starts < now || starts > now + 15 * 60_000) return [];
     return [{ id: `reminder:${appointment.id}:${appointment.startsAt}`, tenantId, kind: 'reminder', title: 'Agendamento em breve',
       description: `Atendimento às ${new Date(starts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}. Confira os detalhes e prepare o atendimento.`,
-      category: 'appointments', attention: true, contact: appointment.contactName || '', chatId: appointment.externalConversationId || '', channel: appointment.channelType || 'whatsapp', createdAt: new Date(now).toISOString(), unread: true }];
+      category: 'appointments', attention: true, appointmentId: appointment.id, appointmentStartsAt: appointment.startsAt, contact: appointment.contactName || '', chatId: appointment.externalConversationId || '', channel: appointment.channelType || 'whatsapp', createdAt: new Date(now).toISOString(), unread: true }];
+  });
+}
+
+const MESSAGE_GRACE_MS = 2 * 60_000;
+
+// Os avisos guardados no navegador podem falar de coisas que já não existem. Mantém só o que ainda vale na operação atual:
+// agendamento excluído ou cancelado depois do aviso, lembrete de horário que mudou e conversa que saiu do banco.
+// Sem dados carregados (lista vazia ou carregando), nada é descartado, para não esconder avisos por engano.
+export function reconcileNotifications(items, { appointments = [], conversations = [], ready = true, now = Date.now() } = {}) {
+  const byId = new Map(appointments.map(appointment => [appointment.id, appointment]));
+  const appointmentsKnown = ready && appointments.length > 0;
+  const conversationsKnown = ready && conversations.length > 0;
+  return items.filter(item => {
+    if (item.appointmentId) {
+      const current = byId.get(item.appointmentId);
+      if (!current) return !appointmentsKnown;
+      const cancellationNotice = item.kind === 'appointment-cancelled' || item.appointmentStatus === 'cancelled';
+      if (current.status === 'cancelled' && !cancellationNotice) return false;
+      if (item.kind === 'reminder' && (current.startsAt !== item.appointmentStartsAt || !['scheduled', 'confirmed'].includes(current.status))) return false;
+    }
+    if (conversationsKnown && item.kind === 'message' && item.chatId && !item.remote && !item.tracked
+      && now - Date.parse(item.createdAt) > MESSAGE_GRACE_MS && !findNotificationConversation(item, conversations)) return false;
+    return true;
   });
 }
 
