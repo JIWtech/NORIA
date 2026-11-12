@@ -564,7 +564,7 @@ function createSalonHelpers(helpers, input, env) {
     }
     // Preço citado sem a pessoa pedir é leitura do Gemini (price_unrequested); o reparo reescreve a mensagem sem o valor.
     if (verdict.price_unrequested === true) {
-      return fallback('price_unrequested', 'O rascunho anterior citava preço ou valor que a pessoa não pediu. Não cite preço, valor nem duração. Responda só ao que ela disse, em no máximo três frases curtas, e termine com uma pergunta que leve ao próximo passo (como o dia e o horário preferidos ou, quando o serviço exige, a avaliação presencial gratuita). Não cite o nome do salão.');
+      return fallback('price_unrequested', 'O rascunho anterior citava preço ou valor que a pessoa não pediu. Não cite preço, valor nem duração. Responda só ao que a pessoa disse ou comentou, em no máximo três frases curtas, sem precisar terminar com pergunta. Só convide para o próximo passo (como marcar a avaliação presencial gratuita) se fizer sentido. Não cite o nome do salão.');
     }
     // Saudação repetida e convite indevido são apontados pelo revisor; o adaptador só corta o trecho literal.
     const prefix = typeof verdict.remove_prefix === 'string' ? verdict.remove_prefix.trim() : '';
