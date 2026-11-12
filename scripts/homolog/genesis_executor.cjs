@@ -518,7 +518,7 @@ async function runNode(file, { json, phase = null, world }) {
 // The contract version the CORE workflow router node ("CORE - Resolver extensão do tenant") puts on the request that reaches
 // the EXT identity. It is read from the workflow JSON, not assumed. workflowJsonText lets a check present an earlier publication.
 const ROUTER_NODE = 'CORE - Resolver extensão do tenant';
-const CORE_WORKFLOW_FILE = 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json';
+const CORE_WORKFLOW_FILE = 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json';
 async function routerContractVersion(workflowJsonText) {
   const text = workflowJsonText || fs.readFileSync(path.join(sourceRootFor(CORE_FILE), CORE_WORKFLOW_FILE), 'utf8');
   const node = JSON.parse(text).nodes.find(item => item.name === ROUTER_NODE);

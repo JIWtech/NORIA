@@ -11,8 +11,8 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../..');
 const cli = process.argv[2];
 if (!cli || !fs.existsSync(cli)) throw new Error('Informe o caminho existente do binário JavaScript do n8n.');
-const parent = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
-const extension = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ Motor conversacional.json'), 'utf8'));
+const parent = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
+const extension = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Motor-Conversacional-Compartilhado--mlKNPv862H2g3Gap.json'), 'utf8'));
 const byName = (w, name) => { const node = w.nodes.find(n => n.name === name); assert.ok(node, `Nó ausente: ${name}`); return structuredClone(node); };
 for (const name of ['Aguardar Janela de Mensagens', 'Ler Fila WhatsApp']) {
   assert.equal(parent.connections[name].main[0][0].node, 'CORE - Resolver extensão do tenant', `${name} deve convergir para o resolver`);
