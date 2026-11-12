@@ -100,6 +100,8 @@ export function eventsToKanban(
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
     if (isKnownKanbanTestArtifact(event)) continue;
     const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
+    // O pin do pipeline é só um marcador interno: o primeiro loop e o tempo real o ignoram, e a recarga também.
+    if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;
     eventCountsByChat.set(key, (eventCountsByChat.get(key) || 0) + 1);
     const current = latestByChat.get(key);
     if (!current || isMoreRecentRecord(event, current)) latestByChat.set(key, event);
