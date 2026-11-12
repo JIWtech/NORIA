@@ -2652,6 +2652,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
   const appointmentContext = JSON.stringify({
     confirmado: appointments?.futureConfirmed ? {
       titulo: appointments.futureConfirmed.title,
+      pessoa_atendida: appointments.futureConfirmed.contact_name || null,
       quando: appointmentDateLabel(appointments.futureConfirmed),
       status: appointments.futureConfirmed.status || null,
       ...(contextualBooking ? { servicos: appointments.futureConfirmed.metadata?.services || [] } : {}),
@@ -2663,6 +2664,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
     } : null,
     pedido_pendente: appointments?.openRequest ? {
       titulo: appointments.openRequest.title,
+      pessoa_atendida: appointments.openRequest.contact_name || null,
       ...(contextualBooking ? { id: appointments.openRequest.id } : {}),
       servicos: appointments.openRequest.metadata?.services || [],
       data: appointments.openRequest.metadata?.requested_date || null,
@@ -2703,6 +2705,7 @@ ${contextualBooking ? '- Aproveite os dados já informados. A presença dos dado
 ESTADO OPERACIONAL
 - Empresa: ${context.tenant.name}
 - Conversa ja possui historico: ${hasHistory ? 'SIM' : 'NAO'}
+- Nome exibido no perfil de quem escreve: ${JSON.stringify(inputJson.contactName || null)} (pista de perfil, não identidade comprovada).
 
 CATALOGO RECUPERADO NESTA EXECUCAO
 - Modo: ${catalog.mode || 'desconhecido'}
@@ -2717,6 +2720,7 @@ REGRAS OPERACIONAIS CURTAS
 - O system_prompt acima continua sendo a fonte de verdade para personalidade, gênero, menores, descontos, agendamento, reclamações, emojis e handoff.
 - O catálogo recuperado nesta execução é a fonte de verdade para serviços, preços, descrições, categorias e observações comerciais.
 - Use todo o histórico enviado abaixo e não repita informações já fornecidas.
+- O nome em pessoa_atendida de um agendamento é da beneficiária daquele serviço, nunca prova do nome de quem escreve. Não use esse nome como vocativo sem confirmação de que é a própria pessoa. Se um novo serviço não disser para quem é e houver pedido anterior para outra pessoa, pergunte se é para ela novamente ou para outra pessoa antes de pedir dia e horário. Uma correção explícita do destinatário prevalece; não altere o pedido anterior sem confirmação.
 - Contexto interno de áudio/imagem pode aparecer no histórico: use-o sem expor marcadores internos.
 - Nunca invente disponibilidade. Somente o status de agendamento acima pode sustentar uma confirmação real de vaga.
 - Não exponha tags internas como [ACAO: ...] ou [HUMANO_SOLICITADO] na resposta visível.

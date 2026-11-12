@@ -61,7 +61,8 @@ const budgetCore = core.replace('const helpers = this.helpers;', [
 const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
-  claims_registration: false, claims_availability: false, price_unrequested: false };
+  claims_registration: false, claims_availability: false, price_unrequested: false,
+  wrong_contact_name: false, recipient_assumed: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -468,7 +469,7 @@ test('remove_suffix só corta o convite indevido; o pedido explícito de agendam
 });
 
 test('reservas futuras do contato entram como contexto e exigem existing_acknowledged', async () => {
-  const known = [{ servicos: 'Corte', data: 'quarta-feira, 30 de setembro', hora: '14:30', status: 'confirmed' }];
+  const known = [{ nome: 'Maria', servicos: 'Corte', data: 'quarta-feira, 30 de setembro', hora: '14:30', status: 'confirmed' }];
   const acknowledged = await run({ appointments: [otherSlot] });
   assert.equal(acknowledged.text, tag);
   assert.equal(acknowledged.diagnostics.adapter_outcome, 'creation_allowed');
@@ -722,4 +723,41 @@ test('catálogo com valores exige pedido explícito na mensagem atual', async ()
   const requested = await run({ currentText: 'Me mostra o catálogo completo com preços.',
     priceRequestQuote: 'com preços', draft: tag, verdict: okVerdict });
   assert.equal(requested.text, tag);
+});
+
+test('novo serviço não herda a mãe como interlocutora ou destinatária sem confirmação', async () => {
+  const motherRequest = { ...otherSlot, id: 'apt-mother', status: 'pending_confirmation',
+    title: 'Design de sobrancelha - Louzania Santos', contact_name: 'Louzania Santos',
+    metadata: { services: ['Design de sobrancelha'] } };
+  const scope = structuredClone(input);
+  scope.contactName = name;
+  const wrong = 'Adorei a escolha, Louzania! Para qual dia e horário você prefere agendar a sua mão tradicional?';
+  const corrected = 'Mão tradicional, que tudo! É para sua mãe, a Louzania, novamente, ou para outra pessoa?';
+  const result = await run({ scope, evidence: false, appointments: [motherRequest], currentText: 'Só a mão mesmo, best',
+    draft: wrong, repairs: [corrected], verdict: body => ({ ...okVerdict,
+      wrong_contact_name: body.draft === wrong, recipient_assumed: body.draft === wrong }) });
+  assert.equal(result.text, corrected);
+  assert.equal(result.diagnostics.adapter_outcome, 'repaired');
+  assert.equal(result.reviews[0].contact_display_name, name);
+  assert.equal(result.reviews[0].appointment_recipients[0].nome, 'Louzania Santos');
+  assert.deepEqual(result.reviews[0].identity_evidence, []);
+  const reviewRequest = result.requests.find(item => item.body?.generationConfig?.responseSchema?.required?.includes('claims_availability'));
+  assert.ok(reviewRequest.body.generationConfig.responseSchema.required.includes('wrong_contact_name'));
+  assert.ok(reviewRequest.body.generationConfig.responseSchema.required.includes('recipient_assumed'));
+});
+
+test('correção para namorada não chama João pelo nome da mãe nem altera pedido antigo', async () => {
+  const motherRequest = { ...otherSlot, id: 'apt-mother', status: 'pending_confirmation',
+    title: 'Design de sobrancelha - Louzania Santos', contact_name: 'Louzania Santos',
+    metadata: { services: ['Design de sobrancelha'] } };
+  const scope = structuredClone(input);
+  scope.contactName = name;
+  const wrong = 'Entendi perfeitamente, Louzania! Qual é o nome completo dela para que eu possa organizar o agendamento?';
+  const corrected = 'Ah, entendi! A mão tradicional agora é para sua namorada 💕 Qual é o nome completo dela?';
+  const result = await run({ scope, evidence: false, appointments: [motherRequest], currentText: 'Não quero marcar pra minha mãe não! Agora quero pra minha namorada linda',
+    draft: wrong, repairs: [corrected], verdict: body => ({ ...okVerdict, wrong_contact_name: body.draft === wrong,
+      recipient_assumed: false }) });
+  assert.equal(result.text, corrected);
+  assert.equal(result.diagnostics.adapter_outcome, 'repaired');
+  assert.equal(result.reviews[0].current, 'Não quero marcar pra minha mãe não! Agora quero pra minha namorada linda');
 });
