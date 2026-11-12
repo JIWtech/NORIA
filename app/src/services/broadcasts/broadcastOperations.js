@@ -320,6 +320,28 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   /**
    * Cancela com segurança: só afeta 'queued' e 'claimed'.
    */
+  // O envio é do servidor (n8n), que respeita a cadência de proteção do número. O painel só enfileira.
+  async function enqueueBroadcastCampaign(campaignId, { scheduledAt = null, consentConfirmed = false } = {}) {
+    if (consentConfirmed !== true) throw new Error('Confirme o consentimento dos contatos antes de enfileirar o disparo.');
+    const supabase = getClient();
+    if (!supabase || typeof supabase.rpc !== 'function') throw new Error('Supabase nao configurado');
+    const { data, error } = await supabase.rpc('broadcast_enqueue_campaign', {
+      p_campaign_id: campaignId, p_scheduled_at: scheduledAt, p_consent_confirmed: true,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  const CONTROL_ACTIONS = new Set(['pause', 'resume', 'cancel']);
+  async function controlBroadcastCampaign(campaignId, action) {
+    if (!CONTROL_ACTIONS.has(action)) throw new Error('Acao de campanha invalida');
+    const supabase = getClient();
+    if (!supabase || typeof supabase.rpc !== 'function') throw new Error('Supabase nao configurado');
+    const { data, error } = await supabase.rpc('broadcast_control_campaign', { p_campaign_id: campaignId, p_action: action });
+    if (error) throw error;
+    return data;
+  }
+
   async function cancelBroadcastCampaign(campaignId) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
@@ -393,6 +415,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     recordRecipientResult,
     recoverStaleLeases,
     cancelBroadcastCampaign,
+    enqueueBroadcastCampaign,
+    controlBroadcastCampaign,
     reconcileUnknownRecipient,
   };
 }

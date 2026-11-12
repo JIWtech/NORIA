@@ -28,14 +28,12 @@ import {
   upsertBroadcastContacts,
 } from '../../../dataService';
 import { createBroadcastOperations } from '../../../services/broadcasts/broadcastOperations.js';
-import { executeBroadcastCampaign } from '../../../services/broadcasts/broadcastWorker.js';
 import {
   RECIPIENT_STATUS,
   CAMPAIGN_STATUS,
   calculateCampaignCounters,
 } from '../../../services/broadcasts/broadcastStateMachine.js';
 import { getAuthClient, getCurrentSession } from '../../../services/auth/authService.js';
-import { sendN8nCommand } from '../../../services/integration.js';
 import { CHANNEL_OPTIONS } from '../../../services/tenants/tenantAccess.js';
 import {
   parseContactFile,
@@ -57,10 +55,10 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const [contactSearch, setContactSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [busy, setBusy] = useState(false);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [status, setStatusState] = useState({ message: '', tone: 'info' });
   // tone: 'info' | 'progress' | 'success' | 'error'
   const setStatus = (message, tone = 'info') => setStatusState({ message: message || '', tone });
-  const abortControllerRef = useRef(null);
   const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
@@ -231,82 +229,16 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     );
   }, [campaigns]);
 
-  useEffect(() => {
-    if (!busy) return undefined;
-    const handleBeforeUnload = (event) => {
-      event.preventDefault();
-      event.returnValue = 'Um disparo de mensagens está em processamento persistido. Fechar a aba pausará o envio local sem risco de duplicatas, e a campanha poderá ser retomada.';
-      return event.returnValue;
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [busy]);
-
   async function resumeCampaign(campaignToResume) {
     if (busy || !campaignToResume) return;
     setBusy(true);
-    setStatus(`Retomando campanha "${campaignToResume.name}" de forma segura...`, 'progress');
-
-    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
-    abortControllerRef.current = abortController;
-
+    setStatus(`Retomando campanha "${campaignToResume.name}"...`, 'progress');
     try {
-      // 1. Recupera leases órfãs ('claimed' -> 'queued'; 'sending' -> 'unknown')
-      await broadcastOps.recoverStaleLeases(campaignToResume.id);
-
-      // 2. Dispara sinalização ao backend/n8n se disponível
-      sendN8nCommand('broadcast_resume', {
-        campaign_id: campaignToResume.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      // 3. Executa o worker via leases atômicas estritas
-      const message = campaignToResume.message_text || campaignToResume.message_template || messageText;
-      await executeBroadcastCampaign({
-        campaignId: campaignToResume.id,
-        tenantSlug,
-        messageText: message,
-        defaultChannel: campaignToResume.channel_type || defaultChannel,
-        sendCommand: sendN8nCommand,
-        operations: broadcastOps,
-        abortSignal: abortController?.signal,
-        delayMs: 1200,
-        onProgress: ({ message: stepMessage }) => {
-          setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
-        },
-      });
-
-      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaignToResume.id);
-      const counters = calculateCampaignCounters(finalRecipients);
-
-      setStatus(`Retomada concluída: ${counters.sent} enviados, ${counters.failed} falhas${counters.unknown ? `, ${counters.unknown} incertos` : ''}.`, 'success');
+      await broadcastOps.controlBroadcastCampaign(campaignToResume.id, 'resume');
+      setStatus('Campanha retomada. O servidor continua os envios respeitando o intervalo de proteção do número.', 'success');
       await onChanged?.();
     } catch (error) {
       setStatus(userFacingError(error, 'Falha ao retomar campanha.'), 'error');
-    } finally {
-      setBusy(false);
-      abortControllerRef.current = null;
-    }
-  }
-
-  async function cancelCampaign(campaignToCancel) {
-    if (!campaignToCancel || busy) return;
-    setBusy(true);
-    try {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      const res = await broadcastOps.cancelBroadcastCampaign(campaignToCancel.id);
-
-      sendN8nCommand('broadcast_cancel', {
-        campaign_id: campaignToCancel.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res.cancelled_recipients || 0} pendentes cancelados).`, 'success');
-      await onChanged?.();
-    } catch (error) {
-      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -335,16 +267,31 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     }
   }
 
+  async function cancelCampaign(campaignToCancel) {
+    if (!campaignToCancel || busy) return;
+    setBusy(true);
+    try {
+      const res = await broadcastOps.controlBroadcastCampaign(campaignToCancel.id, 'cancel');
+      setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res?.cancelled_recipients || 0} pendentes cancelados).`, 'success');
+      await onChanged?.();
+    } catch (error) {
+      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function sendCampaign() {
     const text = messageText.trim();
     if (!text || !selectedContacts.length || busy) return;
+    if (!consentConfirmed) {
+      setStatus('Confirme que os contatos autorizaram receber mensagens antes de enfileirar o disparo.', 'error');
+      return;
+    }
     setBusy(true);
     setStatus('Salvando campanha e destinatários...', 'progress');
 
     let campaign = null;
-    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
-    abortControllerRef.current = abortController;
-
     try {
       const savedContacts = await upsertBroadcastContacts(tenantSlug, selectedContacts);
       const recipients = mergeBroadcastContacts(savedContacts, selectedContacts);
@@ -355,43 +302,17 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
         messageText: text,
         channelType: defaultChannel,
         total_recipients: recipients.length,
-        status: CAMPAIGN_STATUS.SENDING,
+        status: 'draft',
       }, recipients);
 
-      setStatus('Campanha salva. Iniciando os envios...', 'progress');
+      // O servidor envia uma mensagem por vez, com o intervalo de proteção do número (acima de 40 minutos).
+      await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed: true });
 
-      // Dispara sinalização ao backend/n8n se disponível
-      sendN8nCommand('broadcast_start', {
-        campaign_id: campaign.id,
-        tenant_slug: tenantSlug,
-      }, tenantSlug).catch(() => {});
-
-      // Executa o processador durável via leases atômicas
-      await executeBroadcastCampaign({
-        campaignId: campaign.id,
-        tenantSlug,
-        messageText: text,
-        defaultChannel,
-        sendCommand: sendN8nCommand,
-        operations: broadcastOps,
-        abortSignal: abortController.signal,
-        delayMs: 1200,
-        onProgress: ({ phase, message: stepMessage }) => {
-          if (phase === 'pacing' || phase === 'sending') {
-            setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
-          } else if (phase === 'item_completed') {
-            setStatus('Processando destinatários...', 'progress');
-          }
-        },
-      });
-
-      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaign.id);
-      const finalCounters = calculateCampaignCounters(finalRecipients);
-
-      setStatus(`Disparo concluído: ${finalCounters.sent} enviados, ${finalCounters.failed} falhas${finalCounters.unknown ? `, ${finalCounters.unknown} incertos` : ''}.`, 'success');
+      setStatus(`Campanha enfileirada com ${recipients.length} destinatários. O envio é feito pelo servidor, uma mensagem por vez, com intervalo de proteção do número.`, 'success');
       setMessageText('');
       setCampaignName('');
       setSelected(new Set());
+      setConsentConfirmed(false);
       await onChanged?.();
     } catch (error) {
       if (campaign?.id) {
@@ -399,10 +320,9 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           status: CAMPAIGN_STATUS.PARTIAL_ERROR,
         }).catch(() => {});
       }
-      setStatus(userFacingError(error, 'Falha ao executar disparo.'), 'error');
+      setStatus(userFacingError(error, 'Falha ao enfileirar disparo.'), 'error');
     } finally {
       setBusy(false);
-      abortControllerRef.current = null;
     }
   }
 
@@ -575,10 +495,18 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
           </label>
 
-          <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
+          <label className="bc-field bc-consent">
+            <span>
+              <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
+              {' '}Confirmo que estes contatos autorizaram receber mensagens da empresa.
+            </span>
+            <small>O servidor envia uma mensagem por vez, com intervalo de proteção do número (acima de 40 minutos), e respeita pedidos de saída.</small>
+          </label>
+
+          <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend || !consentConfirmed}>
             {busy
-              ? <><Loader2 size={16} className="bc-spin" /> Enviando…</>
-              : <><Send size={16} /> {selectedContacts.length ? `Enviar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
+              ? <><Loader2 size={16} className="bc-spin" /> Enfileirando…</>
+              : <><Send size={16} /> {selectedContacts.length ? `Enfileirar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
           </button>
           {status.message && (
             <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
