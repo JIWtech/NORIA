@@ -108,6 +108,16 @@ test('entrega incerta troca os botões pela verificação', () => {
   assert.equal(state.canReject, false);
 });
 
+test('proposta incerta não usa reconciliação da confirmação antiga', () => {
+  const state = appointmentRequestState({ startsAt: FUTURE, metadata: {
+    confirmation_state: 'uncertain', slot_proposal: { id: 'p1', status: 'uncertain' },
+  } }, { now: NOW });
+  assert.equal(state.proposalUncertain, true);
+  assert.equal(state.uncertain, false);
+  assert.equal(state.canConfirm, false);
+  assert.equal(state.canReject, false);
+});
+
 test('envio em andamento bloqueia confirmação, recusa e verificação de entrega', () => {
   const state = appointmentRequestState({ startsAt: FUTURE, metadata: { confirmation_state: 'sending' } }, { now: NOW });
   assert.equal(state.sending, true);
@@ -119,7 +129,7 @@ test('envio em andamento bloqueia confirmação, recusa e verificação de entre
 test('o dono entende por que a ação foi recusada, sem ver a mensagem crua do servidor', () => {
   const fallback = 'Não foi possível confirmar o agendamento.';
   const message = (text) => appointmentRequestErrorMessage(new Error(text), fallback);
-  assert.match(message('Pedido alterado pela cliente. Atualize o quadro.'), /cliente mudou este pedido/);
+  assert.match(message('Pedido alterado pela cliente. Atualize o quadro.'), /pessoa mudou este pedido/);
   assert.match(message('Pedido alterado por outro operador. Atualize o quadro.'), /Outra pessoa/);
   assert.match(message('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.'), /WhatsApp/);
   assert.match(message('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.'), /WhatsApp/);

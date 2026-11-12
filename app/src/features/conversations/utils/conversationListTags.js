@@ -55,3 +55,8 @@ export function conversationStageChip(column) {
   const { tone, Icon } = kanbanColumnPresentation(column);
   return { label: column.title, tone, Icon };
 }
+
+// Selo único exibido para conversas sob controle da IA fora da coluna "Conversas IA".
+export const CONVERSATION_AI_STAGE_CHIP = Object.freeze(
+  conversationStageChip({ title: 'Conversas IA', icon: 'bot', tone: 'cyan' }),
+);

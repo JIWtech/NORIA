@@ -9,6 +9,7 @@ import { isConversationWaitingForFollowUp } from '../timeline/conversationFilter
 import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
 import { getTenantSchedulingLink } from '../appointments/schedulingLinks.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
+import { latestSlotProposalByConversation } from '../appointments/slotProposalStatus.js';
 import { estimatedValue } from '../conversations/conversationDerived.js';
 import { getUsefulTrustedContactName } from '../contacts/contactNames.js';
 import { extractAvatarUrlFromEvent } from '../contacts/contactPayload.js';
@@ -459,6 +460,22 @@ export function eventsToKanban(
       automationKey: 'agendamentos',
       cards: appointmentCards.filter((card) => card.targetColumnId === 'agendamentos'),
     });
+  }
+
+  // Estado da proposta de horário: o pedido cancelado não vira cartão, então o selo vai no cartão da conversa.
+  const proposalsByConversation = latestSlotProposalByConversation(appointments, (appointment) => canonicalConversationKey(
+    appointment.channelType || appointment.channel_type,
+    appointment.externalConversationId || appointment.external_conversation_id,
+    `appointment-${appointment.id}`,
+  ));
+  for (const column of columns) {
+    for (const card of column.cards) {
+      const own = card.appointmentStatus === 'pending_confirmation' ? card.appointmentMetadata?.slot_proposal : null;
+      const proposal = own?.status === 'accepted'
+        ? own
+        : proposalsByConversation.get(canonicalConversationKey(card.channelType, card.externalConversationId, card.id));
+      if (proposal) card.slotProposal = { id: proposal.id, status: proposal.status, date: proposal.date, time: proposal.time, sent_at: proposal.sent_at, resolved_at: proposal.resolved_at };
+    }
   }
 
   for (const column of columns) {

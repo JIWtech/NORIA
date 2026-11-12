@@ -96,3 +96,14 @@ test('agendamentos ativos e futuros entram mesmo além dos 200 do histórico', a
   assert.ok(activeQuery.calls.some((item) => item.join('|') === 'eq|tenant_id|tenant-a'));
   assert.ok(activeQuery.calls.find((item) => item[0] === 'limit')[1] >= 1000);
 });
+
+test('propostas de horário de pedidos cancelados entram por consulta própria, sempre no tenant', async () => {
+  const client = fakeSupabase({ appointments: { data: [{ id: 'cancelled-proposal', tenant_id: 'tenant-a', status: 'cancelled' }], error: null } });
+  const rows = await loadAppointments(client, 'tenant-a', (row) => row);
+  assert.deepEqual(rows.map((row) => row.id), ['cancelled-proposal']);
+  const proposalQuery = client.queries[2];
+  assert.ok(proposalQuery.calls.some((call) => call.join('|') === 'eq|tenant_id|tenant-a'));
+  assert.ok(proposalQuery.calls.some((call) => call.join('|') === 'eq|status|cancelled'));
+  const statuses = proposalQuery.calls.find((call) => call[0] === 'in' && call[1] === 'metadata->slot_proposal->>status')[2];
+  assert.deepEqual([...statuses].sort(), ['rejected', 'sent', 'superseded']);
+});

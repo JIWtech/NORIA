@@ -323,6 +323,7 @@ export function describeSystemEvent(message) {
 const HIDDEN_TIMELINE_EVENT_KINDS = new Set(['assigned', 'ai_on', 'ai_off', 'stage']);
 
 export function isHiddenTimelineSystemEvent(message) {
+  if (message?.service === 'noria_pipeline_pin') return true;
   return isSystemTimelineMessage(message) && HIDDEN_TIMELINE_EVENT_KINDS.has(describeSystemEvent(message).kind);
 }
 

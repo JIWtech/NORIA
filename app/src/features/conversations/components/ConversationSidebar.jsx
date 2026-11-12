@@ -6,7 +6,7 @@ import { EmptyState } from '../../../components/ui/EmptyState.jsx';
 import { SkeletonLine } from '../../../components/ui/Skeletons.jsx';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon.jsx';
 import { deriveConversationPresentationState } from '../utils/chatTimelineHelpers.js';
-import { conversationListTags, conversationStageChip } from '../utils/conversationListTags.js';
+import { CONVERSATION_AI_STAGE_CHIP, conversationListTags, conversationStageChip } from '../utils/conversationListTags.js';
 import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
 import { formatConversationPreview } from '../../../utils/audioUtils.js';
 export function ConversationSidebar({
@@ -509,9 +509,12 @@ export function ConversationSidebar({
                         </span>
                       )}
                       {listTags.owner?.kind === 'ai' && (
-                        <span className="attendant-pill ia" title="Assistente IA">
-                          <Bot size={11} />
-                          <span>IA</span>
+                        <span
+                          className={`conversation-stage-tag stage-tag has-icon tone-${CONVERSATION_AI_STAGE_CHIP.tone}`}
+                          title="Assistente IA"
+                        >
+                          <CONVERSATION_AI_STAGE_CHIP.Icon size={11} aria-hidden="true" />
+                          <span>{CONVERSATION_AI_STAGE_CHIP.label}</span>
                         </span>
                       )}
                       {stageChip && (

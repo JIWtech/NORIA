@@ -29,6 +29,7 @@ export function isInternalOperationalEvent(event = {}) {
     || metadata.is_internal === true;
 
   return eventType === 'kanban_stage_changed'
+    || (event.service === 'noria_pipeline_pin' && event.delivery_status === 'internal')
     || event.ai_provider === 'kanban_action'
     || event.service === 'kanban_move'
     || (isInternal && category === 'kanban');

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Bot, CalendarCheck, Inbox, UserRound } from 'lucide-react';
 import {
+  CONVERSATION_AI_STAGE_CHIP,
   conversationListTags,
   conversationStageChip,
   indexKanbanCards,
@@ -102,5 +103,13 @@ test('conversa abandonada ou sem responsável não exibe badge IA na lista nem n
   assert.deepEqual(conversationListTags({ ...ai, stageLabel: 'Conversas abandonadas' }, null, abandonedCol), {
     owner: null,
     column: abandonedCol,
+  });
+});
+
+test('CONVERSATION_AI_STAGE_CHIP usa exatamente o selo Conversas IA cyan com ícone Bot', () => {
+  assert.deepEqual(CONVERSATION_AI_STAGE_CHIP, {
+    label: 'Conversas IA',
+    tone: 'cyan',
+    Icon: Bot,
   });
 });

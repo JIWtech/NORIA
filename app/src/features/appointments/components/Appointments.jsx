@@ -26,19 +26,24 @@ import {
   saveAppointment,
 } from '../../../dataService';
 import { isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
-import { archiveAppointment, cancelAppointment, markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
+import { archiveAppointment, markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { appointmentAgendaItem, appointmentSections } from '../../../services/appointments/appointmentAgenda.js';
 import { appointmentActionsFor } from '../../../services/appointments/appointmentActions.js';
 import { noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { useDepositRequired } from '../utils/useDepositRequired';
 import { AppointmentOutcomeActions } from './AppointmentOutcomeActions.jsx';
 import { AppointmentEditDialog } from './AppointmentEditDialog.jsx';
+import { AppointmentCancelDialog } from './AppointmentCancelDialog.jsx';
+import { noticeState } from './cancellationFlow.js';
+import { AppointmentConfirmDialog } from './AppointmentConfirmDialog.jsx';
 import { NoShowMessageDialog } from './NoShowMessageDialog.jsx';
 
 export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false, tenantSettings = null }) {
   const [outcomeBusyId, setOutcomeBusyId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [editing, setEditing] = useState(null);
+  const [cancelling, setCancelling] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
   const [noShowTarget, setNoShowTarget] = useState(null);
   const timeZone = tenantSettings?.timezone || undefined;
   const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', appointments);
@@ -61,6 +66,8 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
   useEffect(() => {
     let active = true;
+    setCancelling(null);
+    setConfirmation(null);
     setSchedule(null); setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime('');
     requestId.current = crypto.randomUUID();
     loadAppointmentScheduling(tenantSlug).then(value => { if (active) setSchedule(value); })
@@ -97,24 +104,26 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
   async function finishDialog(message) {
     setEditing(null);
+    setCancelling(null);
     setNoShowTarget(null);
     setStatus(message);
     await onChanged?.();
   }
 
-  async function runAction(appointment, action) {
+  async function runAction(appointment, action, confirmed = false) {
     if (outcomeBusyId) return;
     const prompts = {
-      cancel: 'Cancelar este agendamento? A cliente não será avisada.',
       archive: 'Arquivar este agendamento como concluído?',
     };
-    if (!window.confirm(prompts[action])) return;
+    if (!confirmed) {
+      setConfirmation({ title: 'Arquivar agendamento', message: prompts[action], confirmLabel: 'Arquivar', onConfirm: () => runAction(appointment, action, true) });
+      return;
+    }
     setOutcomeBusyId(appointment.id);
     setStatus('');
     try {
-      if (action === 'cancel') await cancelAppointment(appointment.id);
-      else await archiveAppointment(appointment.id);
-      setStatus(action === 'cancel' ? 'Agendamento cancelado. A cliente não foi avisada.' : 'Agendamento arquivado como concluído.');
+      await archiveAppointment(appointment.id);
+      setStatus('Agendamento arquivado como concluído.');
       await onChanged?.();
     } catch (error) {
       setStatus(error.message || 'Não foi possível atualizar o agendamento.');
@@ -123,16 +132,19 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     }
   }
 
-  async function handleOutcome(appointment, outcome) {
+  async function handleOutcome(appointment, outcome, confirmed = false) {
     if (outcomeBusyId) return;
-    if (outcome === 'no_show' && noShowMessageConfig(tenantSettings, appointment).enabled) {
+    if (!confirmed && outcome === 'no_show' && noShowMessageConfig(tenantSettings, appointment).enabled) {
       setNoShowTarget(appointment);
       return;
     }
     const message = outcome === 'no_show'
       ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
       : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
-    if (!window.confirm(message)) return;
+    if (!confirmed) {
+      setConfirmation({ title: outcome === 'no_show' ? 'Registrar falta' : 'Registrar comparecimento', message, confirmLabel: 'Registrar', onConfirm: () => handleOutcome(appointment, outcome, true) });
+      return;
+    }
     setOutcomeBusyId(appointment.id);
     setStatus('');
     try {
@@ -312,7 +324,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                                 </button>
                               )}
                               {actions.includes('cancel') && (
-                                <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => runAction(appointment, 'cancel')}>
+                                <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => setCancelling(appointment)}>
                                   <Ban size={13} aria-hidden="true" /> Cancelar
                                 </button>
                               )}
@@ -329,6 +341,13 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                               />
                             </div>
                           )}
+                          {appointment.status === 'cancelled' && noticeState(appointment.raw?.metadata).canReconcile && (
+                            <div className="appointment-agenda-actions">
+                              <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => setCancelling(appointment)}>
+                                <Ban size={13} aria-hidden="true" /> Conferir aviso de cancelamento
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </article>
                     );
@@ -343,6 +362,12 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
       </section>
       {editing && (
         <AppointmentEditDialog appointment={editing} timeZone={timeZone} onClose={() => setEditing(null)} onDone={finishDialog} />
+      )}
+      {confirmation && (
+        <AppointmentConfirmDialog {...confirmation} onClose={() => setConfirmation(null)} onConfirm={() => { const confirm = confirmation.onConfirm; setConfirmation(null); confirm(); }} />
+      )}
+      {cancelling && (
+        <AppointmentCancelDialog appointment={cancelling} tenantSlug={tenantSlug} onClose={() => setCancelling(null)} onDone={finishDialog} />
       )}
       {noShowTarget && (
         <NoShowMessageDialog

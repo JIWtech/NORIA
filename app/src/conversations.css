@@ -553,9 +553,9 @@
 }
 
 .conversation-layout .attendant-pill.ia {
-  background: var(--cv-green-soft);
-  border: 1px solid var(--cv-green-border);
-  color: var(--cv-green);
+  background: rgba(34, 211, 238, 0.12);
+  border: 0;
+  color: #22d3ee;
 }
 
 .conversation-layout .attendant-pill.closed {
@@ -687,7 +687,7 @@
   white-space: nowrap;
 }
 
-.conversation-layout .chat-header-status.is-ai { color: var(--cv-green); }
+.conversation-layout .chat-header-status.is-ai { color: #22d3ee; }
 .conversation-layout .chat-header-status.is-human { color: #67e8f9; }
 
 .conversation-layout .chat-header-status-dot {

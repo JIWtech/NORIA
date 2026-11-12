@@ -21,6 +21,8 @@ export async function findTenantBySlug(supabase, activeTenantSlug) {
 const ACTIVE_APPOINTMENT_STATUSES = ['pending_confirmation', 'payment_reported', 'aguardando_verificacao',
   'scheduled', 'confirmed', 'reserved', 'pending_payment'];
 const ACTIVE_APPOINTMENTS_LIMIT = 1000;
+const SLOT_PROPOSAL_STATUSES = ['sent', 'rejected', 'superseded'];
+const SLOT_PROPOSAL_LIMIT = 100;
 
 export async function loadAppointments(supabase, tenantId, mapAppointment) {
   const { data, error } = await supabase
@@ -41,7 +43,18 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     .order('starts_at', { ascending: true })
     .limit(ACTIVE_APPOINTMENTS_LIMIT);
   if (openError) console.warn('Active appointments fallback:', openError.message);
-  return mergeOpenAppointmentRequests(data || [], openAppointments || []).map(mapAppointment);
+  // Pedidos cancelados que carregam uma proposta de horário (enviada, recusada ou substituída): o Kanban mostra o estado
+  // no cartão da conversa. Consulta própria para não depender do limite do histórico.
+  const { data: proposalAppointments, error: proposalError } = await supabase
+    .from('appointments')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'cancelled')
+    .in('metadata->slot_proposal->>status', SLOT_PROPOSAL_STATUSES)
+    .order('updated_at', { ascending: false })
+    .limit(SLOT_PROPOSAL_LIMIT);
+  if (proposalError) console.warn('Slot proposal appointments fallback:', proposalError.message);
+  return mergeOpenAppointmentRequests(mergeOpenAppointmentRequests(data || [], openAppointments || []), proposalAppointments || []).map(mapAppointment);
 }
 
 export async function loadBroadcastContacts(supabase, tenantId) {

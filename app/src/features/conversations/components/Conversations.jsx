@@ -1,5 +1,5 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
-import { conversationListTags, conversationStageChip, indexKanbanCards } from '../utils/conversationListTags.js';
+import { CONVERSATION_AI_STAGE_CHIP, conversationListTags, conversationStageChip, indexKanbanCards } from '../utils/conversationListTags.js';
 import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import {
@@ -957,9 +957,12 @@ export function Conversations({
                       <span>Com {headerSubtitleInfo.assignee}</span>
                     </span>
                   ) : headerSubtitleInfo.isAiActive && headerTags.owner?.kind === 'ai' ? (
-                    <span className="chat-header-status is-ai" title="A IA está respondendo esta conversa">
-                      <span className="chat-header-status-dot" aria-hidden="true" />
-                      <span>Atendido pela IA</span>
+                    <span
+                      className={`chat-header-stage-chip stage-tag has-icon tone-${CONVERSATION_AI_STAGE_CHIP.tone}`}
+                      title="A IA está respondendo esta conversa"
+                    >
+                      <CONVERSATION_AI_STAGE_CHIP.Icon size={12} aria-hidden="true" />
+                      <span>{CONVERSATION_AI_STAGE_CHIP.label}</span>
                     </span>
                   ) : null}
                 </div>

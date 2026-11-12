@@ -39,7 +39,10 @@ import { markAppointmentOutcome } from '../../../services/appointments/outcomeAc
 import { useDepositRequired } from '../../appointments/utils/useDepositRequired';
 import { APPOINTMENT_OUTCOME_ACTIONS, AppointmentOutcomeActions } from '../../appointments/components/AppointmentOutcomeActions.jsx';
 import { AppointmentRequestActions } from './AppointmentRequestActions.jsx';
+import { slotProposalSuggestionEnabled } from '../../../services/appointments/appointmentRequest.js';
+import { slotProposalBadge } from '../../../services/appointments/slotProposalStatus.js';
 import { NoShowMessageDialog } from '../../appointments/components/NoShowMessageDialog.jsx';
+import { AppointmentConfirmDialog } from '../../appointments/components/AppointmentConfirmDialog.jsx';
 import { appointmentFromKanbanCard, noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { AppointmentDetails } from './AppointmentDetails.jsx';
 import { KanbanCardMenu } from './KanbanCardMenu.jsx';
@@ -91,6 +94,7 @@ export function Kanban({
   const [confirmingCardId, setConfirmingCardId] = useState('');
   const [outcomeCardId, setOutcomeCardId] = useState('');
   const [noShowTarget, setNoShowTarget] = useState(null);
+  const [confirmation, setConfirmation] = useState(null);
   const [kanbanActionStatus, setKanbanActionStatus] = useState('');
   // Recurso por tenant (settings.appointment_outcome_tracking): os demais clientes não veem nada novo.
   const outcomeTracking = isOutcomeTrackingEnabled(tenantSettings);
@@ -225,10 +229,17 @@ export function Kanban({
     }
   }
 
-  async function handleConfirmSignal(card) {
+  function handleConfirmSignal(card) {
     if (!card?.appointmentId || confirmingCardId) return;
-    const confirmed = window.confirm('Confirmar pagamento do sinal e concluir esta etapa?');
-    if (!confirmed) return;
+    setConfirmation({
+      title: 'Confirmar sinal',
+      message: 'Confirmar pagamento do sinal e concluir esta etapa?',
+      confirmLabel: 'Confirmar sinal',
+      onConfirm: () => confirmSignal(card),
+    });
+  }
+  async function confirmSignal(card) {
+    if (!card?.appointmentId || confirmingCardId) return;
     setConfirmingCardId(card.id);
     setKanbanActionStatus('');
     try {
@@ -251,7 +262,7 @@ export function Kanban({
     ? availableOutcomes({ startsAt: card.appointmentStartsAt, status: card.appointmentStatus })
     : []);
 
-  async function handleMarkOutcome(card, outcome) {
+  function handleMarkOutcome(card, outcome) {
     if (!card?.appointmentId || outcomeCardId) return;
     const noShowAppointment = outcome === 'no_show' ? appointmentFromKanbanCard(card) : null;
     if (noShowAppointment && noShowMessageConfig(tenantSettings, noShowAppointment).enabled) {
@@ -261,7 +272,15 @@ export function Kanban({
     const message = outcome === 'no_show'
       ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
       : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
-    if (!window.confirm(message)) return;
+    setConfirmation({
+      title: outcome === 'no_show' ? 'Registrar falta' : 'Registrar comparecimento',
+      message,
+      confirmLabel: outcome === 'no_show' ? 'Registrar falta' : 'Registrar comparecimento',
+      onConfirm: () => markOutcome(card, outcome),
+    });
+  }
+  async function markOutcome(card, outcome) {
+    if (!card?.appointmentId || outcomeCardId) return;
     setOutcomeCardId(card.id);
     setKanbanActionStatus('');
     try {
@@ -693,6 +712,11 @@ export function Kanban({
                             <AppointmentDetails card={card} timeZone={tenantSettings?.timezone} />
                           )}
 
+                          {(() => {
+                            const badge = slotProposalBadge(card.slotProposal, { ttl: tenantSettings?.settings?.appointment_request?.slot_proposal_ttl_hours });
+                            return badge && <span className={`slot-proposal-badge slot-proposal-${badge.key}`} title="Proposta de horário enviada pela equipe">{badge.label}</span>;
+                          })()}
+
                           {depositRequired && (
                             <span className="kanban-card-deposit" title="Exige sinal ao marcar um novo horário">
                               <CircleDollarSign size={13} aria-hidden="true" /> Exige sinal ao agendar
@@ -719,6 +743,7 @@ export function Kanban({
                                   card={card}
                                   tenantSlug={tenantSlug}
                                   staleHours={tenantSettings?.settings?.appointment_request?.stale_alert_hours}
+                                  suggestionEnabled={slotProposalSuggestionEnabled(tenantSlug, tenantSettings?.settings?.appointment_request)}
                                   timeZone={tenantSettings?.timezone}
                                   onChanged={onChanged}
                                   onStatus={setKanbanActionStatus}
@@ -759,6 +784,17 @@ export function Kanban({
             setNoShowTarget(null);
             setKanbanActionStatus(message);
             await onChanged?.();
+          }}
+        />
+      )}
+      {confirmation && (
+        <AppointmentConfirmDialog
+          {...confirmation}
+          onClose={() => setConfirmation(null)}
+          onConfirm={() => {
+            const action = confirmation.onConfirm;
+            setConfirmation(null);
+            action();
           }}
         />
       )}
