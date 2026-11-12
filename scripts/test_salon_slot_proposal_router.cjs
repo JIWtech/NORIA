@@ -37,10 +37,18 @@ test('data e hora passadas no fuso do tenant são recusadas antes do Gemini, com
 });
 test('a conferência de data e hora aceita variações estruturadas (14h, 14:00, 14h00; dd/mm e dd/mm/aaaa)',async()=>{
  for(const [date,time] of [['29/09/2099','10h'],['29/09','10:00'],['29/09/2099','10h00'],['2099-09-29','10']]){
-   const {result}=await execute({gemini:{text:'Ana, que tal esse dia?',date,time}});assert.equal(result.ok,true,date+' '+time+' '+JSON.stringify(result));
+   const {result}=await execute({gemini:{text:'Ana, que tal 29/09/2099 às 10h?',date,time}});assert.equal(result.ok,true,date+' '+time+' '+JSON.stringify(result));
  }
  for(const [date,time] of [['30/09/2099','10:00'],['29/10','10:00'],['29/09/2098','10:00'],['29/09/2099','10:30'],['', '10:00']]){
    const {result}=await execute({gemini:{text:'Ana, que tal esse dia?',date,time}});assert.equal(result.ok,false,date+' '+time);
+ }
+});
+test('texto vago ou com outra data/hora é recusado mesmo com os campos estruturados corretos (IA-03)',async()=>{
+ for(const text of ['Ana, que tal esse dia?','Ana, que tal 30/09 às 10h?','Ana, que tal 29/09 às 15h?','Ana, que tal 29/09?']){
+   const {result,calls}=await execute({gemini:{text,date:'29/09/2099',time:'10:00'}});assert.equal(result.ok,false,text);assert.equal(calls.some(c=>c.t==='sendText'),false,text);
+ }
+ for(const text of ['Ana, que tal dia 29 às 10:00?','Ana, 29 de setembro às 10h00, pode ser?']){
+   const {result}=await execute({gemini:{text,date:'29/09/2099',time:'10:00'}});assert.equal(result.ok,true,text+JSON.stringify(result));
  }
 });
 test('entrega incerta ou falha da ativação não relatam sucesso',async()=>{
@@ -73,7 +81,7 @@ test('proposta: o Gemini recebe o tom do tenant e a regra de tratamento neutro',
  const prompt=JSON.stringify(gemini.body);assert.match(prompt,/TOM_DO_SALAO_TESTE/);assert.match(prompt,/forma neutra/);assert.match(prompt,/feminino/);
 });
 test('confirmar e pedir outro horário: o Gemini escreve com dados conferidos; o modelo do tenant só entra se ele falhar',async()=>{
- const confirm={text:'Ana, tudo certo! Corte na terça. Menores só acompanhados.',date:'28/09/2099',time:'10h00',services:['corte'],avisos_do_modelo_mantidos:true};
+ const confirm={text:'Ana, tudo certo! Corte dia 28/09 às 10h. Menores só acompanhados.',date:'28/09/2099',time:'10h00',services:['corte'],avisos_do_modelo_mantidos:true};
  const ok=await execute({command:'confirm_appointment_request',noProposal:true,gemini:confirm,payload:{conflicts_acknowledged:true}});
  assert.equal(ok.result.ok,true,JSON.stringify(ok.result));assert.equal(ok.calls.find(c=>c.t==='sendText').body.text,confirm.text);
  const prompt=JSON.stringify(ok.calls.find(c=>/generateContent/.test(c.t)).body);assert.match(prompt,/TOM_DO_SALAO_TESTE/);assert.match(prompt,/Menores só acompanhados/);assert.match(prompt,/forma neutra/);
@@ -86,7 +94,7 @@ test('confirmar e pedir outro horário: o Gemini escreve com dados conferidos; o
  }
  const down=await execute({command:'confirm_appointment_request',noProposal:true,geminiFail:true,payload:{conflicts_acknowledged:true}});
  assert.equal(down.result.ok,true);assert.match(down.calls.find(c=>c.t==='sendText').body.text,/^Ana, confirmado: Corte,/);
- const reject=await execute({noProposal:true,gemini:{text:'Ana, esse horário não está livre. Qual outro fica bom?',date:'28/09/2099',time:'10:00',avisos_do_modelo_mantidos:true}});
- assert.equal(reject.result.ok,true,JSON.stringify(reject.result));assert.equal(reject.calls.find(c=>c.t==='sendText').body.text,'Ana, esse horário não está livre. Qual outro fica bom?');
+ const reject=await execute({noProposal:true,gemini:{text:'Ana, 28/09 às 10h não está livre. Qual outro fica bom?',date:'28/09/2099',time:'10:00',avisos_do_modelo_mantidos:true}});
+ assert.equal(reject.result.ok,true,JSON.stringify(reject.result));assert.equal(reject.calls.find(c=>c.t==='sendText').body.text,'Ana, 28/09 às 10h não está livre. Qual outro fica bom?');
  const rejectDown=await execute({noProposal:true,geminiFail:true});assert.equal(rejectDown.calls.find(c=>c.t==='sendText').body.text,'Texto legado');
 });

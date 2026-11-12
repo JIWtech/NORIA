@@ -267,6 +267,23 @@ async function main(helpers) {
   }
   function plainKey(value) { return String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase(); }
 
+  // Parsing técnico do texto final: procura a data (dd/mm, "dia 29", "29 de setembro", aaaa-mm-dd) e a hora (14:00, 14h, 14h30, 14 horas).
+  function textMentionsSchedule(text, isoDate, hhmm) {
+    const plain = plainKey(text);
+    const day = Number(isoDate.slice(8, 10)), month = Number(isoDate.slice(5, 7));
+    const months = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+    const d = '0?' + day, m = '0?' + month;
+    const dateOk = new RegExp('(?<!\\d)' + d + '\\s*/\\s*' + m + '(?!\\d)').test(plain)
+      || new RegExp('(?<!\\d)' + d + '\\s+de\\s+' + months[month - 1] + '(?![a-z])').test(plain)
+      || new RegExp('\\bdia\\s+' + d + '(?!\\d)').test(plain)
+      || plain.includes(isoDate);
+    const hour = Number(hhmm.slice(0, 2)), minute = Number(hhmm.slice(3, 5));
+    const h = '0?' + hour;
+    const timeOk = minute === 0
+      ? new RegExp('(?<!\\d)' + h + '\\s*(?::00|h00|h|\\s+horas?)(?!\\d)').test(plain)
+      : new RegExp('(?<!\\d)' + h + '\\s*(?::|h)\\s*' + String(minute).padStart(2, '0') + '(?!\\d)').test(plain);
+    return dateOk && timeOk;
+  }
   // O Gemini redige; o código só confere os dados estruturados que ele declara ter usado.
   // expected: { date: 'AAAA-MM-DD', time: 'HH:MM', services?: [], template?: string }. Devolve o texto ou lança.
   async function composeWithGemini(settings, tenant, row, purpose, expected, extraFacts = {}) {
@@ -291,6 +308,8 @@ async function main(helpers) {
     const text = String(value?.text || '').trim();
     if (!text) throw new Error('Gemini nao gerou mensagem');
     if (!sameDateField(value.date, expected.date) || normalizeTimeField(value.time) !== expected.time) throw new Error('Gemini nao gerou mensagem com data e horario exatos');
+    // Os campos estruturados estão corretos, mas o texto enviado ao cliente também precisa trazer a data e a hora.
+    if (!textMentionsSchedule(text, expected.date, expected.time)) throw new Error('Gemini nao citou data e horario no texto da mensagem');
     if (Array.isArray(expected.services) && expected.services.length) {
       const used = new Set((Array.isArray(value.services) ? value.services : []).map(plainKey));
       if (!expected.services.every(service => used.has(plainKey(service)))) throw new Error('Gemini nao citou os servicos do pedido');
