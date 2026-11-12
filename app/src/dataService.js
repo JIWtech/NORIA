@@ -46,6 +46,7 @@ export { cleanAgentName };
 import { loadTeamAgents as loadTeamAgentsWithDependencies } from './services/agents/teamAgentReads.js';
 import { mapAppointment } from './services/appointments/appointmentPresentation.js';
 import { createSaveAppointment } from './services/appointments/saveAppointment.js';
+import { loadConversationHeads, mergeConversationHeads } from './services/conversations/conversationHeads.js';
 import { createAppointmentDataService } from './services/appointments/appointmentDataService.js';
 import { createBroadcastOperations } from './services/broadcasts/broadcastOperations.js';
 import { createTeamAgentManagement } from './services/agents/teamAgentManagement.js';
@@ -340,11 +341,14 @@ export async function loadClientData(fallback, activeTenantSlug, userId = null) 
     tenant && userId ? loadConversationReadsWithClient(supabase, tenant.id, userId) : [],
     tenant ? loadTeamAgents(activeTenantSlug) : [],
   ]);
-  const { data, error } = eventsResult;
+  const { data: recentEvents, error } = eventsResult;
 
   if (error) {
     throw new Error('Nao foi possivel carregar os atendimentos.');
   }
+
+  // Completa a janela recente com o último evento de cada conversa: nenhuma conversa some do painel (IA-16).
+  const data = recentEvents?.length ? mergeConversationHeads(recentEvents, await loadConversationHeads(supabase, activeTenantSlug)) : recentEvents;
 
   if (!data?.length) {
     return buildEmptyClientData({ fallback, tenantId: tenant.id, enabledChannels: tenantChannels, activeTenantSlug, appointments, broadcastContacts, broadcastCampaigns, conversationReads, teamAgents, kanbanConfig, followUpJobs, salesLeads });
