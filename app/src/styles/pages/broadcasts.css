@@ -675,6 +675,58 @@
   padding: 0 14px;
 }
 
+.bc-consent {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.bc-consent:has(input:checked) {
+  border-color: var(--brand-strong);
+  background: var(--brand-soft);
+}
+
+.bc-consent:focus-within {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.bc-consent input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.bc-consent-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bc-consent-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.bc-consent-copy small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .bc-send-btn {
   display: inline-flex;
   align-items: center;

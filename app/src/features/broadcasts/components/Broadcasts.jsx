@@ -511,12 +511,12 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
           </label>
 
-          <label className="bc-field bc-consent">
-            <span>
-              <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
-              {' '}Confirmo que estes contatos autorizaram receber mensagens da empresa.
+          <label className="bc-consent">
+            <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
+            <span className="bc-consent-copy">
+              <strong>Confirmo que estes contatos autorizaram receber mensagens da empresa.</strong>
+              <small>O servidor envia uma mensagem por vez, com intervalo de proteção do número (acima de 40 minutos), e respeita pedidos de saída.</small>
             </span>
-            <small>O servidor envia uma mensagem por vez, com intervalo de proteção do número (acima de 40 minutos), e respeita pedidos de saída.</small>
           </label>
 
           <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend || !consentConfirmed}>
