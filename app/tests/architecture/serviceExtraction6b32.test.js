@@ -70,8 +70,8 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
     },
   });
 
-  assert.equal(stateCount, 17, 'Preservação estrita dos 17 useState em App.jsx');
-  assert.equal(refCount, 4, 'Preservação estrita dos 4 useRef em App.jsx');
+  assert.equal(stateCount, 18, 'Preservação estrita dos 18 useState em App.jsx');
+  assert.equal(refCount, 5, 'Preservação estrita dos 5 useRef em App.jsx');
   assert.equal(effectCount, 9, 'Preservação estrita dos 9 useEffect em App.jsx');
 
   // Validação da integração com componentes modulares do shell

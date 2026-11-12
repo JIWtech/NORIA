@@ -1,7 +1,7 @@
 import React from 'react';
 import { Building2, LogOut, Menu, RefreshCcw } from 'lucide-react';
 import { NoriaSelect } from '../components/NoriaSelect';
-import { NotificationCenter } from '../features/notifications/NotificationCenter';
+import { NotificationCenter } from '../features/notifications/NotificationCenter.jsx';
 
 export function AppTopbar({
   active,

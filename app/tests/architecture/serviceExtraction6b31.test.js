@@ -54,6 +54,9 @@ test('6B.31 contratos funcionais de AppTopbar: título, tenant, seleção, refre
     if (specifier.includes('NoriaSelect')) {
       return { NoriaSelect: (props) => ({ type: 'NoriaSelect', props }) };
     }
+    if (specifier.includes('NotificationCenter')) {
+      return { NotificationCenter: (props) => ({ type: 'NotificationCenter', props }) };
+    }
     return baseRequire(specifier);
   };
 

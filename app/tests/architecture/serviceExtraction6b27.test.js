@@ -17,10 +17,10 @@ test('6B.27 extrai a timeline preservando o stream, a ordem e callbacks de mídi
   const timeline = fs.readFileSync(timelinePath, 'utf8');
   const conversations = fs.readFileSync(conversationsPath, 'utf8');
 
-  assert.match(timeline, /export function ConversationTimeline\(/);
+  assert.match(timeline, /export const ConversationTimeline = React\.memo\(ConversationTimelineComponent\)/);
   assert.match(timeline, /className="message-stream"/);
   assert.match(timeline, /ref=\{messageStreamRef\}/);
-  assert.match(timeline, /groupedMessages\.map\(\(message, index\)/);
+  assert.match(timeline, /visibleMessages\.map\(\(message, index\)/);
   assert.match(timeline, /onMediaLoad=\{scrollToLatest\}/);
   assert.match(timeline, /onRetry=\{\(\) => onRetryAudioMedia\?\.\(message\)\}/);
   assert.match(timeline, /<div ref=\{messagesEndRef\} \/>/);
