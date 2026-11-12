@@ -85,8 +85,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_12',
-  built_at: '2026-11-12T13:35:43.142Z',
-  core_sha256: '90433748f893ca6219db2ae8c810268496b3af1f26aa7144d1ac971549b078e8',
+  built_at: '2026-11-12T19:47:15.160Z',
+  core_sha256: '71b9aa706c6f57120aa753f6932e54279a3a21321269664097cdd20ae399fd27',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -94,6 +94,8 @@ let salesInventoryMemo = null;
 // Durable per-tenant Gemini budget (magia_gemini_reserve). Set once the tenant
 // is authenticated in loadTenantContext; never derived from workflow static data.
 let geminiTenantBudget = null;
+// Fuso do tenant do turno atual (coluna tenant_settings.timezone); preenchido em loadTenantContext.
+let activeTenantTimeZone = '';
 let geminiTenantUsageSnapshot = null;
 // Local evidence handles are never accepted from serialized workflow/model input.
 const salesSemanticEvidenceProofs = new WeakMap();
@@ -473,7 +475,7 @@ function removeMidConversationGreeting(text, hasHistory) {
 
 function detectActions(text) {
   const value = String(text || '');
-  const actionPrefix = String.raw`\[(?:A??O|ACAO)\s*:\s*`;
+  const actionPrefix = String.raw`\[A[CÇ][AÃ]O\s*:\s*`;
   return {
     humanRequested: new RegExp(String.raw`\[HUMANO_SOLICITADO\]`, 'i').test(value),
     complaint: new RegExp(actionPrefix + String.raw`RECLAMACAO\]`, 'i').test(value) || new RegExp(String.raw`\[RECLAMACAO\]`, 'i').test(value),
@@ -1850,6 +1852,20 @@ function supabaseErrorText(error) {
     }).join(' ');
 }
 
+// Mesma regra do normalizador de entrada: o canal é identificado por external_id ou por qualquer
+// alias de instância em config, sem diferenciar caixa nem símbolos.
+function normalizeInstanceKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel?.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel?.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+
 async function loadTenantContext() {
   const tenants = await supabaseGet('/rest/v1/tenants?select=*&slug=eq.' + encodeFilter(tenantSlug) + '&limit=1');
   const tenant = tenants?.[0];
@@ -1859,10 +1875,12 @@ async function loadTenantContext() {
   if (settingRows[0].settings?.whatsapp_processing_mode !== 'conversation_core_v1') throw new Error('Core not enabled for tenant');
   const agentRows = settingRows[0].settings?.grounding_mode === 'canonical_v2' ? []
     : await supabaseGet('/rest/v1/ai_agents?select=*&tenant_id=eq.' + tenant.id + '&provider=eq.gemini&order=created_at.asc&limit=1');
-  const channelRows = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
-    + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');
+  const tenantChannels = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
+    + '&type=eq.whatsapp&status=eq.active&limit=50');
+  const channelRows = (Array.isArray(tenantChannels) ? tenantChannels : []).filter(channel => channelMatchesInstance(channel, inputJson.instance)).slice(0, 1);
   if (!channelRows.length) throw new Error('Instance does not belong to tenant');
   geminiTenantBudget = { tenant_id: tenant.id, daily_limit: tenantGeminiDailyLimit(settingRows[0].settings || {}) };
+  activeTenantTimeZone = String(settingRows[0].timezone || settingRows[0].settings?.timezone || '').trim();
   // core-extension-business-context-v1
   const businessContext = inputJson.noria_business_context;
   if (businessContext !== undefined && (!businessContext || typeof businessContext !== 'object'
@@ -2302,7 +2320,7 @@ function appointmentDateLabel(appointment) {
   return new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'short',
     timeStyle: 'short',
-    timeZone: env('APP_TIMEZONE', 'America/Sao_Paulo'),
+    timeZone: activeTenantTimeZone || env('APP_TIMEZONE', 'America/Sao_Paulo'),
   }).format(new Date(appointment.starts_at));
 }
 
@@ -5504,13 +5522,28 @@ const SERVICES_SUPPORT_RULES = {
   conditions: ['fact', 'block'], health_safety: ['fact', 'block'], result_promise: ['fact', 'block'], conversational: SERVICES_SUPPORT_KINDS,
 };
 
-function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false }) {
+// Verdadeiro quando a afirmação tem poucos termos relevantes (não dá para julgar) ou compartilha ao menos um termo com a autoridade.
+function servicesAssertionSharesAuthorityTerms(assertionText, authorityText, norm) {
+  const stopwords = new Set(['para', 'com', 'sem', 'por', 'uma', 'umas', 'uns', 'que', 'mais', 'tambem', 'voce', 'voces', 'seu', 'sua', 'seus', 'suas', 'nosso', 'nossa',
+  'esse', 'essa', 'isso', 'este', 'esta', 'isto', 'como', 'onde', 'quando', 'sobre', 'entre', 'todo', 'toda', 'todos', 'todas', 'ser', 'esta', 'tem', 'temos', 'fica', 'ficam', 'pode', 'podem',
+  'ainda', 'apenas', 'serem', 'esta', 'estao', 'valor', 'preco', 'servico', 'servicos', 'diferenca', 'difere', 'diferem', 'diferente', 'diferentes']);
+  const terms = text => [...new Set(String(norm(text)).split(/[^a-z0-9]+/).filter(term => term.length >= 4 && !stopwords.has(term)))];
+  const claimed = terms(assertionText);
+  if (claimed.length < 3) return true;
+  const authority = String(authorityText || '');
+  const stem = term => term.slice(0, Math.max(4, term.length - 2));
+  return claimed.some(term => authority.includes(stem(term)));
+}
+
+function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false, requireRequestCoverage = false }) {
   const failures = [];
   if (!report || typeof report !== 'object' || !Array.isArray(report.assertions) || report.assertions.length > 80) return { status: 'rejected', failures: ['AUDIT_REPORT_INVALID'], assertions: 0 };
   if (report.covers_entire_reply !== true) failures.push('AUDIT_COVERAGE_NOT_CONFIRMED');
   // A auditoria só roda com texto na resposta: ao menos um item (conversational, se nada for factual) é exigido para comprovar cobertura.
   if (!report.assertions.length) failures.push('AUDIT_REPORT_EMPTY');
   if (hasRecentBusiness && report.opening_repeated !== false) failures.push('AUDIT_REPEATED_OPENING');
+  // Lote com saudação + pedido: a resposta precisa tratar também do pedido (ex.: "Oi" e "queria marcar um bronze").
+  if (requireRequestCoverage && report.addresses_customer_requests !== true) failures.push('AUDIT_REQUEST_NOT_COVERED');
   const facts = new Set((decision.facts || []).map(fact => fact.fact_id));
   const blockKeys = new Set((decision.approved_blocks || []).map(block => block.key));
   const receipt = ['created', 'recovered'].includes(execution.reservation?.status) ? execution.reservation.appointment : null;
@@ -5551,6 +5584,12 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     const quote = norm(item.quote);
     if (item.support === 'fact' && quote !== norm(factValue.get(ref))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
     if (item.support === 'block' && (quote.length < 8 || !blockText.get(ref)?.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:block');
+    // Citar a autoridade literalmente não basta: o que a resposta afirma precisa tratar do que a autoridade diz.
+    // Afirmação com vários termos relevantes e nenhum em comum com o fato/bloco citado é tratada como contradição ou invenção.
+    if ((item.support === 'fact' || item.support === 'block') && item.category !== 'conversational') {
+      const authorityText = item.support === 'fact' ? norm(factValue.get(ref)) : (blockText.get(ref) || '');
+      if (!servicesAssertionSharesAuthorityTerms(item.text, authorityText, norm)) failures.push('AUDIT_ASSERTION_NOT_GROUNDED:' + item.category);
+    }
     const blockAmounts = item.support === 'block' ? new Set(amountsIn(blocks.find(block => block.key === ref)?.text || '')) : new Set();
     if (amountsIn(item.text).some(amount => !knownAmounts.has(amount) && !blockAmounts.has(amount))) failures.push('AUDIT_ASSERTED_AMOUNT_NOT_IN_AUTHORITY');
     for (const match of String(item.text).matchAll(/\b([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)(?!\d)/g)) {
@@ -5560,19 +5599,19 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
   return { status: failures.length ? 'rejected' : 'approved', failures: [...new Set(failures)], assertions: report.assertions.length };
 }
 
-async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false }) {
+async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false, customerMessages = [] }) {
   const str = { type: 'STRING' };
   const schema = { type: 'OBJECT', properties: {
     assertions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: str, category: { type: 'STRING', enum: SERVICES_ASSERTION_CATEGORIES },
       support: { type: 'STRING', enum: SERVICES_SUPPORT_KINDS }, reference: str, quote: str, polarity: { type: 'STRING', enum: ['affirms', 'denies'] } },
       required: ['text', 'category', 'support', 'reference', 'quote', 'polarity'] } },
-    covers_entire_reply: { type: 'BOOLEAN' }, opening_repeated: { type: 'BOOLEAN' } }, required: ['assertions', 'covers_entire_reply', 'opening_repeated'] };
+    covers_entire_reply: { type: 'BOOLEAN' }, opening_repeated: { type: 'BOOLEAN' }, addresses_customer_requests: { type: 'BOOLEAN' } }, required: ['assertions', 'covers_entire_reply', 'opening_repeated', 'addresses_customer_requests'] };
   const keys = new Set((decision.approved_blocks || []).map(block => block.key));
   const receipt = ['created', 'recovered'].includes(execution.reservation?.status) ? execution.reservation.appointment : null;
   let generated;
   try {
     generated = await servicesGeminiJson(context, 'services_semantic_audit', {
-      reply, has_recent_business_message: hasRecentBusiness,
+      reply, has_recent_business_message: hasRecentBusiness, customer_messages: customerMessages,
       authorities: {
         facts: decision.facts || [], approved_blocks: blocks.filter(block => keys.has(block.key)),
         availability: proof ? { date: proof.date, available_starts: proof.available_starts } : null,
@@ -5587,12 +5626,14 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
       'Para cada item informe category, o support (a autoridade que a sustenta), o reference (fact_id, chave do bloco, horário ou campo de customer_provided) e o quote: para fact, o value EXATO do fato; para block, um trecho LITERAL do bloco que contém o que foi afirmado; vazio nos demais casos. Se nenhuma autoridade sustenta, use support none. Parafrasear um fato ou bloco autorizado é sustentado por ele; ir além dele não é.',
       'Perguntas, saudações, pedidos de dados e ofertas de ajuda sem conteúdo factual são conversational. Não avalie o tom. covers_entire_reply só é true se você considerou a resposta inteira.',
       'opening_repeated é true somente se has_recent_business_message=true e a resposta começa novamente com cumprimento, saudação ou apresentação de abertura; vocativo breve no meio da resposta não é abertura.',
+      'addresses_customer_requests é true somente se a resposta trata de TODOS os pedidos e perguntas de customer_messages (a mensagem atual pode ter vários itens, por exemplo saudação e pedido de agendamento). É false se algum pedido ou pergunta ficou sem resposta nem próximo passo; uma saudação respondida sozinha, quando há um pedido junto, é false.',
       'A lista nunca fica vazia: se a resposta não tiver afirmação factual, devolva um item conversational com o texto dela.',
       'reservation é SOMENTE a afirmação de que uma reserva foi criada, confirmada ou garantida (exige reservation_receipt). Pedido encaminhado à equipe, "a equipe conclui/confirma a reserva", orientação de como agendar e promessa de retorno NÃO são reservation: são handoff (support handoff_execution) ou, se explicam uma regra do negócio, service/conditions sustentados por fact ou block. Se a resposta disser que a reserva ainda NÃO foi feita, use reservation com polarity denies.',
       'polarity é denies quando o item nega algo (por exemplo, um horário indisponível) e affirms nos demais casos. Um trecho que nega um horário e oferece outro vira dois itens.',
+      'O text de cada item é o que a resposta afirma. Só use support fact ou block se o fato ou trecho citado realmente diz o que o text afirma. Se o text diz outra coisa, contradiz a autoridade ou acrescenta uma característica que ela não menciona (por exemplo, "produtos extras" quando o fato fala de sala individual), use support none.',
     ], { persona: false, thinkingBudget: 256, maxOutputTokens: 3072 });
   } catch (error) { return { status: 'rejected', failures: ['AUDIT_UNAVAILABLE'], assertions: 0, error: String(error?.message || error).slice(0, 120) }; }
-  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness }), model: generated.model };
+  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness, requireRequestCoverage: true }), model: generated.model };
 }
 
 async function servicesComposeReply(context, decision, execution, blocks, proof, history, revisionNote = '') {
@@ -5625,6 +5666,7 @@ async function servicesComposeReply(context, decision, execution, blocks, proof,
     'Se usar blocos de approved_blocks, informe as chaves em block_keys (o texto literal sera anexado pelo sistema; nao o reescreva).',
     'Declare em claims, um por afirmacao, tudo o que sua resposta afirma: fact (fact_id e value exatos), slot (date AAAA-MM-DD e time HH:MM de horario ofertado ou reservado), reservation (status completed so se execution.reservation.status for created ou recovered; informe date e time), payment (awaiting_verification apenas se execution.payment_forward foi encaminhado; nunca confirmed), handoff (announced apenas se execution.handoff.executed), preparation (block_key de um bloco de preparo autorizado; so declare se o texto realmente apresentar esse preparo). Em claims que nao sao de preparo, block_key deve ser "' + SERVICES_NO_BLOCK_KEY + '".',
     'Se o cliente perguntar sobre saude, seguranca, contraindicacao, resultado ou condicao de atendimento que nao conste em decision.facts nem em approved_blocks, nao afirme nada sobre isso: diga com naturalidade que nao tem essa informacao confirmada e, se execution.handoff.executed, que a equipe pode confirmar.',
+    'Responda a TODOS os itens de customer_messages do lote atual: se houver saudacao e um pedido (por exemplo marcar um servico), cumprimente brevemente e trate o pedido na mesma resposta; nunca responda so a saudacao.',
     'Se opening=false (recent_conversation ja tem mensagens do negocio), nao abra com saudacao, cumprimento ou vocativo de abertura; va direto ao assunto. Se opening=true, a saudacao segue o tom do negocio.',
     'Se decision.actions.handoff.required por PREVIOUS_SERVICE_CUSTOMER, diga que o atendimento foi encaminhado a equipe por se tratar de um servico que a cliente ja fez; nao tente adivinhar a maquina nem repetir a triagem.',
     'Se business_hours.configured e business_hours.is_open=false, explique que a equipe atendera no proximo expediente, sem citar hora exata; nao prometa que um atendente respondera agora. Se o horario nao estiver configurado, nao prometa atendimento imediato.',
@@ -5695,7 +5737,7 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   let { composed, audit } = await composeChecked('');
   // Independent pass over the prose itself (see servicesSemanticAudit); skipped only when there is no prose, just literal blocks.
   if (composed.value.reply.trim()) {
-    const auditProse = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness });
+    const auditProse = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness, customerMessages: turn.messages.map(item => item.text).filter(Boolean) });
     let semanticAudit = await auditProse();
     if (semanticAudit.failures?.includes('AUDIT_REPEATED_OPENING')) {
       ({ composed, audit } = await composeChecked('REVISAO OBRIGATORIA: esta conversa ja recebeu uma resposta da equipe (opening=false). Comece diretamente pelo assunto da ultima mensagem da cliente, sem saudacao nem vocativo de abertura.'));

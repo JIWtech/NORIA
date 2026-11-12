@@ -139,6 +139,13 @@ async function main(helpers) {
     return await httpJson('POST', supabaseUrl + '/rest/v1/channel_events', serviceHeaders('return=representation'), event);
   }
 
+  // O envio e a mudança do agendamento já aconteceram: falha ao gravar o evento no histórico não pode virar erro
+  // (o painel diria "não enviado" e ofereceria novo envio). Devolve null e o chamador sinaliza o aviso.
+  async function recordSentEvent(event) {
+    try { return await insertEvent(event); } catch (error) { return null; }
+  }
+  const eventWarning = saved => (saved ? {} : { event_warning: 'EVENT_NOT_RECORDED' });
+
   async function loadTenantSettings(tenantId) {
     const { supabaseUrl } = supabaseConfig();
     const rows = await httpJson(
@@ -543,12 +550,12 @@ async function main(helpers) {
       try { await httpJson('PATCH', claimPath, serviceHeaders(), { metadata: { ...claim, cancellation_notice_state: 'uncertain', cancellation_notice_message_id: sent.messageId }, updated_at: new Date().toISOString() }); } catch (markError) {}
       throw new Error('Mensagem enviada, mas o registro nao foi atualizado. Entrega incerta: confira no WhatsApp e registre o resultado.');
     }
-    const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+    const saved = await recordSentEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
       external_conversation_id: externalConversationId, external_message_id: sent.messageId, direction: 'outbound', sender_type: 'system',
       contact_name: row.contact_name || 'Contato', message_text: text, service: 'appointment_cancellation_notice',
       stage: 'Agendamento cancelado', handoff: false, response_text: null, ai_provider: 'gemini', ai_model: model,
       sent_by_user: null, delivery_status: 'sent', command_id: commandId, raw_payload: { command, appointment_id: appointmentId, requested_by: user.id } });
-    return { ok: true, command, appointment: updated[0], saved };
+    return { ok: true, command, appointment: updated[0], saved, ...eventWarning(saved) };
   }
 
   if (command === 'confirm_appointment_request' || command === 'reject_appointment_slot') {
@@ -633,12 +640,12 @@ async function main(helpers) {
         throw new Error('Mensagem enviada, mas proposta nao ativada. Verifique o agendamento antes de tentar novamente.'
           + (markFailure ? ' Nao foi possivel marcar a proposta como incerta (' + markFailure + '): o pedido ficou em envio e pode ser conferido apos 2 minutos.' : ''));
       }
-      const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+      const saved = await recordSentEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
         external_conversation_id: externalConversationId, external_message_id: sent.messageId, direction: 'outbound', sender_type: 'system',
         contact_name: row.contact_name || 'Contato', message_text: text, service: 'appointment_slot_proposed', stage: 'Horario indisponivel',
         handoff: false, response_text: null, ai_provider: 'gemini', ai_model: model, sent_by_user: null, delivery_status: 'sent',
         command_id: commandId, raw_payload: { command, appointment_id: appointmentId, proposal_id: proposalId, requested_by: user.id } });
-      return { ok: true, command, appointment: finalized.appointment, proposal: finalized.proposal, saved };
+      return { ok: true, command, appointment: finalized.appointment, proposal: finalized.proposal, saved, ...eventWarning(saved) };
     }
     const messageInfo = { source: 'template_fallback', fallback_reason: '' };
     const currentClaimPath = (claim, state) => openPath + '&metadata->>confirmation_state=eq.' + state
@@ -656,7 +663,7 @@ async function main(helpers) {
         status: isConfirmAction ? 'confirmed' : 'cancelled', updated_at: now, metadata: done(messageId) });
       if (updated.length !== 1) throw new Error('Mensagem enviada, mas registro alterado simultaneamente. Verifique o agendamento.');
       if (!messageId) return { ok: true, command, appointment: updated[0], resolved: true };
-      const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+      const saved = await recordSentEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
         external_conversation_id: externalConversationId, external_message_id: messageId, direction: 'outbound', sender_type: 'system',
         contact_name: row.contact_name || 'Contato', message_text: text,
         service: isConfirmAction ? 'appointment_request_confirmed' : 'appointment_request_rejected',
@@ -664,7 +671,7 @@ async function main(helpers) {
         ai_provider: 'operator_confirmation', sent_by_user: null, delivery_status: 'sent', command_id: claimedMetadata.confirmation_command,
         raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0], message_source: messageInfo.source,
           ...(messageInfo.fallback_reason ? { message_fallback_reason: messageInfo.fallback_reason } : {}) } });
-      return { ok: true, command, appointment: updated[0], saved };
+      return { ok: true, command, appointment: updated[0], saved, ...eventWarning(saved) };
     };
 
     if (payload.uncertain_resolution) {
@@ -766,8 +773,8 @@ async function main(helpers) {
         stage: 'Agendamento confirmado', handoff: true, response_text: null, ai_provider: 'operator_confirmation',
         sent_by_user: user.email || user.id, delivery_status: 'sent', command_id: commandId,
         raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0] } };
-      const saved = await insertEvent(event);
-      return { ok:true, command, appointment: updated[0], saved };
+      const saved = await recordSentEvent(event);
+      return { ok:true, command, appointment: updated[0], saved, ...eventWarning(saved) };
     }
     const confirmationText = messageText || paymentSignalConfirmationMessage(settings);
 
