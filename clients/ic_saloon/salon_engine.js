@@ -97,6 +97,8 @@ let salesInventoryMemo = null;
 // Durable per-tenant Gemini budget (magia_gemini_reserve). Set once the tenant
 // is authenticated in loadTenantContext; never derived from workflow static data.
 let geminiTenantBudget = null;
+// Fuso do tenant do turno atual (coluna tenant_settings.timezone); preenchido em loadTenantContext.
+let activeTenantTimeZone = '';
 let geminiTenantUsageSnapshot = null;
 // Local evidence handles are never accepted from serialized workflow/model input.
 const salesSemanticEvidenceProofs = new WeakMap();
@@ -1692,6 +1694,7 @@ async function loadTenantContext() {
   const channelRows = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
     + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');
   if (!channelRows.length) throw new Error('Instance does not belong to tenant');
+  activeTenantTimeZone = String(settingRows[0].timezone || settingRows[0].settings?.timezone || '').trim();
   geminiTenantBudget = { tenant_id: tenant.id, daily_limit: tenantGeminiDailyLimit(settingRows[0].settings || {}) };
   // core-extension-business-context-v1
   const businessContext = inputJson.noria_business_context;
@@ -2238,7 +2241,7 @@ function appointmentDateLabel(appointment) {
   return new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'short',
     timeStyle: 'short',
-    timeZone: env('APP_TIMEZONE', 'America/Sao_Paulo'),
+    timeZone: activeTenantTimeZone || env('APP_TIMEZONE', 'America/Sao_Paulo'),
   }).format(new Date(appointment.starts_at));
 }
 

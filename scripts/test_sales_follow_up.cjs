@@ -108,3 +108,15 @@ test('se o adiamento não for gravado, falha fechado: não envia',async()=>{
   const r=await run({now:'2026-10-25T01:30:00Z',deferRows:0});
   assert.equal(r.sends,0);assert.equal(r.finishes[0].p_status,'failed');
 });
+
+// IA-20: falha ao gravar o evento depois do envio preserva o id do provedor; canal por alias e fuso do tenant.
+test('persistência falha após o envio: uncertain com o id do provedor registrado no job',async()=>{
+  const r=await run({saveError:true});
+  assert.equal(r.finishes[0].p_status,'uncertain');
+  assert.match(r.finishes[0].p_error,/sent_event_not_recorded:msg:/);
+  assert.equal(r.result[0].json.external_message_id,'msg');
+});
+test('o fuso do tenant vem da coluna timezone (consulta inclui a coluna)',async()=>{
+  const r=await run();
+  assert.match(r.calls.find(c=>c.url.includes('/tenant_settings')).url,/select=settings(,|%2C)timezone/);
+});

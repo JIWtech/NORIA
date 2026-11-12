@@ -30,6 +30,16 @@ const get = path => request.call(this, 'GET', supabaseUrl + '/rest/v1/' + path, 
 const post = (path, body) => request.call(this, 'POST', supabaseUrl + '/rest/v1/' + path, { ...headers, Prefer: 'return=representation' }, body);
 const patch = (path, body) => request.call(this, 'PATCH', supabaseUrl + '/rest/v1/' + path, { ...headers, Prefer: 'return=representation' }, body);
 
+// Mesma regra do normalizador de entrada: external_id ou aliases de config, sem diferenciar caixa.
+function normalizeInstanceKey(value) { return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''); }
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel && channel.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel && channel.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+
 async function finish(job, status, eventId = null, error = '') {
   return rpc('magia_finish_followup_job', { p_job: job.id, p_lease: job.lease_token, p_status: status, p_event: eventId, p_error: error });
 }
@@ -239,8 +249,9 @@ const outcome = [];
 for (const job of Array.isArray(jobs) ? jobs : []) {
   let sendAttempted = false, aiResume = false;
   try {
-    const settingsRows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
-    const settings = settingsRows?.[0]?.settings || {};
+    const settingsRows = await get('tenant_settings?select=settings,timezone&tenant_id=eq.' + encodeURIComponent(job.tenant_id) + '&limit=1');
+    // O fuso do tenant fica na coluna timezone; sem ela, vale o que estiver em settings.
+    const settings = { ...(settingsRows?.[0]?.settings || {}), ...(settingsRows?.[0]?.timezone ? { timezone: String(settingsRows[0].timezone) } : {}) };
     const sales = settings.conversation_capability === 'sales_v1';
     const quietUntil = await deferForQuietHours(job, settings);
     if (quietUntil) {
@@ -274,9 +285,12 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
         + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeURIComponent(job.external_conversation_id)
         + '&order=created_at.desc&limit=16'),
       get('channels?select=external_id,config&tenant_id=eq.' + encodeURIComponent(job.tenant_id)
-        + '&type=eq.whatsapp&status=eq.active&limit=1'),
+        + '&type=eq.whatsapp&status=eq.active&limit=50'),
     ]);
-    const channel = channelRows?.[0];
+    // O canal do tenant é o que corresponde à instância configurada (external_id ou alias em config, sem diferenciar caixa).
+    const configuredInstance = env('EVOLUTION_INSTANCE_' + suffix(job.tenant_slug));
+    const channel = (Array.isArray(channelRows) ? channelRows : []).find(row => channelMatchesInstance(row, configuredInstance))
+      || (Array.isArray(channelRows) ? channelRows[0] : null);
     if (!channel?.external_id) throw new Error('Canal WhatsApp ativo nao encontrado');
     const generated = sales && !aiResume ? salesFollowUp(job, settings)
       : await generate.call(this, job, settings, Array.isArray(history) ? history.reverse() : []);
@@ -300,7 +314,7 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
     const base = env('EVOLUTION_API_URL_' + tenantSuffix).replace(/\/$/, '');
     const key = env('EVOLUTION_API_KEY_' + tenantSuffix);
     const instance = env('EVOLUTION_INSTANCE_' + tenantSuffix);
-    if (!base || !key || instance !== channel.external_id) throw new Error('Credenciais Evolution do tenant nao configuradas');
+    if (!base || !key || !instance || !channelMatchesInstance(channel, instance)) throw new Error('Credenciais Evolution do tenant nao configuradas');
     if (!await protectedEligibility(job, settings)) {
       await finish(job, 'cancelled', null, 'contact_or_sales_blocked_before_send');
       outcome.push({ id: job.id, status: 'cancelled', reason: 'contact_or_sales_blocked_before_send' });
@@ -317,14 +331,26 @@ for (const job of Array.isArray(jobs) ? jobs : []) {
       { apikey: key, 'Content-Type': 'application/json' }, { number: String(job.external_conversation_id).replace(/@s\.whatsapp\.net$/, ''), text: generated.reply });
     const messageId = sent?.key?.id || sent?.message?.key?.id || sent?.id;
     if (!messageId) throw new Error('Evolution nao retornou o id da mensagem');
-    const saved = await post('channel_events', {
-      tenant_id: job.tenant_id, tenant_slug: job.tenant_slug, channel_type: 'whatsapp', external_conversation_id: job.external_conversation_id,
-      external_message_id: String(messageId), direction: 'outbound', sender_type: 'assistant', contact_name: job.contact_name || 'Contato',
-      message_text: generated.reply, service: 'follow_up', stage: 'Follow-up ' + job.step_key, handoff: false,
-      ai_provider: sales && !aiResume ? 'configured_follow_up' : 'gemini_follow_up', ai_model: generated.model, ai_usage: generated.usage, delivery_status: 'sent',
-      raw_payload: { follow_up: { job_id: job.id, step_key: job.step_key, objective: job.objective, anchor_event_id: job.anchor_event_id } },
-    });
-    const event = Array.isArray(saved) ? saved[0] : saved;
+    // A mensagem já saiu: se o evento não puder ser gravado, o job fica "incerto" (nunca reenvia), mas guarda o id do provedor.
+    let event = null, eventError = '';
+    try {
+      const saved = await post('channel_events', {
+        tenant_id: job.tenant_id, tenant_slug: job.tenant_slug, channel_type: 'whatsapp', external_conversation_id: job.external_conversation_id,
+        external_message_id: String(messageId), direction: 'outbound', sender_type: 'assistant', contact_name: job.contact_name || 'Contato',
+        message_text: generated.reply, service: 'follow_up', stage: 'Follow-up ' + job.step_key, handoff: false,
+        ai_provider: sales && !aiResume ? 'configured_follow_up' : 'gemini_follow_up', ai_model: generated.model, ai_usage: generated.usage, delivery_status: 'sent',
+        raw_payload: { follow_up: { job_id: job.id, step_key: job.step_key, objective: job.objective, anchor_event_id: job.anchor_event_id } },
+      });
+      event = Array.isArray(saved) ? saved[0] : saved;
+    } catch (error) {
+      eventError = 'sent_event_not_recorded:' + String(messageId) + ':' + String(error?.message || error).slice(0, 200);
+    }
+    if (eventError) {
+      await finish(job, 'uncertain', null, eventError).catch(() => {});
+      if (aiResume) await cancelRemainingSteps(job, 'resume_after_deferral_uncertain');
+      outcome.push({ id: job.id, status: 'uncertain', error: eventError, external_message_id: String(messageId) });
+      continue;
+    }
     await finish(job, 'sent', event?.id || null);
     if (aiResume) await cancelRemainingSteps(job, 'resume_after_deferral_sent');
     outcome.push({ id: job.id, status: 'sent', step: job.step_key });

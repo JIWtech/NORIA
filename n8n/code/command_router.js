@@ -143,11 +143,14 @@ async function main(helpers) {
     const { supabaseUrl } = supabaseConfig();
     const rows = await httpJson(
       'GET',
-      supabaseUrl + '/rest/v1/tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(tenantId) + '&limit=1',
+      supabaseUrl + '/rest/v1/tenant_settings?select=settings,timezone&tenant_id=eq.' + encodeURIComponent(tenantId) + '&limit=1',
       serviceHeaders(),
     );
     const row = Array.isArray(rows) ? rows[0] : null;
-    return row?.settings || {};
+    // O fuso do tenant fica na coluna timezone; sem ela, vale o que estiver em settings.
+    const settings = row?.settings || {};
+    const columnZone = String(row?.timezone || '').trim();
+    return columnZone ? { ...settings, timezone: columnZone } : settings;
   }
 
   async function loadKanbanColumns(tenantId, boardId) {
