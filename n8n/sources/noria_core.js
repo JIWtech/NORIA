@@ -1849,6 +1849,20 @@ function supabaseErrorText(error) {
     }).join(' ');
 }
 
+// Mesma regra do normalizador de entrada: o canal é identificado por external_id ou por qualquer
+// alias de instância em config, sem diferenciar caixa nem símbolos.
+function normalizeInstanceKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel?.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel?.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+
 async function loadTenantContext() {
   const tenants = await supabaseGet('/rest/v1/tenants?select=*&slug=eq.' + encodeFilter(tenantSlug) + '&limit=1');
   const tenant = tenants?.[0];
@@ -1858,8 +1872,9 @@ async function loadTenantContext() {
   if (settingRows[0].settings?.whatsapp_processing_mode !== 'conversation_core_v1') throw new Error('Core not enabled for tenant');
   const agentRows = settingRows[0].settings?.grounding_mode === 'canonical_v2' ? []
     : await supabaseGet('/rest/v1/ai_agents?select=*&tenant_id=eq.' + tenant.id + '&provider=eq.gemini&order=created_at.asc&limit=1');
-  const channelRows = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
-    + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');
+  const tenantChannels = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
+    + '&type=eq.whatsapp&status=eq.active&limit=50');
+  const channelRows = (Array.isArray(tenantChannels) ? tenantChannels : []).filter(channel => channelMatchesInstance(channel, inputJson.instance)).slice(0, 1);
   if (!channelRows.length) throw new Error('Instance does not belong to tenant');
   geminiTenantBudget = { tenant_id: tenant.id, daily_limit: tenantGeminiDailyLimit(settingRows[0].settings || {}) };
   // core-extension-business-context-v1
