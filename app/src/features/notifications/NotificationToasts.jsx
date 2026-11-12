@@ -1,38 +1,49 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageCircle, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
+import { ChannelIcon, getChannelClass } from '../../components/ui/ChannelIcon.jsx';
 import { findNotificationConversation } from './operatorEvents.js';
 import { isUsefulContactName } from '../../services/contacts/contactNames.js';
 import { groupToasts, MAX_VISIBLE_TOASTS, TOAST_VISIBLE_MS } from './toastGroups.js';
 import './notificationToasts.css';
 
+const channelNames = { 'channel-whatsapp': 'WhatsApp', 'channel-instagram': 'Instagram', 'channel-telegram': 'Telegram' };
+
+const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 function Toast({ group, conversation, onOpen, onDismiss }) {
   const { latest, items } = group;
-  const paused = useRef(false);
-  const timer = useRef(null);
+  const channelClass = getChannelClass(latest.channel);
+  const channelName = channelNames[channelClass] || 'Mensagem';
   const contact = conversation?.contact || (isUsefulContactName(latest.contact) ? latest.contact : '') || 'Cliente';
-  const start = () => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => { if (!paused.current) onDismiss(group); else start(); }, TOAST_VISIBLE_MS);
-  };
-  // Cada mensagem nova da mesma conversa reinicia o tempo do pop-up.
-  useEffect(() => { start(); return () => clearTimeout(timer.current); }, [items.length]);
+  const count = items.length;
 
-  return <div className="notification-toast" role="group" aria-label={`Nova mensagem de ${contact}`}
-    onMouseEnter={() => { paused.current = true; }} onMouseLeave={() => { paused.current = false; }}>
+  // A barra de tempo só anima com movimento permitido; sem ele, um temporizador fecha o aviso.
+  useEffect(() => {
+    if (!prefersReducedMotion()) return undefined;
+    const timer = setTimeout(() => onDismiss(group), TOAST_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [count]);
+
+  return <div className={`notification-toast ${channelClass}`} role="group" aria-label={`Nova mensagem de ${contact} no ${channelName}`}>
     <button type="button" className="notification-toast-main" onClick={() => onOpen(group, conversation)}
       aria-label={`Abrir conversa com ${contact}`}>
       <span className="notification-toast-avatar">
         <ContactAvatar name={contact} avatarUrl={conversation?.avatarUrl} />
-        <span className="notification-toast-badge" aria-hidden="true"><MessageCircle size={10} strokeWidth={2.4} /></span>
+        <span className="notification-toast-badge" aria-hidden="true"><ChannelIcon channel={latest.channel} size={11} /></span>
       </span>
-      <span className="notification-toast-text">
-        <strong>{contact}{items.length > 1 && <em>{items.length} mensagens novas</em>}</strong>
-        <span>{latest.description}</span>
+      <span className="notification-toast-body">
+        <span className="notification-toast-head">
+          <strong>{contact}</strong>
+          <span className="notification-toast-meta">{count > 1 ? `${count} mensagens` : 'agora'}</span>
+        </span>
+        <span className="notification-toast-bubble">{latest.description}</span>
       </span>
     </button>
     <button type="button" className="notification-toast-close" onClick={() => onDismiss(group)} aria-label="Dispensar aviso"><X size={14} /></button>
+    <span key={count} className="notification-toast-progress" aria-hidden="true"
+      style={{ animationDuration: `${TOAST_VISIBLE_MS}ms` }} onAnimationEnd={() => onDismiss(group)} />
   </div>;
 }
 

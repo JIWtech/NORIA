@@ -3,10 +3,11 @@ import {
   AlertCircle, Bell, Bot, CalendarCheck, CalendarClock, CalendarDays, CalendarX, Check, CheckCheck,
   ChevronDown, ChevronRight, CircleCheck, Flame, Headset, MessageCircle, MessageSquareReply, Paperclip,
   Receipt, RefreshCw, RotateCcw, Send, Settings2, TrendingUp, UserRoundCheck, UserRoundPlus, UsersRound,
-  Volume2, VolumeX, Wifi, X,
+  Trash2, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import { findNotificationConversation } from './operatorEvents.js';
 import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
+import { ChannelIcon, getChannelClass } from '../../components/ui/ChannelIcon.jsx';
 import { isUsefulContactName } from '../../services/contacts/contactNames.js';
 import './notifications.css';
 
@@ -86,12 +87,19 @@ function groupByDay(items, conversations) {
   return [...days.values()];
 }
 
-export function NotificationPanel({ tenantName, items, conversations = [], unread, inbox, sound, onMarkRead, onMarkAll,
+export function NotificationPanel({ tenantName, items, conversations = [], unread, inbox, sound, onMarkRead, onMarkAll, onClear,
   actionFor, onSettings, simulation = false, showPending = true }) {
   const [open, setOpen] = useState(simulation);
   const [filter, setFilter] = useState('all');
   const [category, setCategory] = useState('all');
   const [expanded, setExpanded] = useState(() => new Set());
+  const [confirmClear, setConfirmClear] = useState(false);
+  const clearable = items.filter(item => !item.pending).length;
+  useEffect(() => {
+    if (!confirmClear) return undefined;
+    const timer = setTimeout(() => setConfirmClear(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmClear]);
   const root = useRef(null);
   const bell = useRef(null);
   const closeButton = useRef(null);
@@ -155,6 +163,12 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
               aria-label="Marcar todas como lidas" title="Marcar todas como lidas" disabled={Boolean(inbox.syncing && inbox.unread)}>
               <CheckCheck size={17} aria-hidden="true" />
             </button>}
+            {onClear && clearable > 0 && <button type="button" className={`icon-button notification-clear ${confirmClear ? 'is-confirming' : ''}`}
+              onClick={() => { if (confirmClear) { onClear(); setConfirmClear(false); } else setConfirmClear(true); }}
+              aria-label={confirmClear ? 'Confirmar: limpar notificações' : 'Limpar notificações'}
+              title={confirmClear ? 'Clique de novo para limpar' : 'Limpar notificações (as pendências ficam)'}>
+              {confirmClear ? <Check size={17} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
+            </button>}
             {sound && <button type="button" className="icon-button" onClick={sound.toggle} aria-pressed={sound.enabled}
               aria-label="Som de notificações" title={sound.enabled ? 'Silenciar notificações' : 'Ativar som de notificações'}>
               {sound.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
@@ -210,10 +224,10 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
                       const readDisabled = Boolean(item.remote && (inbox.syncing || inbox.error));
                       return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : ''}`}>
                         {conversation || contact
-                          ? <span className="notification-entry-avatar" data-tone={tone}>
+                          ? <span className={`notification-entry-avatar ${item.kind === 'message' ? getChannelClass(item.channel) : ''}`} data-tone={tone}>
                             <ContactAvatar name={contact || conversation?.contact} avatarUrl={conversation?.avatarUrl} />
                             <span className="notification-entry-badge" aria-hidden="true">
-                              <Icon size={11} strokeWidth={2.4} />
+                              {item.kind === 'message' ? <ChannelIcon channel={item.channel} size={11} /> : <Icon size={11} strokeWidth={2.4} />}
                             </span>
                           </span>
                           : <span className="notification-entry-icon" data-tone={tone}>

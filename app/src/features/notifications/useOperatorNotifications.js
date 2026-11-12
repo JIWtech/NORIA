@@ -28,6 +28,10 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
   });
   const [soundSequence, setSoundSequence] = useState(0);
   const [toasts, setToasts] = useState([]);
+  const clearedKey = key ? `${key}:cleared-at` : null;
+  const [clearedAt, setClearedAt] = useState(() => {
+    try { return clearedKey ? Number(window.localStorage.getItem(clearedKey)) || 0 : 0; } catch { return 0; }
+  });
   const itemsRef = useRef(items);
   const rows = useRef(new Map());
   const add = useCallback((incoming) => {
@@ -115,10 +119,17 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
     setItems(next);
   }, [pendingKey, pendingReads, tenantId]);
 
+  const clearAll = useCallback(() => {
+    const at = Date.now();
+    setClearedAt(at);
+    setToasts([]);
+    try { if (clearedKey) window.localStorage.setItem(clearedKey, String(at)); } catch { /* Sem armazenamento, a limpeza vale só nesta sessão. */ }
+  }, [clearedKey]);
+
   const dismissToasts = useCallback((ids) => {
     const drop = new Set(ids);
     setToasts(current => current.filter(item => !drop.has(item.id)));
   }, []);
 
-  return { items, pendingReads, soundSequence, toasts, dismissToasts, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
+  return { items, pendingReads, soundSequence, toasts, dismissToasts, clearedAt, clearAll, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
 }

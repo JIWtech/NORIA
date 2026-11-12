@@ -131,3 +131,8 @@
   .notification-filters { padding-inline: 8px; }
   .notification-filters button, .notification-filters select { padding-inline: 6px; }
 }
+
+.notification-clear.is-confirming { color: var(--red, #f87171); background: color-mix(in srgb, var(--red, #f87171) 14%, transparent); }
+.notification-entry-avatar.channel-whatsapp { --notification-accent: #25d366; }
+.notification-entry-avatar.channel-instagram { --notification-accent: #e1306c; }
+.notification-entry-avatar.channel-telegram { --notification-accent: #2aabee; }

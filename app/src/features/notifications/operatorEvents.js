@@ -168,6 +168,13 @@ export function reconcileNotifications(items, { appointments = [], conversations
   });
 }
 
+// "Limpar notificações": esconde os avisos criados até o instante da limpeza. Pendências (pedido a confirmar, cliente
+// aguardando a equipe) continuam, porque são tarefas e não histórico.
+export function applyClearedBefore(items, clearedAt) {
+  if (!Number.isFinite(clearedAt) || clearedAt <= 0) return items;
+  return items.filter(item => item.pending || !(Date.parse(item.createdAt) <= clearedAt));
+}
+
 export function mergeOperatorNotifications(previous, incoming) {
   const items = new Map(previous.map(item => [item.id, item]));
   for (const item of incoming) if (!items.has(item.id)) items.set(item.id, item);
