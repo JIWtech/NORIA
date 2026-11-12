@@ -911,6 +911,31 @@ async function acquireGeminiConcurrencySlot(options = {}) {
   };
 }
 
+// Chamada extra feita pelo adaptador dentro de uma reserva já aberta: conta só no orçamento diário do tenant
+// (sem escopo global, portanto sem lease de concorrência aninhada) e falha fechada quando o orçamento acaba.
+let geminiExtraReservations = 0;
+async function reserveGeminiExtraCall(model, estimatedTokens) {
+  const budget = geminiTenantBudget;
+  const modelName = String(model || '');
+  if (!budget?.tenant_id || !Number.isFinite(budget.daily_limit) || !modelName) {
+    throw geminiControlError('tenant_budget_context_missing', null, modelName || null, 'tenant_budget');
+  }
+  geminiExtraReservations += 1;
+  const leaseId = 'ic_salon_extra:' + Date.now() + ':' + geminiExtraReservations + ':' + Math.random().toString(36).slice(2, 12);
+  let result;
+  try {
+    result = await geminiRateRpc('magia_gemini_reserve', {
+      p_tenant_id: budget.tenant_id, p_daily_limit: budget.daily_limit, p_model: modelName, p_lease_id: leaseId,
+      p_estimated_tokens: Math.max(1, Math.ceil(Number(estimatedTokens) || 1000)),
+    });
+  } catch (_) {
+    throw geminiControlError('tenant_budget_unavailable', null, modelName, 'tenant_budget');
+  }
+  if (!result || result.allowed !== true) {
+    throw geminiControlError(String(result?.reason || 'tenant_budget_unavailable'), result?.retry_after_ms, modelName, 'tenant_budget');
+  }
+}
+
 async function releaseGeminiConcurrencySlot(lease, outcome = 'released', diagnostic = null) {
   if (lease?.mode === 'supabase_atomic') {
     const mapped = outcome === 'success' ? 'success'
@@ -1695,6 +1720,7 @@ async function loadTenantContext() {
     + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');
   if (!channelRows.length) throw new Error('Instance does not belong to tenant');
   activeTenantTimeZone = String(settingRows[0].timezone || settingRows[0].settings?.timezone || '').trim();
+  if (typeof helpers.setGeminiExtraReservation === 'function') helpers.setGeminiExtraReservation(reserveGeminiExtraCall);
   geminiTenantBudget = { tenant_id: tenant.id, daily_limit: tenantGeminiDailyLimit(settingRows[0].settings || {}) };
   // core-extension-business-context-v1
   const businessContext = inputJson.noria_business_context;

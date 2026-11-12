@@ -9,6 +9,18 @@ function createSalonHelpers(helpers, input, env) {
   }
 
   const request = helpers.httpRequest.bind(helpers);
+  // Chamadas extras ao Gemini (revisão, auditoria de preço, reparo) acontecem dentro da reserva da chamada principal do
+  // motor, que já controla a concorrência global. Cada uma conta no orçamento diário do tenant e é recusada, sem chamar o
+  // Gemini, quando o orçamento acaba. O motor roda numa função interna e registra aqui a reserva do orçamento do tenant
+  // (setGeminiExtraReservation) assim que carrega o contexto; sem registro (testes isolados), as chamadas seguem sem reserva.
+  let reserveExtraGeminiCall = null;
+  async function geminiExtra(options) {
+    if (typeof reserveExtraGeminiCall === 'function') {
+      const model = (/\/models\/([^:/?]+):generateContent/.exec(String(options.url || '')) || [])[1];
+      await reserveExtraGeminiCall(model, Math.max(1, Math.ceil(JSON.stringify(options.body || {}).length / 3.5) + 200));
+    }
+    return request(options);
+  }
   const db = String(env.SUPABASE_URL || '').replace(/\/$/, '');
   const normalize = value => value.normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
   const readText = candidate => (candidate?.content?.parts || []).filter(part => !part.thought)
@@ -133,7 +145,7 @@ function createSalonHelpers(helpers, input, env) {
   }
 
   async function review(options, draft, booking, current, rows) {
-    const response = await request({
+    const response = await geminiExtra({
       ...options, timeout: 5000,
       body: {
         system_instruction: { parts: [{ text: [
@@ -235,7 +247,7 @@ function createSalonHelpers(helpers, input, env) {
     }
     let response;
     try {
-      response = await request({
+      response = await geminiExtra({
         ...options, timeout: 5500,
         body: {
           system_instruction: { parts: [{ text: auditPrompt }] },
@@ -397,7 +409,7 @@ function createSalonHelpers(helpers, input, env) {
         + (guidance ? ' ' + guidance : '');
       const repairParts = [{ ...parts[0], text: instruction + '\n\n' + buildContext(true) }, ...parts.slice(1), namesPart];
       for (const retry of [false, true]) {
-        const repaired = await request({
+        const repaired = await geminiExtra({
           ...augmented, body: { ...augmented.body, system_instruction: { parts: [
             ...repairParts,
             { text: repairInstruction + (retry ? ' A tentativa anterior não pôde ser usada. Escreva apenas uma nova mensagem curta à pessoa atendida.' : '') },
@@ -568,6 +580,7 @@ function createSalonHelpers(helpers, input, env) {
     get(target, key) {
       if (key === 'httpRequest') return httpRequest;
       if (key === 'salonAdapterDiagnostics') return diagnostics;
+      if (key === 'setGeminiExtraReservation') return fn => { reserveExtraGeminiCall = typeof fn === 'function' ? fn : null; };
       const value = target[key];
       return typeof value === 'function' ? value.bind(target) : value;
     },

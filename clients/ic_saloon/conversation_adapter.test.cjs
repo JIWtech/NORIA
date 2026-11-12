@@ -41,7 +41,23 @@ const input = {
     },
   },
 };
-const execute = Object.getPrototypeOf(async function () {}).constructor('$json', '$env', wrapSalonEngine(core));
+const AsyncFn = Object.getPrototypeOf(async function () {}).constructor;
+const execute = AsyncFn('$json', '$env', wrapSalonEngine(core));
+// Variante com o orçamento diário do motor (geminiRateRpc / geminiTenantBudget), como no script publicado.
+// O motor roda numa função interna: só enxerga o adaptador por helpers e registra a reserva por setGeminiExtraReservation.
+const budgetCore = core.replace('const helpers = this.helpers;', [
+  'const helpers = this.helpers;',
+  "const geminiTenantBudget = { tenant_id: '" + tenant + "', daily_limit: 100 };",
+  "async function geminiRateRpc(name, body) { return helpers.httpRequest({ method: 'POST', url: 'https://db.test/rest/v1/rpc/' + name, body }); }",
+  "function geminiControlError(reason) { const error = new Error('GEMINI_' + reason); error.reason = reason; return error; }",
+  'async function reserveGeminiExtraCall(model, estimatedTokens) {',
+  "  const result = await geminiRateRpc('magia_gemini_reserve', { p_tenant_id: geminiTenantBudget.tenant_id, p_daily_limit: geminiTenantBudget.daily_limit,",
+  "    p_model: model, p_lease_id: 'ic_salon_extra:' + Date.now() + ':' + Math.random(), p_estimated_tokens: estimatedTokens });",
+  '  if (!result || result.allowed !== true) throw geminiControlError(result && result.reason);',
+  '}',
+  'helpers.setGeminiExtraReservation(reserveGeminiExtraCall);',
+].join('\n'));
+const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false };
@@ -63,7 +79,8 @@ const past = (id, status, startsAt, extra = {}) => ({ id, status, title: 'Corte 
   created_at: startsAt, metadata: { services: ['Corte'] }, ...extra });
 
 async function run({ draft = tag, evidence = true, verdict = withEvidence, priceReport, currentText, scope = input,
-  finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail } = {}) {
+  finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail, withBudget = false, budgetAllowed = true } = {}) {
+  const rpcCalls = [];
   const requests = [];
   const reviews = [];
   const generations = [];
@@ -77,9 +94,13 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
     processing_error_template: tpl.processing, review_handoff_template: tpl.review, full_name_template: tpl.fullName,
     name_confirmation_template: tpl.nameConfirm, conflict_existing_appointment_template: tpl.conflict,
   }, price_rejection_template: priceFallback };
-  const output = await execute.call({ helpers: { async httpRequest(options) {
+  const output = await (withBudget ? executeWithBudget : execute).call({ helpers: { async httpRequest(options) {
     const url = new URL(options.url);
     requests.push(options);
+    if (url.pathname.includes('/rpc/')) {
+      rpcCalls.push({ name: url.pathname.split('/').at(-1), body: options.body });
+      return budgetAllowed ? { allowed: true, reason: 'ok' } : { allowed: false, reason: 'tenant_daily_limit_exceeded' };
+    }
     if (url.pathname.endsWith('tenant_settings')) return [{ settings: config }];
     if (url.pathname.endsWith('channel_events')) {
       if (url.searchParams.get('limit') === '50') return [];
@@ -137,7 +158,7 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
       : repairs[Math.min(repairIndex++, repairs.length - 1)];
     return typeof next === 'string' ? reply(next) : reply(next.text, next.finishReason);
   } } }, scope, { SUPABASE_URL: base });
-  return { text: output.response.candidates[0].content.parts[0].text, diagnostics: output.diagnostics, requests, reviews, generations, audits };
+  return { text: output.response.candidates[0].content.parts[0].text, diagnostics: output.diagnostics, requests, reviews, generations, audits, rpcCalls };
 }
 
 test('ação de registro só é liberada com evidência do cliente e sem pendências; o texto final é só a tag', async () => {
@@ -579,4 +600,36 @@ test('o adaptador recusa escopo de outro tenant, instância ou fase', async () =
   await assert.rejects(run({ scope: { ...input, instance: 'outra' } }), /IC_SALON_ADAPTER_SCOPE_INVALID/);
   await assert.rejects(run({ scope: { ...input, tenant_slug: 'outro' } }), /IC_SALON_ADAPTER_SCOPE_INVALID/);
   await assert.rejects(run({ scope: { ...input, noria_engine_phase: 'prepare' } }), /IC_SALON_ADAPTER_SCOPE_INVALID/);
+});
+
+// IA-22: as chamadas extras ao Gemini (revisão, auditoria de preço, reparo) contam no orçamento diário do tenant.
+test('cada chamada extra ao Gemini reserva o orçamento diário do tenant antes de sair', async () => {
+  const result = await run({ withBudget: true });
+  const extraModelCalls = result.reviews.length + result.audits.length + Math.max(0, result.generations.length - 1);
+  assert.ok(extraModelCalls > 0, 'o cenário deve gerar chamadas extras');
+  const reserves = result.rpcCalls.filter(call => call.name === 'magia_gemini_reserve');
+  assert.equal(reserves.length, extraModelCalls, JSON.stringify(result.rpcCalls.map(call => call.name)));
+  for (const reserve of reserves) {
+    assert.equal(reserve.body.p_tenant_id, tenant);
+    assert.equal(reserve.body.p_daily_limit, 100);
+    assert.equal(reserve.body.p_scope, undefined, 'sem escopo global: só o orçamento do tenant, sem lease de concorrência aninhada');
+    assert.match(reserve.body.p_lease_id, /^ic_salon_extra:/);
+  }
+});
+
+test('orçamento esgotado recusa a chamada extra sem chamar o Gemini e cai no fluxo de falha existente', async () => {
+  const result = await run({ withBudget: true, budgetAllowed: false }).catch(error => ({ error }));
+  assert.ok(result.error || result.text, 'o fluxo termina por erro do Gemini ou por texto de contingência');
+  const extra = result.error ? [] : [...result.reviews, ...result.audits];
+  assert.equal(extra.length, 0, 'nenhuma revisão nem auditoria pode ter sido enviada ao Gemini');
+});
+
+test('o motor real registra a reserva extra e ela conta só no orçamento do tenant (sem escopo global)', () => {
+  const engine = require('node:fs').readFileSync(require('node:path').join(__dirname, 'salon_engine.js'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(engine, /helpers\.setGeminiExtraReservation\(reserveGeminiExtraCall\)/);
+  const start = engine.indexOf('async function reserveGeminiExtraCall(');
+  const body = engine.slice(start, engine.indexOf('\nasync function releaseGeminiConcurrencySlot(', start));
+  assert.match(body, /magia_gemini_reserve/);
+  assert.doesNotMatch(body, /p_scope|p_max_concurrent/, 'sem lease de concorrência aninhada');
+  assert.match(body, /geminiControlError\(String\(result\?\.reason/, 'recusa falha fechada com o mesmo tipo de erro do motor');
 });
