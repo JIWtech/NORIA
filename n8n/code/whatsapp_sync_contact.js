@@ -106,7 +106,8 @@ const supabaseUrl = String(env('SUPABASE_URL')).replace(/\/$/, '');
 const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
 const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' };
 const handle = normalizeWhatsappHandle(input.remoteJid);
-const phone = String(input.phone || handle.split('@')[0] || '').replace(/\D/g, '');
+// Em JIDs @lid os dígitos são um identificador opaco: nunca viram telefone. Só o telefone informado vale.
+const phone = String(input.phone || (/@lid$/i.test(handle) ? '' : handle.split('@')[0]) || '').replace(/\D/g, '');
 const candidateName = String(input.contactName || '').trim();
 const now = new Date().toISOString();
 const photoTtlMs = 14 * 24 * 60 * 60 * 1000;
