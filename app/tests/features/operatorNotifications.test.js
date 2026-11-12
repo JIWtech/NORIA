@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appointmentReminders, belongsToTenant, findNotificationConversation, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, operatorEvents } from '../../src/features/notifications/operatorEvents.js';
+import { appointmentReminders, belongsToTenant, findNotificationConversation, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, operatorEvents, shouldPlayOperatorNotification } from '../../src/features/notifications/operatorEvents.js';
 import { readOperatorNotifications } from '../../src/features/notifications/useOperatorNotifications.js';
 import { playNotificationTone } from '../../src/features/notifications/useNotificationSound.js';
 import { incidentPresentation } from '../../src/features/notifications/notificationService.js';
@@ -105,6 +105,27 @@ test('notification action resolves equivalent phone IDs but never mixes LID and 
   const conversations = [{ id: 'conv-1', channelType: 'whatsapp', externalConversationId: '5511999990001@s.whatsapp.net' }];
   assert.equal(findNotificationConversation({ channel: 'whatsapp', chatId: '5511999990001' }, conversations)?.id, 'conv-1');
   assert.equal(findNotificationConversation({ channel: 'whatsapp', chatId: '5511999990001@lid' }, conversations), null);
+});
+
+test('mensagem do chat visível é registrada sem tocar, inclusive com JID equivalente', () => {
+  const [message] = operatorEvents(event(), scope);
+  const [messageFromHandle] = operatorEvents(event({ external_conversation_id: null, contact_handle: '5511999990001' }), scope);
+  const visibleKey = 'empresa-a:whatsapp::5511999990001@s.whatsapp.net';
+  assert.equal(shouldPlayOperatorNotification(message, scope.tenantSlug, visibleKey), false);
+  assert.equal(shouldPlayOperatorNotification(messageFromHandle, scope.tenantSlug, visibleKey), false);
+  assert.equal(mergeOperatorNotifications([], [message])[0].id, message.id);
+});
+
+test('som continua disponível para outro chat, aba oculta e avisos operacionais', () => {
+  const [message] = operatorEvents(event(), scope);
+  const visibleKey = 'empresa-a:whatsapp::5511999990001@s.whatsapp.net';
+  for (const key of ['', 'empresa-a:whatsapp::5511999990002@s.whatsapp.net',
+    'empresa-a:whatsapp::5511999990001@lid', 'empresa-a:telegram::5511999990001',
+    'empresa-b:whatsapp::5511999990001@s.whatsapp.net']) {
+    assert.equal(shouldPlayOperatorNotification(message, scope.tenantSlug, key), true);
+  }
+  assert.equal(shouldPlayOperatorNotification({ ...message, chatId: '' }, scope.tenantSlug, visibleKey), true);
+  assert.equal(shouldPlayOperatorNotification({ ...message, kind: 'attachment' }, scope.tenantSlug, visibleKey), true);
 });
 
 test('notification tone requires an unlocked context and uses a short two-note envelope', () => {

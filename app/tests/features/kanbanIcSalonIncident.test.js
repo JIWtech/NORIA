@@ -6,8 +6,19 @@ import assert from 'node:assert/strict';
 import { eventsToKanban } from '../../src/services/kanban/eventsToKanban.js';
 import { applyIncomingEventToKanban } from '../../src/services/kanban/applyIncomingEvent.js';
 import { reconcilePendingKanbanMoves } from '../../src/services/kanban/pendingKanbanMoves.js';
+import { kanbanCardActionMode, kanbanCardLabels } from '../../src/services/kanban/kanbanCardReason.js';
 
 const CHAT = '5521900000001@s.whatsapp.net';
+
+test('a ação principal do card acompanha a etapa e a pendência real', () => {
+  assert.equal(kanbanCardActionMode({ id: 'card-1' }, 'conversas_ia', true, true), 'chat', 'uma falta antiga é secundária na conversa ativa');
+  assert.equal(kanbanCardActionMode({}, 'conversas_abandonadas', false, true), 'chat');
+  assert.equal(kanbanCardActionMode({}, 'nao_compareceu', true, true), 'outcomes');
+  assert.equal(kanbanCardActionMode({ id: 'appointment-1' }, 'agendamentos', true, false), 'outcomes');
+  assert.equal(kanbanCardActionMode({ actionType: 'confirm_signal' }, 'verificar_sinal', true, true), 'signal');
+  assert.equal(kanbanCardActionMode({ actionType: 'confirm_request' }, 'aguardando_humano', false, true), 'request');
+  assert.equal(kanbanCardActionMode({}, 'agendamentos', false, false), '');
+});
 const base = { tenant_slug: 'ic_salon', channel_type: 'whatsapp', external_conversation_id: CHAT, contact_name: 'Cliente Teste', raw_payload: {} };
 const ev = (id, at, overrides) => ({ ...base, id, created_at: `2026-11-09T${at}.000Z`, ...overrides });
 const message = (id, at, direction, text, overrides = {}) => ev(id, at, {
@@ -41,6 +52,7 @@ test('erro técnico sem texto não aparece como "technical_error" no card', () =
   const [card] = cardsOfChat(columns);
   assert.notEqual(card.subtitle, 'technical_error');
   assert.equal(card.subtitle, 'Atendimento precisa da equipe');
+  assert.equal(kanbanCardLabels(card, { id: card.columnKey }).owner, '');
 });
 
 test('conversa encerrada por falta fica em "Não compareceu" sem a etiqueta de IA conduzindo', () => {
@@ -60,12 +72,80 @@ test('tempo real: encerramento muda a coluna e a etiqueta junto, como a carga co
   assert.equal(card.columnKey, 'finalizadas');
   assert.equal(card.targetColumnId, 'finalizadas', 'o painel precisa saber em que coluna o card está');
   assert.equal(card.aiReason, 'Atendimento finalizado');
+  assert.notEqual(card.ownerKind, 'ai');
 
   const noShow = applyIncomingEventToKanban(initial, noShowClose, 'ic_salon');
   const [missed] = cardsOfChat(noShow);
   assert.equal(missed.columnKey, 'nao_compareceu', 'mesma coluna que a carga completa usa para a falta');
   assert.equal(missed.targetColumnId, 'nao_compareceu');
   assert.notEqual(missed.aiReason, 'IA conduzindo a conversa');
+});
+
+test('uma resposta atrasada não reabre atendimento fechado na carga nem em tempo real', () => {
+  const opened = message('e1', '12:39:14', 'inbound', 'Tem vaga amanhã?');
+  const delayed = message('late', '12:45:00', 'outbound', 'Qual serviço?');
+  const [loaded] = cardsOfChat(build([opened, plainClose, delayed]));
+  const [live] = cardsOfChat(applyIncomingEventToKanban(build([opened, plainClose]), delayed, 'ic_salon'));
+  for (const card of [loaded, live]) {
+    assert.equal(card.columnKey, 'finalizadas');
+    assert.notEqual(card.ownerKind, 'ai');
+  }
+});
+
+test('retomada explícita da IA limpa o responsável humano antigo', () => {
+  const assigned = ev('e-assigned', '12:40:00', {
+    service: 'conversation_assigned', stage: 'Atendimento humano', handoff: true,
+    raw_payload: { assignee: { name: 'Maria', id: 'operator-1' } },
+  });
+  const resumed = ev('e-resumed', '12:41:00', {
+    service: 'resume_ai', stage: 'Conversas IA', handoff: false,
+  });
+  const [loaded] = cardsOfChat(build([assigned, resumed]));
+  const [live] = cardsOfChat(applyIncomingEventToKanban(build([assigned]), resumed, 'ic_salon'));
+  for (const card of [loaded, live]) {
+    assert.equal(card.columnKey, 'conversas_ia');
+    assert.equal(card.ownerKind, 'ai');
+    assert.equal(card.ownerId, null);
+  }
+});
+
+test('mensagem de outra sessão reabre o card, mas mensagem da sessão encerrada não reabre', () => {
+  const initial = build([message('e1', '12:39:14', 'inbound', 'Tem vaga amanhã?'), {
+    ...plainClose, raw_payload: { conversation_session_id: 'old-session' },
+  }]);
+  const inbound = (session) => message('new', '12:45:00', 'inbound', 'Olá', {
+    raw_payload: { conversation_session_id: session },
+  });
+  const [stale] = cardsOfChat(applyIncomingEventToKanban(initial, inbound('old-session'), 'ic_salon'));
+  assert.equal(stale.columnKey, 'finalizadas');
+  const [reopened] = cardsOfChat(applyIncomingEventToKanban(initial, inbound('new-session'), 'ic_salon'));
+  assert.equal(reopened.columnKey, 'conversas_ia');
+  assert.equal(reopened.ownerKind, 'ai');
+  assert.equal(reopened.isClosed, false);
+});
+
+test('rótulos do card omitem duplicatas e preservam responsável, pendência e histórico distintos', () => {
+  const labels = (key, card) => kanbanCardLabels(card, { id: key });
+  const ai = { owner: 'Assistente IA', ownerKind: 'ai', aiReason: 'IA conduzindo a conversa' };
+  assert.equal(labels('conversas_ia', ai).owner, 'Assistente IA');
+  assert.equal(labels('conversas_ia', ai).reason, '');
+  assert.equal(labels('finalizadas', ai).owner, '');
+  assert.equal(labels('finalizadas', { aiReason: 'Atendimento finalizado' }).reason, '');
+  assert.equal(labels('conversas_andamento', { isClosed: true, aiReason: 'Atendimento finalizado' }).reason, 'Atendimento finalizado');
+  assert.equal(labels('aguardando_humano', { owner: 'Sem responsável' }).owner, '');
+  const dispatch = { owner: 'Maria', ownerKind: 'agent', aiReason: 'Aguardando próximo expediente comercial' };
+  assert.equal(labels('aguardando_humano', dispatch).reason, dispatch.aiReason);
+  assert.equal(labels('com_humano', dispatch).owner, 'Maria');
+  const appointment = { appointmentStatus: 'no_show', appointmentStatusLabel: 'Não compareceu', appointmentStartsAt: '2026-10-10T13:00:00Z' };
+  assert.equal(labels('nao_compareceu', appointment).appointmentStatus, '');
+  assert.equal(labels('conversas_ia', { ...ai, ...appointment }).appointmentStatus, 'Não compareceu');
+  assert.match(labels('conversas_ia', appointment).appointmentDate, /10\/10/);
+  const payment = { owner: 'Pagamento informado', appointmentStatusLabel: 'Pagamento informado',
+    actionType: 'confirm_signal', aiReason: 'Sinal informado. Aguardando verificação humana.' };
+  assert.equal(labels('verificar_sinal', payment).owner, '');
+  assert.equal(labels('verificar_sinal', payment).reason, '');
+  assert.equal(labels('verificar_sinal', payment).appointmentStatus, 'Pagamento informado');
+  assert.equal(labels('follow_ups', { aiReason: 'Follow-up programado' }).reason, 'Follow-up programado');
 });
 
 const pendingMove = (card, targetKey, extra = {}) => new Map([[card.id, {

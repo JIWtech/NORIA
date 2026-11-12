@@ -4,6 +4,8 @@
 // um evento. Por isso o movimento é reconhecido pela identidade da conversa (canal + contato), além do
 // id: assim o card atualizado do servidor substitui a cópia guardada no arrasto, em vez de somar a ela.
 import { canonicalConversationKey } from '../identity/conversationIdentity.js';
+import { AI_KANBAN_COLUMNS } from './cardRouting.js';
+import { closedColumnReason, isClosedKanbanColumn } from './kanbanCardReason.js';
 
 // Cards de follow-up dividem o contato com a conversa, mas são outro item do quadro: não entram na identidade.
 function conversationIdentity(card) {
@@ -23,11 +25,27 @@ function targetsColumn(move, column) {
     || Boolean(move.targetColObj && (move.targetColObj.id === column.id || move.targetColObj.automationKey === colKey));
 }
 
+export function placeKanbanCard(card, columnKey, stageLabel) {
+  const movedCard = {
+    ...card,
+    stage: stageLabel,
+    targetColumnId: columnKey,
+  };
+  if (isClosedKanbanColumn(columnKey)) {
+    return { ...movedCard, isClosed: true, owner: 'Sem responsável', ownerKind: 'none', ownerId: null, aiReason: closedColumnReason(columnKey) };
+  }
+  if (columnKey === 'aguardando_humano' || columnKey === 'conversas_abandonadas') {
+    return { ...movedCard, owner: 'Sem responsável', ownerKind: 'none', ownerId: null, aiReason: '' };
+  }
+  if (AI_KANBAN_COLUMNS.has(columnKey)) {
+    return { ...movedCard, owner: 'Assistente IA', ownerKind: 'ai', ownerId: null, aiReason: '', needsReview: false };
+  }
+  return movedCard;
+}
+
 function placedCard(card, move, column) {
   return {
-    ...card,
-    stage: move.targetStageLabel,
-    targetColumnId: column.automationKey || move.targetColumnKey,
+    ...placeKanbanCard(card, column.automationKey || move.targetColumnKey, move.targetStageLabel),
     ...(move.kind === 'confirmed' ? { salesRevision: move.salesRevision || card.salesRevision || move.card?.salesRevision } : {}),
   };
 }

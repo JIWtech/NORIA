@@ -41,10 +41,11 @@ export function createRefreshCoordinator({
   };
 }
 
-export function shouldRefreshConversationState(event = {}) {
-  return Boolean(event.handoff)
+export function shouldRefreshConversationState(event = {}, { isNewConversation = false } = {}) {
+  return isNewConversation || Boolean(event.handoff)
     || isInternalOperationalEvent(event)
-    || ['resume_ai', 'handoff_requested', 'conversation_assigned', 'conversation_closed', 'sales_stage_changed', 'sales_qualification', 'sales_interest'].includes(event.service);
+    || ['resume_ai', 'handoff_requested', 'conversation_assigned', 'conversation_closed', 'pagamento_sinal', 'sales_stage_changed', 'sales_qualification', 'sales_interest'].includes(event.service)
+    || event.ai_provider === 'payment_signal';
 }
 
 export function createDebouncedRealtimeRefresh(refresh, delay = 800) {

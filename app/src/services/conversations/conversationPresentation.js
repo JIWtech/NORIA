@@ -1,7 +1,7 @@
 import { technicalEventPresentation } from './technicalEventPresentation.js';
 import { isConversationClosed } from './conversationLifecycle.js';
 import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
-import { cleanAgentName } from '../agents/agentNames.js';
+import { cleanAgentName, visibleAgentName } from '../agents/agentNames.js';
 import { canonicalKanbanKey } from '../kanban/kanbanHelpers.js';
 import { TECHNICAL_MEDIA_LABELS } from '../../utils/audioUtils.js';
 import { mediaPreview, isGeneratedMediaLabel } from '../media/mediaPresentation.js';
@@ -291,6 +291,16 @@ export function resolveConversationHeaderOwner(conversation, matchingCard = null
   if (isConversationClosed(conversation) || conversation.status === 'finalizado') {
     return { name: 'Sem responsável', id: null, kind: 'none' };
   }
+  const targetKey = canonicalKanbanKey(
+    matchingCard?.targetColumnId
+    || matchingCard?.kanbanColumn?.automationKey
+    || matchingCard?.kanbanColumn?.id
+    || conversation.stage
+    || conversation.salesStageKey
+  );
+  if (targetKey === 'conversas_abandonadas') {
+    return { name: 'Sem responsável', id: null, kind: 'none' };
+  }
   if (conversation.status === 'ia_ativa' && !conversation.handoff) {
     return { name: 'Assistente IA', id: null, kind: 'ai' };
   }
@@ -325,6 +335,38 @@ export function resolveConversationHeaderOwner(conversation, matchingCard = null
   });
 }
 
+const APPOINTMENT_REPLY_SERVICES = new Set([
+  'appointment_request_confirmed',
+  'appointment_request_rejected',
+  'appointment_payment_confirmed',
+]);
+
+// Serviços de resposta de agendamento: qualquer atualização de entrega deve
+// reclassificar a mensagem (pending/sent viram bolha; failed volta a sistema).
+export function isAppointmentReplyService(event) {
+  return APPOINTMENT_REPLY_SERVICES.has(event?.service);
+}
+
+export function isSentAppointmentReply(event) {
+  return event.direction === 'outbound'
+    && APPOINTMENT_REPLY_SERVICES.has(event.service)
+    && event.delivery_status !== 'failed'
+    && event.is_internal !== true
+    && asObject(event.raw_payload).is_internal !== true;
+}
+
+export function resolveOutboundTimelineAuthor(event) {
+  if (isSentAppointmentReply(event)) {
+    return { from: 'ai', sent_by: null, isAppointmentReply: true };
+  }
+
+  const isOperator = ['agent', 'human', 'operator', 'atendente'].includes(event.sender_type);
+  return {
+    from: isOperator ? 'agent' : event.sender_type === 'system' ? 'system' : 'ai',
+    sent_by: visibleAgentName(event.sent_by_user) || (isOperator ? 'Operador' : null),
+  };
+}
+
 export function resolveMessageSender(event = {}, fallbackOwner = '') {
   const direction = String(event.direction || '').toLowerCase();
   const senderType = String(event.sender_type || '').toLowerCase();
@@ -346,7 +388,7 @@ export function resolveMessageSender(event = {}, fallbackOwner = '') {
     || service === 'ia_active'
     || service === 'bot_reply';
 
-  if (isExplicitAi) {
+  if (isExplicitAi || isSentAppointmentReply(event)) {
     return { type: 'ai', label: 'IA' };
   }
 
@@ -369,11 +411,9 @@ export function resolveMessageSender(event = {}, fallbackOwner = '') {
     || Boolean(cleanAgentName(event.sent_by_user));
 
   if (isHumanAgent) {
-    const rawSentBy = event.sent_by_user
-      || rawPayload?.magia_operator?.operator_name
-      || rawPayload?.assignee?.name
-      || '';
-    const cleanSentBy = cleanAgentName(rawSentBy);
+    const cleanSentBy = cleanAgentName(event.sent_by_user)
+      || cleanAgentName(rawPayload?.magia_operator?.operator_name)
+      || cleanAgentName(rawPayload?.assignee?.name);
     const cleanFallback = cleanAgentName(fallbackOwner);
     const label = cleanSentBy || cleanFallback || 'Atendente';
     return { type: 'agent', label };

@@ -72,3 +72,27 @@ test('follow-up reads stay tenant-scoped and are disabled outside the Nubia boar
   assert.ok(client.queries[0].calls.some((call) => call[0] === 'in' && call[1] === 'status'));
   assert.deepEqual(client.queries[0].calls.find((call) => call[0] === 'limit'), ['limit', 200]);
 });
+
+test('agendamentos ativos e futuros entram mesmo além dos 200 do histórico', async () => {
+  const history = Array.from({ length: 200 }, (_, index) => ({ id: `old-${index}`, tenant_id: 'tenant-a', status: 'completed' }));
+  const active = [{ id: 'future-confirmed', tenant_id: 'tenant-a', status: 'confirmed' }, { id: 'old-0', tenant_id: 'tenant-a', status: 'completed' }];
+  let call = 0;
+  const client = fakeSupabase({});
+  const originalFrom = client.from.bind(client);
+  client.from = (table) => {
+    const chain = originalFrom(table);
+    const response = call++ === 0 ? { data: history, error: null } : { data: active, error: null };
+    chain.then = (resolve, reject) => Promise.resolve(response).then(resolve, reject);
+    return chain;
+  };
+  const rows = await loadAppointments(client, 'tenant-a', (row) => row);
+  assert.equal(rows.length, 201);
+  assert.ok(rows.some((row) => row.id === 'future-confirmed'));
+  const activeQuery = client.queries[1];
+  const statuses = activeQuery.calls.find((item) => item[0] === 'in' && item[1] === 'status')[2];
+  for (const status of ['pending_confirmation', 'payment_reported', 'aguardando_verificacao', 'scheduled', 'confirmed', 'reserved', 'pending_payment']) {
+    assert.ok(statuses.includes(status), status);
+  }
+  assert.ok(activeQuery.calls.some((item) => item.join('|') === 'eq|tenant_id|tenant-a'));
+  assert.ok(activeQuery.calls.find((item) => item[0] === 'limit')[1] >= 1000);
+});

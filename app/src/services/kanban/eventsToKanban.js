@@ -3,6 +3,9 @@ import { formatDate, compareDateLabel } from '../../utils/dateFormatting.js';
 import { appointmentTimestamp, isMoreRecentRecord } from '../../utils/recordRecency.js';
 import { prepareConversationEvents } from '../conversations/conversationEvents.js';
 import { applyConversationLifecycle, isConversationClosed } from '../conversations/conversationLifecycle.js';
+import { isCustomerInboundEvent, isFollowUpOutboundEvent } from '../conversations/conversationEventState.js';
+import { eventSessionId, isExplicitAiOwnershipTransition } from '../conversations/ownershipEvidence.js';
+import { isConversationWaitingForFollowUp } from '../timeline/conversationFilters.js';
 import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
 import { getTenantSchedulingLink } from '../appointments/schedulingLinks.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
@@ -24,6 +27,10 @@ import { mediaPreview } from '../media/mediaPresentation.js';
 import { formatConversationPreview } from '../../utils/audioUtils.js';
 import { technicalEventPresentation } from '../conversations/technicalEventPresentation.js';
 import { closedColumnReason, isClosedKanbanColumn } from './kanbanCardReason.js';
+import {
+  AI_KANBAN_COLUMNS, HUMAN_KANBAN_COLUMNS, conversationKanbanCandidates, extractFollowUpStepKey, findKanbanDestination,
+  followUpCardReason, followUpStepLabel, humanKanbanStage, isKanbanAssignedToHuman, isKanbanClosed, isKanbanWaitingHuman, nextTeamReviewRequestedAt,
+} from './cardRouting.js';
 
 const HUMAN_HELD_COLUMNS = new Set(['aguardando_humano', 'com_humano', 'conversas_humanos']);
 
@@ -56,16 +63,35 @@ export function eventsToKanban(
   const explicitOwnerIdByChat = new Map();
   const eventCountsByChat = new Map();
   const conversationStatesByChat = new Map();
+  const closeEventsByChat = new Map();
+  const latestInboundAtByChat = new Map();
+  const latestFollowUpEventByChat = new Map();
   const appointmentsById = new Map(appointments.map((appointment) => [appointment.id, appointment]));
   const eventCardsByConversation = new Map();
 
-  for (const event of prepareConversationEvents(events).reverse()) {
+  for (const event of prepareConversationEvents(events).sort((a, b) => compareDateLabel(a.created_at, b.created_at))) {
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
     if (isKnownKanbanTestArtifact(event)) continue;
-    if (isInternalOperationalEvent(event)) continue;
+    if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;
     const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
     if (!conversationStatesByChat.has(key)) conversationStatesByChat.set(key, { status: 'ia_ativa' });
-    applyConversationLifecycle(conversationStatesByChat.get(key), event, normalizeStage(event.stage));
+    const state = conversationStatesByChat.get(key);
+    const humanStage = humanKanbanStage(event);
+    const closed = isKanbanClosed(event);
+    let lifecycleStage = event.stage;
+    if (closed) lifecycleStage = 'Finalizado';
+    else if (humanStage) lifecycleStage = 'Atendimento humano';
+    else if (canonicalKanbanKey(event.stage) !== 'sales_closed') lifecycleStage = normalizeStage(event.stage);
+    applyConversationLifecycle(state, event, lifecycleStage);
+    const session = eventSessionId(event);
+    if (closed || (state.status !== 'finalizado' && (!session || session !== state.closedSessionId))) {
+      state.teamReviewRequestedAt = nextTeamReviewRequestedAt(state.teamReviewRequestedAt, event);
+    }
+    if (closed) closeEventsByChat.set(key, event);
+    if (state.status !== 'atendimento_humano') state.humanKanbanStage = '';
+    else if (humanStage && (!state.humanKanbanStage || humanStage !== 'aguardando_humano' || event.service === 'handoff_requested')) {
+      state.humanKanbanStage = humanStage;
+    }
   }
 
   // Atribuições precisam ser lidas em ordem temporal, independentemente da ordem da query.
@@ -76,12 +102,24 @@ export function eventsToKanban(
     eventCountsByChat.set(key, (eventCountsByChat.get(key) || 0) + 1);
     const current = latestByChat.get(key);
     if (!current || isMoreRecentRecord(event, current)) latestByChat.set(key, event);
+    if (isCustomerInboundEvent(event) && event.created_at) {
+      const prevInbound = latestInboundAtByChat.get(key);
+      if (!prevInbound || Date.parse(event.created_at) >= Date.parse(prevInbound)) {
+        latestInboundAtByChat.set(key, event.created_at);
+      }
+    } else if (isFollowUpOutboundEvent(event) && event.created_at) {
+      const prevFollowUp = latestFollowUpEventByChat.get(key);
+      if (!prevFollowUp || Date.parse(event.created_at) >= Date.parse(prevFollowUp.created_at)) {
+        latestFollowUpEventByChat.set(key, event);
+      }
+    }
 
     const payload = asObject(event.raw_payload);
     const assignee = asObject(payload.assignee);
-    if (isGenesisSalesTenant(tenantSlug) && event.service === 'resume_ai') {
+    if (isExplicitAiOwnershipTransition(event) || (isGenesisSalesTenant(tenantSlug) && event.service === 'resume_ai')) {
       explicitOwnerByChat.delete(key);
       explicitOwnerIdByChat.delete(key);
+      continue;
     }
     if (isConversationClosed(event) || event.service === 'conversation_closed') {
       explicitOwnerByChat.delete(key);
@@ -118,43 +156,69 @@ export function eventsToKanban(
 
   const defaultSchedulingUrl = getTenantSchedulingLink(tenantSlug);
 
-  for (const [key, event] of latestByChat) {
-    const channelType = normalizeChannel(event.channel_type);
+  for (const [key, lead] of salesLeadsByConversation) {
+    if (latestByChat.has(key)) continue;
+    latestByChat.set(key, {
+      id: `sales-${lead.id}`,
+      channel_type: lead.channel_type,
+      external_conversation_id: lead.chat_id,
+      contact_name_canonical: lead.state?.customer_name,
+      message_text: lead.product?.name || 'Lead comercial',
+      direction: 'internal',
+      created_at: lead.updated_at,
+    });
+  }
+
+  for (const [key, latestEvent] of latestByChat) {
     const conversationState = conversationStatesByChat.get(key);
+    const event = conversationState?.status === 'finalizado' ? closeEventsByChat.get(key) || latestEvent : latestEvent;
+    const channelType = normalizeChannel(event.channel_type);
     const salesLead = salesLeadsByConversation.get(key);
     const activityEvent = latestConversationActivityByChat.get(key) || event;
     const identityEvent = latestNamedContactByChat.get(key) || activityEvent;
+    const payload = asObject(event.raw_payload);
+    const relatedAppointmentId = payload.payment_signal?.appointment_update?.appointment?.id
+      || payload.appointment_id || payload.appointment_creation?.appointment?.id || '';
+    const relatedAppointment = appointmentsById.get(relatedAppointmentId);
+    const latestCustomerInboundAt = latestInboundAtByChat.get(key) || null;
+    const latestFollowUpEvent = latestFollowUpEventByChat.get(key) || null;
+    const waitingForFollowUp = isConversationWaitingForFollowUp({
+      status: conversationState?.status,
+      stage: event.stage,
+      latestFollowUpAt: latestFollowUpEvent?.created_at || null,
+      latestCustomerInboundAt,
+    });
     const targetCandidates = resolveTenantKanbanStage({
       tenantSlug,
       salesLead,
       event,
       conversationState,
       context: {
+        columns,
         direction: event.direction,
         isFirstContact: (eventCountsByChat.get(key) || 0) <= 1,
+        paymentResolved: relatedAppointment && !isAppointmentPaymentReported(relatedAppointment.status),
+        waitingForFollowUp,
       },
     });
-    const target = targetCandidates.find((candidate) => findKanbanColumn(columns, candidate)) || targetCandidates[0];
-    const column = findKanbanColumn(columns, target) || columns[0];
-    const relatedAppointmentId = event.raw_payload?.payment_signal?.appointment_update?.appointment?.id
-      || event.raw_payload?.appointment_id
-      || event.raw_payload?.appointment_creation?.appointment?.id
-      || '';
-    const relatedAppointment = appointmentsById.get(relatedAppointmentId);
-
-    if (target === 'verificar_sinal' && relatedAppointment) {
-      continue;
-    }
+    const column = findKanbanDestination(columns, targetCandidates) || findKanbanDestination(columns, AI_KANBAN_COLUMNS) || columns[0];
+    const target = column.automationKey || column.id;
+    const isFollowUpCard = target === 'follow_ups' && waitingForFollowUp;
+    const followUpStepKey = isFollowUpCard ? extractFollowUpStepKey(latestFollowUpEvent) : '';
+    const resolvedFollowUpLabel = isFollowUpCard ? followUpStepLabel(followUpStepKey) : '';
 
     const currentControlMode = resolveSalesControlMode(salesLead);
+    const technicalReview = technicalEventPresentation(event);
     const isHumanControlled = currentControlMode !== null ? currentControlMode === 'human' : (Boolean(event.handoff)
       || conversationState?.status === 'atendimento_humano'
       || normalizeStage(event.stage) === 'Atendimento humano'
       || isKanbanAssignedToHuman(event)
-      || ['com_humano', 'conversas_humanos', 'aguardando_humano', 'sales_human'].includes(target));
+      || HUMAN_KANBAN_COLUMNS.has(target));
     let aiReason = isHumanControlled ? '' : 'IA conduzindo a conversa';
     if (currentControlMode === 'none') aiReason = '';
-    if (!isHumanControlled && target === 'agendamentos') {
+    if (!isHumanControlled && target === 'follow_ups') {
+      aiReason = followUpCardReason(resolvedFollowUpLabel);
+    } else if (!isHumanControlled && target === 'agendamentos') {
       aiReason = 'Registro operacional do sistema';
     } else if (!isHumanControlled && target === 'verificar_sinal') {
       aiReason = 'Sinal informado pela cliente';
@@ -172,7 +236,11 @@ export function eventsToKanban(
       aiReason = 'Primeiro contato recebido';
     }
 
-    const isClosedConv = conversationState?.status === 'finalizado' || isClosedKanbanColumn(target);
+    const isClosedConv = conversationState?.status === 'finalizado' || isKanbanClosed(event) || isClosedKanbanColumn(target);
+    if (isClosedConv) {
+      aiReason = closedColumnReason(target)
+        || closedColumnReason(asObject(event.raw_payload).close_reason === 'no_show' ? 'nao_compareceu' : 'finalizadas');
+    }
     const chatExplicitOwner = isClosedConv ? null : (explicitOwnerByChat.get(key)
       || cleanAgentName(asObject(event.raw_payload)?.assignee?.name)
       || cleanAgentName(asObject(event.raw_payload)?.human_dispatch?.assignee_name)
@@ -186,7 +254,7 @@ export function eventsToKanban(
       || asObject(event.raw_payload)?.assignee_id
       || null);
 
-    const ownerMetadata = resolveConversationOwnerDetails({
+    const ownerMetadata = resolveConversationOwnerDetails(isClosedConv || ['aguardando_humano', 'conversas_abandonadas'].includes(target) ? { currentControlMode: 'none' } : {
       explicitOwner: chatExplicitOwner,
       explicitOwnerId: chatExplicitOwnerId,
       currentControlMode,
@@ -221,15 +289,15 @@ export function eventsToKanban(
       || null;
 
     const dispatchStatus = rawPayload?.human_dispatch?.status || salesLead?.state?.human_dispatch?.status || null;
-    if (dispatchStatus === 'dispatch_failed') {
+    if (!isClosedConv && isHumanControlled && dispatchStatus === 'dispatch_failed') {
       aiReason = 'Falha no encaminhamento para fila humana';
-    } else if (dispatchStatus === 'dispatch_uncertain') {
+    } else if (!isClosedConv && isHumanControlled && dispatchStatus === 'dispatch_uncertain') {
       aiReason = 'Atendimento com status incerto - requer intervenção manual';
-    } else if (outsideBusinessHours && isHumanControlled) {
+    } else if (!isClosedConv && outsideBusinessHours && isHumanControlled) {
       aiReason = nextBusinessSession
         ? `Aguardando próximo expediente (${nextBusinessSession})`
         : 'Aguardando próximo expediente comercial';
-    } else if (outsideBusinessHours && !isHumanControlled && !aiReason) {
+    } else if (!isClosedConv && outsideBusinessHours && ownerMetadata.kind === 'ai' && target !== 'agendamentos' && target !== 'verificar_sinal' && target !== 'follow_ups') {
       aiReason = 'IA atendendo fora do horário comercial';
     }
 
@@ -257,6 +325,12 @@ export function eventsToKanban(
       owner: ownerMetadata.name,
       ownerId: ownerMetadata.id,
       ownerKind: ownerMetadata.kind,
+      needsReview: Boolean(technicalReview),
+      humanKanbanStage: conversationState?.humanKanbanStage || '',
+      teamReviewRequestedAt: conversationState?.teamReviewRequestedAt || null,
+      closedSessionId: conversationState?.closedSessionId || null,
+      isClosed: isClosedConv,
+      lastControlAt: event.created_at || null,
       contactCategory: contactCategory.category,
       contactCategoryLabel: contactCategory.label,
       salesLeadId: salesLead?.id || null,
@@ -273,10 +347,18 @@ export function eventsToKanban(
       outsideBusinessHours,
       nextBusinessSession,
       aiReason,
+      isFollowUp: isFollowUpCard,
+      waitingForFollowUp: isFollowUpCard,
+      followUpLabel: resolvedFollowUpLabel,
+      followUpStepKey: followUpStepKey || '',
+      latestFollowUpAt: latestFollowUpEvent?.created_at || null,
+      latestCustomerInboundAt,
 
       appointmentId: relatedAppointmentId,
       appointmentStatus: relatedAppointment?.status || '',
-      actionType: target === 'verificar_sinal' && relatedAppointmentId ? 'confirm_signal' : '',
+      appointmentStatusLabel: relatedAppointment?.statusLabel || '',
+      appointmentStartsAt: relatedAppointment?.startsAt,
+      actionType: target === 'verificar_sinal' && relatedAppointmentId && (!relatedAppointment || isAppointmentPaymentReported(relatedAppointment.status)) ? 'confirm_signal' : '',
       schedulingLink: defaultSchedulingUrl,
       hasSchedulingLink: Boolean(defaultSchedulingUrl) && (target === 'agendamentos' || hasSchedulingSignal(event.message_text)),
       lastAt: formatDate(activityEvent.created_at),
@@ -288,25 +370,27 @@ export function eventsToKanban(
   }
 
   const latestAppointmentsByConversation = new Map();
-  for (const appointment of appointments.filter((item) => item.status !== 'cancelled')) {
+  for (const appointment of appointments) {
+    if (['cancelled', 'canceled'].includes(appointment.status)) continue;
     const key = canonicalConversationKey(
       appointment.channelType || appointment.channel_type,
       appointment.externalConversationId || appointment.external_conversation_id,
       `appointment-${appointment.id}`,
     );
     const current = latestAppointmentsByConversation.get(key);
-    // Pedido aberto é a pendência da conversa: vale mais que um agendamento já resolvido, mesmo mais recente.
-    const replaces = !current || appointment.status === 'pending_confirmation'
-      || (current.status !== 'pending_confirmation' && isMoreRecentRecord(appointment, current));
+    const priority = appointmentKanbanPriority(appointment.status);
+    const currentPriority = appointmentKanbanPriority(current?.status);
+    const replaces = !current || priority > currentPriority
+      || (priority === currentPriority && isMoreRecentRecord(appointment, current));
     if (replaces) latestAppointmentsByConversation.set(key, appointment);
   }
 
   const appointmentCards = [...latestAppointmentsByConversation.values()]
-    .filter((appointment) => appointment.status !== 'cancelled')
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
     .map((appointment) => ({
       id: `appointment-${appointment.id}`,
       appointmentId: appointment.id,
+      appointmentTitle: appointment.title || '',
       title: appointment.title,
       subtitle: appointment.contactName ? `${appointment.contactName} - ${appointment.when}` : appointment.when,
       channel: appointment.channelLabel,
@@ -314,16 +398,17 @@ export function eventsToKanban(
       value: 'Agenda',
       owner: appointment.statusLabel,
       appointmentStatus: appointment.status,
+      appointmentStatusLabel: appointment.statusLabel,
       appointmentStartsAt: appointment.startsAt,
       appointmentMetadata: appointment.raw?.metadata || {},
       externalConversationId: appointment.externalConversationId,
       // 'nao_compareceu' só existe em quadros que a criaram; nos demais o cartão cai em 'agendamentos' (fallback abaixo).
-      targetColumnId: appointment.status === 'payment_reported' ? 'verificar_sinal'
+      targetColumnId: isAppointmentPaymentReported(appointment.status) ? 'verificar_sinal'
         : appointment.status === 'no_show' ? 'nao_compareceu'
           : appointment.status === 'pending_confirmation' ? 'confirmar_agendamento' : 'agendamentos',
-      actionType: appointment.status === 'payment_reported' ? 'confirm_signal'
+      actionType: isAppointmentPaymentReported(appointment.status) ? 'confirm_signal'
         : appointment.status === 'pending_confirmation' ? 'confirm_request' : '',
-      aiReason: appointment.status === 'payment_reported'
+      aiReason: isAppointmentPaymentReported(appointment.status)
         ? 'Sinal informado. Aguardando verificação humana.'
         : '',
     }));
@@ -335,33 +420,35 @@ export function eventsToKanban(
       appointmentCard.id,
     );
     const matchingEvent = eventCardsByConversation.get(key);
+    const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
 
     if (matchingEvent) {
       const appointment = latestAppointmentsByConversation.get(key);
       // Pedido aberto fica na coluna mesmo com mensagem nova, salvo se a conversa estiver com humano.
       const openRequest = appointment.status === 'pending_confirmation';
       const heldByHuman = openRequest && HUMAN_HELD_COLUMNS.has(matchingEvent.column.automationKey || matchingEvent.column.id);
-      if ((openRequest || isMoreRecentRecord(appointment, { updated_at: matchingEvent.occurredAt })) && !heldByHuman) {
+      // Agendamento confirmado e futuro também puxa o card que só está com a IA (ex.: "Obrigada" depois da confirmação).
+      const upcomingConfirmed = appointment.status === 'confirmed'
+        && Date.parse(appointment.startsAt || '') > Date.now()
+        && AI_KANBAN_COLUMNS.has(matchingEvent.column.automationKey || matchingEvent.column.id);
+      const actionable = openRequest || upcomingConfirmed || appointmentCard.actionType === 'confirm_signal';
+      if (targetColumn && (actionable || isMoreRecentRecord(appointment, { updated_at: matchingEvent.occurredAt })) && !heldByHuman) {
         matchingEvent.column.cards = matchingEvent.column.cards.filter((card) => card.id !== matchingEvent.card.id);
-        const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
-        if (targetColumn) {
-          const canonicalCard = mergeAppointmentCard(appointmentCard, matchingEvent.card);
-          targetColumn.cards.push(canonicalCard);
-          eventCardsByConversation.set(key, {
-            card: canonicalCard,
-            column: targetColumn,
-            occurredAt: appointmentTimestamp(appointment),
-          });
-        }
+        const canonicalCard = mergeAppointmentCard(appointmentCard, matchingEvent.card, targetColumn);
+        targetColumn.cards.push(canonicalCard);
+        eventCardsByConversation.set(key, {
+          card: canonicalCard,
+          column: targetColumn,
+          occurredAt: appointmentTimestamp(appointment),
+        });
       } else {
         Object.assign(matchingEvent.card, enrichCardWithAppointment(matchingEvent.card, appointmentCard));
       }
       continue;
     }
 
-    const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
     if (targetColumn) {
-      targetColumn.cards.push(appointmentCard);
+      targetColumn.cards.push({ ...appointmentCard, targetColumnId: targetColumn.automationKey || targetColumn.id });
     }
   }
 
@@ -373,8 +460,6 @@ export function eventsToKanban(
       cards: appointmentCards.filter((card) => card.targetColumnId === 'agendamentos'),
     });
   }
-
-  addFollowUpCards(columns, followUpJobs, latestByChat, tenantSlug);
 
   for (const column of columns) {
     column.cards = sortKanbanCardsByConversationActivity(column.cards);
@@ -397,17 +482,31 @@ function enrichCardWithAppointment(card, appointmentCard) {
   return {
     ...card,
     appointmentId: appointmentCard.appointmentId,
+    appointmentTitle: appointmentCard.appointmentTitle,
     appointmentStatus: appointmentCard.appointmentStatus,
+    appointmentStatusLabel: appointmentCard.appointmentStatusLabel,
     appointmentStartsAt: appointmentCard.appointmentStartsAt,
     appointmentMetadata: appointmentCard.appointmentMetadata,
-    actionType: appointmentCard.actionType || card.actionType,
+    actionType: appointmentCard.actionType,
     hasSchedulingLink: card.hasSchedulingLink || appointmentCard.targetColumnId === 'agendamentos',
   };
 }
 
-function mergeAppointmentCard(appointmentCard, eventCard) {
+function isAppointmentPaymentReported(status) {
+  return status === 'payment_reported' || status === 'aguardando_verificacao';
+}
+
+function appointmentKanbanPriority(status) {
+  if (isAppointmentPaymentReported(status)) return 3;
+  if (status === 'pending_confirmation') return 2;
+  if (['scheduled', 'confirmed', 'reserved', 'pending_payment'].includes(status)) return 1;
+  return 0;
+}
+
+function mergeAppointmentCard(appointmentCard, eventCard, targetColumn) {
   return {
     ...appointmentCard,
+    targetColumnId: targetColumn.automationKey || targetColumn.id,
     title: eventCard.title || appointmentCard.title,
     channel: eventCard.channel || appointmentCard.channel,
     channelType: eventCard.channelType || appointmentCard.channelType,
@@ -415,61 +514,21 @@ function mergeAppointmentCard(appointmentCard, eventCard) {
     owner: eventCard.owner || appointmentCard.owner,
     ownerId: eventCard.ownerId || null,
     ownerKind: eventCard.ownerKind || null,
+    needsReview: eventCard.needsReview,
+    humanKanbanStage: eventCard.humanKanbanStage,
+    teamReviewRequestedAt: eventCard.teamReviewRequestedAt,
+    isClosed: eventCard.isClosed,
+    closedSessionId: eventCard.closedSessionId,
+    lastControlAt: eventCard.lastControlAt,
     contactCategory: eventCard.contactCategory || appointmentCard.contactCategory || 'customer',
     contactCategoryLabel: eventCard.contactCategoryLabel || appointmentCard.contactCategoryLabel || 'Cliente',
     schedulingLink: eventCard.schedulingLink,
     hasSchedulingLink: eventCard.hasSchedulingLink || appointmentCard.targetColumnId === 'agendamentos',
+    isFollowUp: false,
+    waitingForFollowUp: false,
+    followUpLabel: '',
+    followUpStepKey: '',
   };
-}
-
-function addFollowUpCards(columns, followUpJobs, latestByChat, tenantSlug) {
-  if (tenantSlug !== 'clinica_nubia_oficial' && !isGenesisSalesTenant(tenantSlug)) return;
-  const column = findKanbanColumn(columns, 'follow_ups');
-  if (!column) return;
-
-  const nextJobByConversation = new Map();
-  for (const job of followUpJobs) {
-    if (!['pending', 'processing'].includes(job.status)) continue;
-    const key = canonicalConversationKey(job.channel_type || 'whatsapp', job.external_conversation_id, job.id);
-    if (!job.external_conversation_id) continue;
-    const current = nextJobByConversation.get(key);
-    // A claimed job is the active execution; otherwise show the earliest pending step.
-    if (!current || (job.status === 'processing' && current.status !== 'processing')
-      || (job.status === current.status && Date.parse(job.due_at) < Date.parse(current.due_at))) {
-      nextJobByConversation.set(key, job);
-    }
-  }
-
-  for (const [key, job] of nextJobByConversation) {
-    const latestEvent = latestByChat.get(key);
-    const channelType = normalizeChannel(job.channel_type);
-    const label = followUpLabel(job.step_key);
-    column.cards.push({
-      id: `follow-up-${job.id}`,
-      externalConversationId: job.external_conversation_id,
-      title: job.contact_name || latestEvent?.contact_name || `Contato ${channelType.label}`,
-      subtitle: job.objective || 'Retomada automática programada.',
-      channel: channelType.label,
-      channelType: channelType.type,
-      stage: `Follow-up ${label}`,
-      targetColumnId: 'follow_ups',
-      owner: 'Assistente IA',
-      aiReason: job.status === 'processing' ? 'IA preparando o follow-up' : 'Follow-up programado',
-      followUpLabel: label,
-      followUpStatus: job.status,
-      followUpDueAt: job.due_at,
-      isFollowUp: true,
-      lastAt: formatDate(job.due_at || job.created_at),
-    });
-  }
-}
-
-function followUpLabel(stepKey) {
-  const key = String(stepKey || '').trim().toLowerCase();
-  if (key === '3h') return '3h';
-  if (key === '24h' || key === '1d' || key === '1dia') return '1 dia';
-  if (key === '15d' || key === '15dias') return '15 dias';
-  return stepKey || 'Programado';
 }
 
 function isKnownKanbanTestArtifact(event) {
@@ -515,26 +574,32 @@ export function salesFinancingSummary(lead, tenantSlug) {
 }
 
 export function resolveTenantKanbanStage({ tenantSlug, salesLead, event, conversationState, context = {} }) {
-  const manualTarget = canonicalKanbanKey(event?.raw_payload?.kanban_transition?.to_column);
+  const manualTarget = asObject(event?.raw_payload).kanban_transition?.to_column;
   if (!isGenesisSalesTenant(tenantSlug)) {
-    if (manualTarget) return [manualTarget];
-    if (isKanbanPaymentSignal(event)) return ['verificar_sinal', 'aguardando_humano'];
-    if (conversationState?.status === 'atendimento_humano') return ['com_humano', 'conversas_humanos', 'aguardando_humano'];
-    return pickColumn(event?.stage, event?.handoff, event?.message_text, { ...context, event });
+    if (manualTarget && (!context.columns || findKanbanColumn(context.columns, manualTarget))) return [manualTarget];
+    const humanStage = conversationState?.humanKanbanStage || humanKanbanStage(event);
+    return conversationKanbanCandidates(event, { ...context, humanStage });
   }
 
   const persistedStage = canonicalKanbanKey(salesLead?.stage_key);
   if (persistedStage === 'sales_qualifying' && salesLead?.state?.payment_mode === 'financing' && salesLead?.state?.financing?.review_status === 'ready_for_human') {
     return ['sales_financing'];
   }
+  if (context.waitingForFollowUp && (!persistedStage || ['sales_new', 'sales_qualifying', 'sales_hot'].includes(persistedStage))
+    && !salesLead?.ai_locked && conversationState?.status !== 'atendimento_humano'
+    && conversationState?.status !== 'finalizado' && !humanKanbanStage(event)
+    && !isKanbanClosed(event) && (!manualTarget || !GENESIS_SALES_STAGE_KEYS.has(canonicalKanbanKey(manualTarget)))
+    && findKanbanColumn(context.columns, 'follow_ups')) {
+    return ['follow_ups'];
+  }
   if (GENESIS_SALES_STAGE_KEYS.has(persistedStage)) return [persistedStage];
 
   // Sem etapa comercial persistida, sinais operacionais e o contexto do lead são
   // apenas um fallback. Uma conversa encerrada nunca se torna venda concluída.
-  if (manualTarget && GENESIS_SALES_STAGE_KEYS.has(manualTarget)) return [manualTarget];
-  const eventStage = canonicalKanbanKey(event?.stage);
+  if (manualTarget && GENESIS_SALES_STAGE_KEYS.has(canonicalKanbanKey(manualTarget))) return [canonicalKanbanKey(manualTarget)];
+  const eventStage = canonicalKanbanKey(asObject(event?.raw_payload).sales_stage || event?.stage);
   if (GENESIS_SALES_STAGE_KEYS.has(eventStage)) return [eventStage];
-  if (salesLead?.ai_locked || conversationState?.status === 'atendimento_humano' || isKanbanWaitingHuman(event, event?.handoff)) {
+  if (salesLead?.ai_locked || conversationState?.status === 'atendimento_humano' || isKanbanWaitingHuman(event)) {
     return ['sales_human'];
   }
 
@@ -547,8 +612,7 @@ export function resolveTenantKanbanStage({ tenantSlug, salesLead, event, convers
   }
   if (context.isFirstContact && context.direction !== 'outbound') return ['sales_new'];
 
-  const genericTarget = pickColumn(event?.stage, event?.handoff, event?.message_text, { ...context, event })[0];
-  if (['com_humano', 'conversas_humanos', 'aguardando_humano'].includes(genericTarget)) return ['sales_human'];
+  if (humanKanbanStage(event)) return ['sales_human'];
   return ['sales_qualifying'];
 }
 
@@ -595,73 +659,6 @@ function buildKanbanColumns(kanbanConfig, tenantSlug = '') {
       return true;
     });
   return orderKanbanColumnsForTenant(columns, tenantSlug);
-}
-
-function pickColumn(stage, handoff, messageText = '', context = {}) {
-  const norm = normalizeStage(stage);
-  const text = String(messageText || '').toLowerCase();
-  const event = context.event || {};
-  const manualTarget = canonicalKanbanKey(event?.raw_payload?.kanban_transition?.to_column);
-
-  if (manualTarget) return [manualTarget];
-
-  if (isKanbanClosed(event, norm)) {
-    // Encerramento por "cliente não veio": coluna própria quando o quadro a tem; senão, Finalizadas como sempre.
-    return event?.raw_payload?.close_reason === 'no_show'
-      ? ['nao_compareceu', 'finalizadas', 'conversas_andamento']
-      : ['finalizadas', 'conversas_andamento'];
-  }
-  if (isKanbanPaymentSignal(event, norm)) return ['verificar_sinal', 'aguardando_humano', 'conversas_humanos'];
-  if (norm === 'Produtos apresentados') return ['produtos_apresentados', 'conversas_andamento'];
-  if (norm === 'Interesse em compra') return ['interesse_compra', 'conversas_andamento'];
-  if (norm === 'Aguardando finalizacao') return ['aguardando_finalizacao', 'conversas_andamento'];
-  if (norm === 'Venda concluida') return ['finalizadas', 'conversas_andamento'];
-  if (norm === 'Agendamento confirmado' || text.includes('confirmado') || text.includes('agendado')) return ['agendamentos'];
-  if (isKanbanAssignedToHuman(event)) return ['com_humano', 'conversas_humanos'];
-  if (isKanbanWaitingHuman(event, handoff, norm)) return ['aguardando_humano', 'conversas_humanos'];
-  if (isKanbanAbandoned(event, context)) return ['conversas_abandonadas', 'conversas_andamento'];
-  if (context.isFirstContact && context.direction !== 'outbound') return ['conversas_ia', 'novas_conversas', 'conversas_andamento'];
-  return ['conversas_ia', 'conversas_andamento'];
-}
-
-function isKanbanClosed(event, normalizedStage = normalizeStage(event?.stage)) {
-  return normalizedStage === 'Finalizado'
-    || event?.service === 'conversation_closed'
-    || event?.ai_provider === 'conversation_closed'
-    || event?.delivery_status === 'closed';
-}
-
-function isKanbanAssignedToHuman(event) {
-  return event?.sender_type === 'agent'
-    || event?.service === 'manual_reply'
-    || event?.service === 'conversation_assigned'
-    || Boolean(event?.raw_payload?.assignee);
-}
-
-function isKanbanPaymentSignal(event, normalizedStage = normalizeStage(event?.stage)) {
-  return normalizedStage === 'Verificar Sinal'
-    || normalizedStage === 'Sinal informado'
-    || event?.service === 'pagamento_sinal'
-    || event?.ai_provider === 'payment_signal'
-    || Boolean(event?.raw_payload?.payment_signal);
-}
-
-function isKanbanWaitingHuman(event, handoff, normalizedStage = normalizeStage(event?.stage)) {
-  return Boolean(handoff)
-    || normalizedStage === 'Atendimento humano'
-    || event?.ai_provider === 'human_lock'
-    || event?.raw_payload?.internal_actions?.ready_to_schedule
-    || event?.raw_payload?.internal_actions?.complaint_handoff;
-}
-
-function isKanbanAbandoned(event, context = {}) {
-  if (context.direction === 'outbound') return false;
-  if (context.isFirstContact) return false;
-  if (!event?.created_at) return false;
-  const createdAt = Date.parse(event.created_at);
-  if (!Number.isFinite(createdAt)) return false;
-  const abandonedAfterHours = Number(event.raw_payload?.kanban_abandoned_after_hours || 24);
-  return Date.now() - createdAt > abandonedAfterHours * 60 * 60 * 1000;
 }
 
 function hasSchedulingSignal(messageText = '') {

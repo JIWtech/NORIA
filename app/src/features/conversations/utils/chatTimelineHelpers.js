@@ -18,6 +18,8 @@ import {
   resolveConversationHeaderOwner,
   isConversationClosed,
 } from '../../../dataService.js';
+import { canonicalKanbanKey } from '../../../services/kanban/kanbanHelpers.js';
+import { visibleAgentName } from '../../../services/agents/agentNames.js';
 
 /**
  * Extrai iniciais de um nome (até 2 caracteres maiúsculos).
@@ -202,6 +204,7 @@ const SYSTEM_SERVICES = new Set([
  */
 export function isSystemTimelineMessage(message) {
   if (!message || typeof message !== 'object') return false;
+  if (message.isAppointmentReply) return false;
 
   if (message.from === 'system' || message.sender_type === 'system') {
     return true;
@@ -291,10 +294,10 @@ export function describeSystemEvent(message) {
   let detail = '';
 
   if (kind === 'assigned') {
-    const assignee = message?.sent_by
+    const assignee = visibleAgentName(message?.sent_by
       || message?.sent_by_user
       || text.match(/assumida por (.+?)\.?$/i)?.[1]
-      || text.match(/atribu[íi]do (?:a|para) (.+?)\.?$/i)?.[1];
+      || text.match(/atribu[íi]do (?:a|para) (.+?)\.?$/i)?.[1]);
     detail = assignee ? `Para ${assignee}` : '';
   } else if (kind === 'closed') {
     // O texto original ("... pela interface") é técnico; o marcador basta.
@@ -347,11 +350,11 @@ export function formatSystemEventLabel(message) {
     lower.startsWith('atendimento atribuído') ||
     lower.startsWith('atendimento atribuido')
   ) {
-    const candidateAssignee =
+    const candidateAssignee = visibleAgentName(
       message.sent_by ||
       message.sent_by_user ||
       text.match(/assumida por (.+?)\.?$/i)?.[1] ||
-      text.match(/atribu[íi]do a (.+?)\.?$/i)?.[1];
+      text.match(/atribu[íi]do a (.+?)\.?$/i)?.[1]);
     return candidateAssignee
       ? `Atendimento atribuído a ${candidateAssignee}`
       : 'Atendimento atribuído';
@@ -448,11 +451,11 @@ export function resolveTimelineSender({ message, selectedContact = 'Cliente', se
   }
 
   if (isAgent) {
-    const rawAgentName = message.sent_by || message.sent_by_user || selectedOwner || 'Atendente';
+    const rawAgentName = visibleAgentName(message.sent_by) || visibleAgentName(message.sent_by_user) || visibleAgentName(selectedOwner) || 'Atendente';
     const cleanName = String(rawAgentName).replace(/^(Operador|Atendente)\s*·?\s*/i, '').trim() || rawAgentName;
     return {
       senderType: 'agent',
-      senderLabel: `Atendente · ${cleanName}`,
+      senderLabel: cleanName === 'Atendente' ? cleanName : `Atendente · ${cleanName}`,
       rawAgentName: cleanName,
       isAi: false,
       isAgent: true,
@@ -804,11 +807,17 @@ export function deriveConversationPresentationState(conversation, options = {}) 
   }
 
   // 4. Sessão AI ativa
-  const isAiActive = options.isAiOwner ?? (
+  const isAbandoned = canonicalKanbanKey(
+    matchingCard?.targetColumnId
+    || matchingCard?.kanbanColumn?.automationKey
+    || matchingCard?.kanbanColumn?.id
+    || rawStage
+  ) === 'conversas_abandonadas';
+  const isAiActive = !isAbandoned && (options.isAiOwner ?? (
     headerOwner?.kind === 'ai'
     || conversation.status === 'ia_ativa'
     || (!conversation.owner || conversation.owner === 'Assistente IA')
-  );
+  ));
 
   if (isAiActive) {
     const text = resolvedStageLabel &&

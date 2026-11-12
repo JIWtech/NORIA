@@ -1,4 +1,5 @@
 import { kanbanColumnPresentation } from '../../../services/kanban/kanbanColumnPresentation.js';
+import { canonicalKanbanKey } from '../../../services/kanban/kanbanHelpers.js';
 
 // Cada card do Kanban, indexado pelas chaves da conversa, carrega a coluna em que está no quadro do tenant,
 // com o nome, o símbolo, a cor e o papel que vêm do banco.
@@ -23,6 +24,20 @@ export function conversationListTags(presentation, matchingCard, stageColumn = n
   if (presentation?.isClosed) return { owner: { kind: 'closed', label: 'Encerrada' }, column: null };
   const source = matchingCard?.kanbanColumn || stageColumn || null;
   const column = source || (presentation?.stageLabel ? { title: presentation.stageLabel } : null);
+
+  const isAbandoned = canonicalKanbanKey(
+    matchingCard?.targetColumnId
+    || source?.automationKey
+    || source?.automation_key
+    || source?.id
+    || source?.title
+    || presentation?.stageLabel
+  ) === 'conversas_abandonadas';
+  const hasNoOwner = isAbandoned
+    || presentation?.ownerMode === 'none'
+    || presentation?.lifecycle === 'none'
+    || presentation?.lifecycle === 'commercial';
+  if (hasNoOwner) return { owner: null, column };
 
   const isHuman = Boolean(presentation?.isHuman);
   const owner = isHuman

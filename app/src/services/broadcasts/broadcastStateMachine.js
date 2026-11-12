@@ -7,7 +7,7 @@
  * 2. Transições de estados seguem invariantes estritas:
  *    - 'sent' é terminal e imutável.
  *    - 'unknown' exige reconciliação e NUNCA é reenviado automaticamente.
- *    - Falhas após início de envio de rede sem confirmação são classificadas como 'unknown' pelo worker do servidor.
+ *    - Falhas após início de envio de rede sem confirmação são classificadas como 'unknown'.
  *    - Cancelamento afeta apenas 'queued' e 'claimed'.
  */
 
@@ -25,7 +25,6 @@ export const RECIPIENT_STATUS = Object.freeze({
 export const CAMPAIGN_STATUS = Object.freeze({
   DRAFT: 'draft',
   QUEUED: 'queued',
-  SCHEDULED: 'scheduled',
   SENDING: 'sending',
   PAUSED: 'paused',
   SENT: 'sent',
@@ -108,6 +107,61 @@ export function canTransitionRecipient(currentStatus, nextStatus) {
     default:
       return false;
   }
+}
+
+/**
+ * Classifica o resultado de um envio.
+ * Distingue falhas com garantia de não-entrega de falhas de transporte/rede onde a mensagem pode ter sido entregue.
+ */
+export function classifySendOutcome(error, result) {
+  if (result && (result.ok === true || result.already_sent === true || result.external_message_id)) {
+    return {
+      status: RECIPIENT_STATUS.SENT,
+      externalMessageId: result.external_message_id || null,
+      alreadySent: Boolean(result.already_sent),
+      error: null,
+    };
+  }
+
+  if (!error) {
+    return {
+      status: RECIPIENT_STATUS.UNKNOWN,
+      externalMessageId: null,
+      error: 'Resposta nula ou incompleta do provedor de envio',
+    };
+  }
+
+  const message = String(error.message || error || '').toLowerCase();
+
+  // Erros comprovadamente prévios à entrega física (rejeição formal sem envio)
+  const isDefinitivePreSendRejection =
+    message.includes('telefone invalido') ||
+    message.includes('destinatario invalido') ||
+    message.includes('numero invalido') ||
+    message.includes('sessao expirada') ||
+    message.includes('usuario sem permissao') ||
+    message.includes('tenant inativo') ||
+    message.includes('credenciais') ||
+    message.includes('nao configurado');
+
+  if (isDefinitivePreSendRejection) {
+    return {
+      status: RECIPIENT_STATUS.FAILED,
+      externalMessageId: null,
+      error: error.message || String(error),
+      uncertain: false,
+    };
+  }
+
+  // Falhas de transporte de rede, timeout, perda de socket ou 5xx após disparo:
+  // A Evolution API pode ter recebido a mensagem e despachado.
+  // Regra de segurança: SEMPRE 'unknown' para impedir duplicação.
+  return {
+    status: RECIPIENT_STATUS.UNKNOWN,
+    externalMessageId: null,
+    error: error.message || String(error),
+    uncertain: true,
+  };
 }
 
 /**

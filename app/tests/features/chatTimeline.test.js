@@ -701,6 +701,46 @@ test('TEST E2: card e header em atendimento humano compartilham activeAgents e a
   assert.notEqual(cardState.assignee, 'Sem responsável');
 });
 
+test('TEST E3: conversa em Conversas abandonadas não marca IA ativa nem Atendido pela IA', () => {
+  const abandonedColumn = {
+    id: 'conversas_abandonadas',
+    automationKey: 'conversas_abandonadas',
+    title: 'Conversas abandonadas',
+    icon: 'inbox',
+    tone: 'red',
+    ownerRole: 'neutral',
+  };
+  const matchingCard = {
+    id: 'card-bg',
+    targetColumnId: 'conversas_abandonadas',
+    stage: 'Conversas abandonadas',
+    owner: 'Sem responsável',
+    ownerKind: 'none',
+    ownerId: null,
+    kanbanColumn: abandonedColumn,
+  };
+  const conversation = {
+    id: 'conv-bg',
+    status: 'ia_ativa',
+    stage: 'Conversas abandonadas',
+    owner: 'Sem responsável',
+    ownerKind: 'none',
+    ownerId: null,
+    handoff: false,
+  };
+  const presentation = deriveConversationPresentationState(conversation, {
+    matchingCard,
+    kanbanColumns: [abandonedColumn],
+    stageLabel: 'Conversas abandonadas',
+    tenantSlug: 'clinica_nubia',
+  });
+  assert.equal(presentation.isClosed, false);
+  assert.equal(presentation.isHuman, false);
+  assert.equal(presentation.isAiActive, false);
+  assert.equal(presentation.ownerMode, 'none');
+  assert.equal(presentation.statusKind, 'none');
+});
+
 test('TEST F: audio bytes disponíveis com transcrição -> media descriptor stored é recuperável', () => {
   const audioEvent = {
     id: 'ev-audio-1',

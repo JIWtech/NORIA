@@ -16,12 +16,18 @@ export async function findTenantBySlug(supabase, activeTenantSlug) {
   return data;
 }
 
+// Status que ainda pedem ação (pedido, sinal, agendado ou aguardando desfecho). Entram por consulta
+// própria, sem o limite do histórico, para que nenhum agendamento ativo ou futuro suma da tela.
+const ACTIVE_APPOINTMENT_STATUSES = ['pending_confirmation', 'payment_reported', 'aguardando_verificacao',
+  'scheduled', 'confirmed', 'reserved', 'pending_payment'];
+const ACTIVE_APPOINTMENTS_LIMIT = 1000;
+
 export async function loadAppointments(supabase, tenantId, mapAppointment) {
   const { data, error } = await supabase
     .from('appointments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .order('starts_at', { ascending: true })
+    .order('starts_at', { ascending: false })
     .limit(200);
   if (error) {
     console.warn('Appointments fallback:', error.message);
@@ -31,10 +37,10 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     .from('appointments')
     .select('*')
     .eq('tenant_id', tenantId)
-    .in('status', ['pending_confirmation', 'payment_reported'])
+    .in('status', ACTIVE_APPOINTMENT_STATUSES)
     .order('starts_at', { ascending: true })
-    .limit(200);
-  if (openError) console.warn('Pending appointments fallback:', openError.message);
+    .limit(ACTIVE_APPOINTMENTS_LIMIT);
+  if (openError) console.warn('Active appointments fallback:', openError.message);
   return mergeOpenAppointmentRequests(data || [], openAppointments || []).map(mapAppointment);
 }
 

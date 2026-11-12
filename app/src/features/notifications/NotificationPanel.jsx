@@ -20,6 +20,7 @@ const eventIcons = {
   message: { icon: MessageCircle },
   assignment: { icon: UserRoundCheck },
   handoff: { icon: Headset, tone: 'attention' },
+  'team-review': { icon: Headset, tone: 'attention' },
   waiting: { icon: Headset, tone: 'attention' },
   overdue: { icon: Headset, tone: 'attention' },
   review: { icon: Headset, tone: 'attention' },

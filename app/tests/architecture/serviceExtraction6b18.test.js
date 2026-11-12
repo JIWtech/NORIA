@@ -28,22 +28,24 @@ test('6B.18: extracted builder matches facade for Genesis commercial stages, own
 
 test('6B.18: extracted builder preserves Núbia appointments, follow-up and tenant isolation', () => {
   const nubiaEvent = event({ id: 'nubia-event-1', tenant_slug: 'clinica_nubia_oficial', stage: 'Qualificação', contact_name: 'Paciente Núbia', external_conversation_id: '5511888880002@s.whatsapp.net' });
+  const followUpChat = '5511888880003@s.whatsapp.net';
+  const nubiaFollowUpInbound = event({ id: 'nubia-fu-in', tenant_slug: 'clinica_nubia_oficial', stage: 'Qualificação', contact_name: 'Paciente Follow-up', external_conversation_id: followUpChat, created_at: '2026-10-09T09:00:00.000Z' });
+  const nubiaFollowUpOutbound = event({ id: 'nubia-fu-out', tenant_slug: 'clinica_nubia_oficial', direction: 'outbound', sender_type: 'assistant', service: 'follow_up', stage: 'Follow-up 24h', contact_name: 'Paciente Follow-up', external_conversation_id: followUpChat, created_at: '2026-10-09T11:00:00.000Z' });
   const appointment = {
     id: 'appointment-1', title: 'Avaliação', contactName: 'Paciente Núbia', when: '09/10 14:00', startsAt: '2026-10-09T14:00:00.000Z',
     channelType: 'whatsapp', channelLabel: 'WhatsApp', externalConversationId: '5511888880002@s.whatsapp.net', status: 'confirmed', statusLabel: 'Confirmado', raw: {},
   };
-  const followUp = { id: 'follow-1', channel_type: 'whatsapp', external_conversation_id: '5511888880002@s.whatsapp.net', contact_name: 'Paciente Núbia', step_key: '24h', status: 'pending', due_at: '2026-10-10T10:00:00.000Z' };
   const config = { columns: [
     { id: 'andamento', name: 'Em andamento', automation_key: 'conversas_andamento', position: 1 },
     { id: 'agenda', name: 'Agenda', automation_key: 'agendamentos', position: 2 },
     { id: 'follow', name: 'Follow-up', automation_key: 'follow_ups', position: 3 },
   ] };
 
-  const direct = eventsToKanban([nubiaEvent], 'clinica_nubia_oficial', [appointment], config, [followUp]);
-  const facade = eventsToKanbanFacade([nubiaEvent], 'clinica_nubia_oficial', [appointment], config, [followUp]);
+  const direct = eventsToKanban([nubiaEvent, nubiaFollowUpInbound, nubiaFollowUpOutbound], 'clinica_nubia_oficial', [appointment], config, []);
+  const facade = eventsToKanbanFacade([nubiaEvent, nubiaFollowUpInbound, nubiaFollowUpOutbound], 'clinica_nubia_oficial', [appointment], config, []);
 
   assert.deepEqual(direct, facade);
   assert.equal(direct.flatMap((column) => column.cards).some((card) => card.appointmentId === 'appointment-1'), true);
-  assert.equal(direct.flatMap((column) => column.cards).some((card) => card.id === 'follow-up-follow-1'), true);
+  assert.equal(direct.find((column) => column.automationKey === 'follow_ups').cards.some((card) => card.externalConversationId === followUpChat && card.isFollowUp), true);
   assert.equal(direct.flatMap((column) => column.cards).every((card) => card.title !== 'Cliente Genesis'), true);
 });

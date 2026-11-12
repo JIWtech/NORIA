@@ -11,7 +11,8 @@ import { conversationPhoneFallback } from '../contacts/contactPhones.js';
 import { extractAvatarUrlFromEvent, extractPayloadAvatar } from '../contacts/contactPayload.js';
 import { resolveConversationDisplayName } from '../contacts/contactDisplayName.js';
 import { normalizeAvatarUrl } from '../contacts/contactIdentity.js';
-import { normalizeAudioTranscription, normalizeLocation, normalizeStage, resolveConversationOwnerDetails, resolveEventMessagePreview, resolveEventVisibleText } from './conversationPresentation.js';
+import { isSentAppointmentReply, normalizeAudioTranscription, normalizeLocation, normalizeStage, resolveConversationOwnerDetails, resolveEventMessagePreview, resolveEventVisibleText, resolveOutboundTimelineAuthor } from './conversationPresentation.js';
+import { visibleAgentName } from '../agents/agentNames.js';
 import { isConversationWaitingForFollowUp } from '../timeline/conversationFilters.js';
 import { sortConversationsByRecentActivity } from '../timeline/conversationOrdering.js';
 import { mediaPreview } from '../media/mediaPresentation.js';
@@ -67,11 +68,11 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
     );
     const isClosed = stageName === 'Finalizado' || normalizeStage(event.stage) === 'Finalizado' || event.service === 'conversation_closed' || event.ai_provider === 'conversation_closed';
     const eventAssignee = payload?.assignee;
-    const initialOwner = eventAssignee?.name || payload?.assigned_to || (
-      event.sent_by_user && !['Operador NORIA', 'Operador Mag.IA', 'Disparo NORIA'].includes(event.sent_by_user)
-        ? event.sent_by_user
-        : null
-    );
+    const eventActor = visibleAgentName(event.sent_by_user);
+    const actorCanBeOwner = !isSentAppointmentReply(event)
+      && !['Operador NORIA', 'Operador Mag.IA', 'Disparo NORIA'].includes(eventActor);
+    const initialOwner = visibleAgentName(eventAssignee?.name) || visibleAgentName(payload?.assigned_to)
+      || (actorCanBeOwner ? eventActor : '') || null;
     const initialOwnerId = eventAssignee?.id || payload?.assignee_id || null;
 
     if (!byChat.has(key)) {
@@ -183,10 +184,8 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
     conversation.value = Math.max(conversation.value, estimatedValue(event));
     conversation.tags = Array.from(new Set([...conversation.tags, event.service, stageName, (payload?.payment_mode === 'financing' || payload?.state?.payment_mode === 'financing' || payload?.financing || payload?.sales_stage === 'sales_financing' || event.service === 'sales_financing') ? 'Financiamento' : null].filter(Boolean)));
     if (event.direction === 'outbound') {
-      const isOperator = ['agent', 'human', 'operator', 'atendente'].includes(event.sender_type);
       conversation.messages.push({
-        from: isOperator ? 'agent' : event.sender_type === 'system' ? 'system' : 'ai',
-        sent_by: event.sent_by_user || (isOperator ? 'Operador' : null),
+        ...resolveOutboundTimelineAuthor(event),
         text: technicalEventPresentation(event)?.title || visibleText || event.response_text || '',
         systemEvent: technicalEventPresentation(event),
         at: formatDate(event.created_at),

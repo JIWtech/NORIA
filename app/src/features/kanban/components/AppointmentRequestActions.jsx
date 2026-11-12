@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { sendN8nCommand } from '../../../services/integration.js';
 import { appointmentRequestErrorMessage, appointmentRequestState } from '../../../services/appointments/appointmentRequest.js';
+import { AppointmentDetails } from './AppointmentDetails.jsx';
 
 const conflictLine = (item) => `${item.title || 'Agendamento'} (${new Date(item.starts_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })})`;
 
-export function AppointmentRequestActions({ card, tenantSlug, staleHours, onChanged, onStatus }) {
+export function AppointmentRequestActions({ card, tenantSlug, staleHours, timeZone, onChanged, onStatus }) {
   const [busy, setBusy] = useState('');
   const state = appointmentRequestState({ startsAt: card.appointmentStartsAt, metadata: card.appointmentMetadata }, { staleHours });
 
@@ -60,18 +61,14 @@ export function AppointmentRequestActions({ card, tenantSlug, staleHours, onChan
 
   return (
     <div className="appointment-request">
-      <ul className="appointment-request-details">
-        {state.services.length > 0 && <li>{state.services.join(' + ')}</li>}
-        {state.professional && <li>Profissional: {state.professional}</li>}
-        {state.firstVisit && <li>Primeira vez: {state.firstVisit}</li>}
-        {state.durationUnknown && <li>Duração a confirmar</li>}
-      </ul>
+      <AppointmentDetails card={card} timeZone={timeZone} />
       {state.stale && !state.expired && (
         <span className="appointment-request-alert"><AlertTriangle size={12} /> Aguardando há muito tempo</span>
       )}
       {state.expired && (
         <span className="appointment-request-alert"><AlertTriangle size={12} /> O horário já passou</span>
       )}
+      {state.sending && <span className="appointment-request-alert">Enviando mensagem pelo WhatsApp…</span>}
       {state.uncertain ? (
         <>
           <span className="appointment-request-alert"><AlertTriangle size={12} /> Veja no WhatsApp se a mensagem chegou</span>

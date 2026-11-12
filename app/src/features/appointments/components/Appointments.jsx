@@ -1,16 +1,18 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  Archive,
+  Ban,
   Building2,
   CalendarCheck,
   CalendarDays,
-  Check,
   CircleDollarSign,
   Clock3,
   MapPin,
   MessageCircle,
+  Pencil,
+  Search,
   UserRound,
-  UserX,
 } from 'lucide-react';
 import { Badge } from '../../../components/ui/Badge';
 import { PanelTitle } from '../../../components/ui/PanelTitle';
@@ -23,13 +25,22 @@ import {
   loadAppointmentScheduling,
   saveAppointment,
 } from '../../../dataService';
-import { availableOutcomes, isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
-import { markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
-import { groupAppointmentsByDay } from '../utils/appointmentHelpers';
+import { isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
+import { archiveAppointment, cancelAppointment, markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
+import { appointmentAgendaItem, appointmentSections } from '../../../services/appointments/appointmentAgenda.js';
+import { appointmentActionsFor } from '../../../services/appointments/appointmentActions.js';
+import { noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { useDepositRequired } from '../utils/useDepositRequired';
+import { AppointmentOutcomeActions } from './AppointmentOutcomeActions.jsx';
+import { AppointmentEditDialog } from './AppointmentEditDialog.jsx';
+import { NoShowMessageDialog } from './NoShowMessageDialog.jsx';
 
-export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false }) {
+export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false, tenantSettings = null }) {
   const [outcomeBusyId, setOutcomeBusyId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [noShowTarget, setNoShowTarget] = useState(null);
+  const timeZone = tenantSettings?.timezone || undefined;
   const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', appointments);
   const [schedule, setSchedule] = useState(null);
   const [unitId, setUnitId] = useState('');
@@ -77,10 +88,47 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     if (initialData.selectedConversationId) setSelectedConversationId(initialData.selectedConversationId);
   }, [initialData]);
 
-  const grouped = useMemo(() => groupAppointmentsByDay(appointments), [appointments]);
+  // Seções da agenda dentro do tenant ativo (as linhas já chegam filtradas por tenant_id).
+  const sections = useMemo(
+    () => appointmentSections(appointments, { now: Date.now(), timeZone, query: searchQuery }),
+    [appointments, timeZone, searchQuery],
+  );
+  const visibleCount = sections.reduce((total, section) => total + section.items.length, 0);
+
+  async function finishDialog(message) {
+    setEditing(null);
+    setNoShowTarget(null);
+    setStatus(message);
+    await onChanged?.();
+  }
+
+  async function runAction(appointment, action) {
+    if (outcomeBusyId) return;
+    const prompts = {
+      cancel: 'Cancelar este agendamento? A cliente não será avisada.',
+      archive: 'Arquivar este agendamento como concluído?',
+    };
+    if (!window.confirm(prompts[action])) return;
+    setOutcomeBusyId(appointment.id);
+    setStatus('');
+    try {
+      if (action === 'cancel') await cancelAppointment(appointment.id);
+      else await archiveAppointment(appointment.id);
+      setStatus(action === 'cancel' ? 'Agendamento cancelado. A cliente não foi avisada.' : 'Agendamento arquivado como concluído.');
+      await onChanged?.();
+    } catch (error) {
+      setStatus(error.message || 'Não foi possível atualizar o agendamento.');
+    } finally {
+      setOutcomeBusyId('');
+    }
+  }
 
   async function handleOutcome(appointment, outcome) {
     if (outcomeBusyId) return;
+    if (outcome === 'no_show' && noShowMessageConfig(tenantSettings, appointment).enabled) {
+      setNoShowTarget(appointment);
+      return;
+    }
     const message = outcome === 'no_show'
       ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
       : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
@@ -185,6 +233,11 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
       <section className="panel appointment-list-panel">
         <PanelTitle className="appointment-panel-title" icon={Clock3} title="Agenda" action={ready ? `${appointments.length} ${appointments.length === 1 ? 'agendamento' : 'agendamentos'}` : '— agendamentos'} />
+        <label className="appointment-search">
+          <Search size={15} aria-hidden="true" />
+          <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar por nome" aria-label="Buscar agendamento por nome" />
+        </label>
+        {status && <small className="appointment-list-status" role="status">{status}</small>}
         <div className="appointment-groups">
           {!ready ? (
             <div className="appointment-day appointment-day-skeleton">
@@ -205,80 +258,101 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
             </div>
           ) : (
             <>
-              {grouped.map((group) => (
-                <div className="appointment-day" key={group.day}>
-                  <h3>{group.day}</h3>
-                  {group.items.map((appointment) => (
-                    <article className="appointment-card" key={appointment.id} data-status={appointment.status}>
-                      <div className="appointment-card-content">
-                        <div className="appointment-card-heading">
-                          <div className="appointment-card-title-row">
-                            <div className="appointment-time"><strong>{appointment.timeLabel}</strong><span>{appointment.endTimeLabel || '--:--'}</span></div>
-                            <strong>{appointment.title}</strong>
+              {sections.map((section) => section.items.length > 0 && (
+                <details className="appointment-day appointment-section" key={section.key} data-section={section.key} open={!section.collapsed || Boolean(searchQuery.trim())}>
+                  <summary className="appointment-section-summary">
+                    <h3>{section.title}</h3>
+                    <span className="appointment-section-count">{section.items.length}</span>
+                  </summary>
+                  {section.items.map((appointment) => {
+                    const item = appointmentAgendaItem(appointment, { timeZone });
+                    const actions = appointmentActionsFor(appointment, { outcomeTracking });
+                    const outcomes = actions.filter((action) => action === 'attended' || action === 'no_show');
+                    const busy = outcomeBusyId === appointment.id;
+                    const depositRequired = outcomeTracking && isDepositRequired(depositIndex, appointment.channelType, appointment.externalConversationId);
+                    return (
+                      <article className="appointment-card appointment-agenda-card" key={appointment.id} data-status={appointment.status}>
+                        <div className="appointment-card-content">
+                          <div className="appointment-card-heading">
+                            <div className="appointment-card-title-row">
+                              <div className="appointment-time"><strong>{item.time || '--:--'}</strong><span>{appointment.endTimeLabel || ''}</span></div>
+                              <div className="appointment-agenda-main">
+                                <strong>{item.client}</strong>
+                                {item.services && <span>{item.services}</span>}
+                              </div>
+                            </div>
+                            <Badge value={item.statusLabel} status="channel" />
                           </div>
-                          <Badge value={appointment.statusLabel} status="channel" />
-                        </div>
-                        <div className="appointment-contact-row">
-                          <UserRound size={14} />
-                          <span>{appointment.contactName || 'Sem contato'}</span>
-                          <span
-                            className={`appointment-channel-meta ${getChannelClass(appointment.channelType)}`}
-                            title={appointment.channelLabel || 'WhatsApp'}
-                            aria-label={appointment.channelLabel || 'WhatsApp'}
-                          >
-                            <ChannelIcon channel={appointment.channelType} size={14} />
-                          </span>
-                        </div>
-                        {appointment.unitName && (
-                          <span className="appointment-location-meta"><MapPin size={14} />{appointment.unitName}</span>
-                        )}
-                        {appointment.notes && <p className="appointment-card-notes">{appointment.notes}</p>}
-                        {outcomeTracking && isDepositRequired(depositIndex, appointment.channelType, appointment.externalConversationId) && (
-                          <span
-                            className="deposit-required-badge"
-                            title="Este cliente faltou a um agendamento. Novos agendamentos exigem sinal de 50% via Pix."
-                          >
-                            <CircleDollarSign size={12} /> Sinal obrigatório
-                          </span>
-                        )}
-                        {outcomeTracking && availableOutcomes(appointment).length > 0 && (
-                          <div className="appointment-outcome-actions">
-                            {availableOutcomes(appointment).includes('attended') && (
-                              <button
-                                type="button"
-                                className="outcome-button attended"
-                                disabled={Boolean(outcomeBusyId)}
-                                onClick={() => handleOutcome(appointment, 'attended')}
-                                title="Registrar que o cliente compareceu"
-                              >
-                                <Check size={13} />
-                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Compareceu'}
-                              </button>
-                            )}
-                            {availableOutcomes(appointment).includes('no_show') && (
-                              <button
-                                type="button"
-                                className="outcome-button no-show"
-                                disabled={Boolean(outcomeBusyId)}
-                                onClick={() => handleOutcome(appointment, 'no_show')}
-                                title="Registrar que o cliente não veio e encerrar a conversa"
-                              >
-                                <UserX size={13} />
-                                {outcomeBusyId === appointment.id ? 'Salvando...' : 'Cliente não veio'}
-                              </button>
-                            )}
+                          <div className="appointment-agenda-meta">
+                            <span><CalendarDays size={13} aria-hidden="true" />{item.weekday ? `${item.weekday}, ` : ''}{item.date}{item.time ? ` às ${item.time}` : ''}</span>
+                            {item.professional && <span><UserRound size={13} aria-hidden="true" />{item.professional}</span>}
+                            {item.firstVisit && <span>Primeira visita: {item.firstVisit}</span>}
+                            <span
+                              className={`appointment-channel-meta ${getChannelClass(appointment.channelType)}`}
+                              title={appointment.channelLabel || 'WhatsApp'}
+                              aria-label={appointment.channelLabel || 'WhatsApp'}
+                            >
+                              <ChannelIcon channel={appointment.channelType} size={14} />
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                </div>
+                          {appointment.unitName && (
+                            <span className="appointment-location-meta"><MapPin size={14} />{appointment.unitName}</span>
+                          )}
+                          {appointment.notes && <p className="appointment-card-notes">{appointment.notes}</p>}
+                          {depositRequired && (
+                            <span className="deposit-required-badge" title="O último desfecho registrado foi uma falta.">
+                              <CircleDollarSign size={12} /> Sinal obrigatório
+                            </span>
+                          )}
+                          {actions.length > 0 && (
+                            <div className="appointment-agenda-actions" aria-busy={busy || undefined}>
+                              {actions.includes('edit') && (
+                                <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => setEditing(appointment)}>
+                                  <Pencil size={13} aria-hidden="true" /> Editar
+                                </button>
+                              )}
+                              {actions.includes('cancel') && (
+                                <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => runAction(appointment, 'cancel')}>
+                                  <Ban size={13} aria-hidden="true" /> Cancelar
+                                </button>
+                              )}
+                              {actions.includes('archive') && (
+                                <button type="button" className="secondary-button appointment-action-button" disabled={Boolean(outcomeBusyId)} onClick={() => runAction(appointment, 'archive')}>
+                                  <Archive size={13} aria-hidden="true" /> Arquivar
+                                </button>
+                              )}
+                              <AppointmentOutcomeActions
+                                outcomes={outcomes}
+                                disabled={Boolean(outcomeBusyId)}
+                                busy={busy}
+                                onOutcome={(outcome) => handleOutcome(appointment, outcome)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </details>
               ))}
+              {appointments.length > 0 && !visibleCount && <EmptyState title="Nenhum agendamento encontrado" text="Nenhum agendamento com esse nome." compact />}
               {!appointments.length && <EmptyState title="Nenhum agendamento" text="Crie um agendamento para acompanhar seus próximos atendimentos." compact />}
             </>
           )}
         </div>
       </section>
+      {editing && (
+        <AppointmentEditDialog appointment={editing} timeZone={timeZone} onClose={() => setEditing(null)} onDone={finishDialog} />
+      )}
+      {noShowTarget && (
+        <NoShowMessageDialog
+          appointment={noShowTarget}
+          tenantSlug={tenantSlug}
+          tenantSettings={tenantSettings}
+          onClose={() => setNoShowTarget(null)}
+          onDone={finishDialog}
+        />
+      )}
     </section>
   );
 }

@@ -937,3 +937,155 @@
     gap: 6px;
   }
 }
+
+/* Agenda em seções, busca e ações por agendamento */
+.appointments-page .appointment-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0 12px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+}
+
+.appointments-page .appointment-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  min-height: 38px;
+  box-shadow: none;
+}
+
+.appointments-page .appointment-list-status {
+  display: block;
+  margin: -4px 0 10px;
+  color: var(--text-muted);
+}
+
+.appointments-page .appointment-section {
+  margin-bottom: 14px;
+}
+
+.appointments-page .appointment-section-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 10px;
+}
+
+.appointments-page .appointment-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.appointments-page .appointment-section-summary h3 {
+  margin: 0;
+}
+
+.appointments-page .appointment-section-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.appointments-page .appointment-section[data-section="awaiting_outcome"] .appointment-section-count {
+  color: var(--amber);
+}
+
+.appointments-page .appointment-agenda-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.appointments-page .appointment-agenda-main span {
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.appointments-page .appointment-agenda-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appointments-page .appointment-agenda-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.appointments-page .appointment-agenda-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.appointments-page .appointment-agenda-actions .appointment-outcome-actions {
+  margin: 0;
+}
+
+.appointments-page .appointment-action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.no-show-dialog .no-show-dialog-message textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+}
+
+.no-show-dialog .no-show-dialog-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.no-show-dialog-footer,
+.appointment-edit-dialog .confirm-modal-footer {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .appointments-page .appointment-agenda-actions > *,
+  .appointments-page .appointment-agenda-actions .appointment-outcome-actions {
+    flex: 1 1 calc(50% - 6px);
+  }
+
+  .appointments-page .appointment-action-button {
+    justify-content: center;
+    min-height: 40px;
+  }
+
+  .no-show-dialog-footer > button,
+  .appointment-edit-dialog .confirm-modal-footer > button {
+    flex: 1 1 100%;
+  }
+}

@@ -1,7 +1,7 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
 import { conversationListTags, conversationStageChip, indexKanbanCards } from '../utils/conversationListTags.js';
 import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
-import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -83,6 +83,8 @@ import { ConversationSidebar } from './ConversationSidebar.jsx';
 import { ConversationTimeline } from './ConversationTimeline.jsx';
 import { ConversationComposer } from './ConversationComposer.jsx';
 
+const MOBILE_CONVERSATIONS_QUERY = '(max-width: 800px)';
+const LATEST_MESSAGES_THRESHOLD = 120;
 
 export function Conversations({
   allowedChannels = CHANNEL_OPTIONS.map(c => c.id),
@@ -104,7 +106,7 @@ export function Conversations({
   const [selectedId, setSelectedId] = useState(null);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => (
-    typeof window === 'undefined' || window.matchMedia('(min-width: 769px)').matches
+    typeof window === 'undefined' || !window.matchMedia(MOBILE_CONVERSATIONS_QUERY).matches
   ));
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => (
     typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -165,8 +167,8 @@ export function Conversations({
   const messageStreamRef = React.useRef(null);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(min-width: 769px)');
-    const syncViewport = () => setIsDesktopViewport(mediaQuery.matches);
+    const mediaQuery = window.matchMedia(MOBILE_CONVERSATIONS_QUERY);
+    const syncViewport = () => setIsDesktopViewport(!mediaQuery.matches);
     const syncVisibility = () => setIsDocumentVisible(document.visibilityState === 'visible');
     syncViewport();
     syncVisibility();
@@ -248,15 +250,14 @@ export function Conversations({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [showCloseModal, showAssignModal, showFilterMenu, isSearchExpanded, ending]);
 
-  const lastSelectedIdRef = useRef(null);
-  const initialHistoryScrolledRef = useRef(new Set());
+  const followingLatestRef = useRef(true);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
 
   const scrollToLatest = useCallback((force = false) => {
     const stream = messageStreamRef.current;
-    if (!stream) return;
-    const isNearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 120;
-    if (force || isNearBottom) {
+    if (!stream?.clientHeight) return;
+    if (force === true || followingLatestRef.current) {
+      followingLatestRef.current = true;
       stream.scrollTop = stream.scrollHeight;
       setIsScrolledUp(false);
     }
@@ -330,10 +331,25 @@ export function Conversations({
         return false;
       }
 
-      // 5. Etapa
+      // 5. Etapa (usa a coluna real do card no Kanban quando existir, mantendo fallback no estágio da conversa)
       if (stageFilter && stageFilter !== 'todas') {
+        const matchingCard = kanbanCardsByConversationKey.get(conversation.canonicalKey)
+          || (conversation.normalizedExternalId && kanbanCardsByConversationKey.get(conversation.normalizedExternalId))
+          || (conversation.externalConversationId && kanbanCardsByConversationKey.get(conversation.externalConversationId))
+          || kanbanCardsByConversationKey.get(conversation.id)
+          || null;
+        const cardColumn = matchingCard?.kanbanColumn || null;
         const stageLabel = getStageLabel(conversation.stage || conversation.salesStageKey, { kanbanColumns, tenantSettings, tenantSlug });
-        if (conversation.stage !== stageFilter && stageLabel !== stageFilter && conversation.salesStageKey !== stageFilter) {
+        const matchesStage = [
+          cardColumn?.title,
+          cardColumn?.label,
+          cardColumn?.automationKey,
+          cardColumn?.id,
+          conversation.stage,
+          stageLabel,
+          conversation.salesStageKey,
+        ].some((value) => value === stageFilter);
+        if (!matchesStage) {
           return false;
         }
       }
@@ -358,12 +374,8 @@ export function Conversations({
     }
   }, [conversations, ready, selectedId]);
 
-  const selectedConversationIsVisible = Boolean(
-    selected
-    && ready
-    && isDocumentVisible
-    && (isDesktopViewport || mobileChatOpen),
-  );
+  const chatPanelVisible = ready && (isDesktopViewport || mobileChatOpen);
+  const selectedConversationIsVisible = Boolean(selected && chatPanelVisible && isDocumentVisible);
 
   useEffect(() => {
     onConversationViewStateChange?.({
@@ -748,41 +760,32 @@ export function Conversations({
     onInitialConversationOpened?.();
   }, [conversations, initialConversationId, onInitialConversationOpened]);
 
-  useEffect(() => {
-    if (!selected?.id) return;
-    const extId = selected.externalConversationId || selected.id;
-    const isNewConversation = lastSelectedIdRef.current !== selected.id;
-    const hasHistory = Boolean(fullHistoryByChat[extId]?.length);
-    const hasScrolledHistory = initialHistoryScrolledRef.current.has(extId);
-
-    // Deve forçar rolagem na abertura de nova conversa OU quando o histórico completo chegar
-    const shouldForce = isNewConversation || (hasHistory && !hasScrolledHistory);
-
-    lastSelectedIdRef.current = selected.id;
-    if (hasHistory) {
-      initialHistoryScrolledRef.current.add(extId);
-    }
-
-    scrollToLatest(shouldForce);
-    const rafId = requestAnimationFrame(() => scrollToLatest(shouldForce));
-    const timer = window.setTimeout(() => scrollToLatest(shouldForce), 50);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.clearTimeout(timer);
-    };
-  }, [selected?.id, selected?.externalConversationId, activeMessages.length, fullHistoryByChat, scrollToLatest]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const stream = messageStreamRef.current;
-    if (!stream) return undefined;
+    if (!chatPanelVisible || !stream) return undefined;
+
+    scrollToLatest(true);
     const handleScroll = () => {
+      if (!stream.clientHeight) return;
       const distanceFromBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
-      setIsScrolledUp(distanceFromBottom > 240);
+      followingLatestRef.current = distanceFromBottom < LATEST_MESSAGES_THRESHOLD;
+      setIsScrolledUp(!followingLatestRef.current);
     };
     stream.addEventListener('scroll', handleScroll, { passive: true });
-    return () => stream.removeEventListener('scroll', handleScroll);
-  }, [selected?.id]);
+
+    // Mídia e mudanças na altura do campo de digitação também redimensionam o histórico.
+    const observer = new window.ResizeObserver(() => scrollToLatest());
+    observer.observe(stream);
+    observer.observe(stream.firstElementChild);
+    return () => {
+      stream.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
+    };
+  }, [chatPanelVisible, selected?.id, selected?.externalConversationId, tenantSlug, scrollToLatest]);
+
+  useLayoutEffect(() => {
+    if (chatPanelVisible) scrollToLatest();
+  }, [chatPanelVisible, groupedMessages, scrollToLatest]);
 
 
   async function sendManualReply() {

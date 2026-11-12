@@ -108,6 +108,14 @@ test('entrega incerta troca os botões pela verificação', () => {
   assert.equal(state.canReject, false);
 });
 
+test('envio em andamento bloqueia confirmação, recusa e verificação de entrega', () => {
+  const state = appointmentRequestState({ startsAt: FUTURE, metadata: { confirmation_state: 'sending' } }, { now: NOW });
+  assert.equal(state.sending, true);
+  assert.equal(state.uncertain, false);
+  assert.equal(state.canConfirm, false);
+  assert.equal(state.canReject, false);
+});
+
 test('o dono entende por que a ação foi recusada, sem ver a mensagem crua do servidor', () => {
   const fallback = 'Não foi possível confirmar o agendamento.';
   const message = (text) => appointmentRequestErrorMessage(new Error(text), fallback);

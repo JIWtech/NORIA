@@ -1,12 +1,11 @@
 import { userFacingError } from '../../../utils/userFacingError.js';
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Clock3,
   Search,
   UsersRound,
   X,
   Play,
-  Pause,
   AlertTriangle,
   RotateCcw,
   CheckCircle2,
@@ -17,7 +16,6 @@ import {
   Info,
   Loader2,
   Send,
-  Ban,
 } from 'lucide-react';
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
@@ -25,14 +23,19 @@ import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import { NoriaSelect } from '../../../components/NoriaSelect';
 import {
   createBroadcastCampaign,
+  updateBroadcastCampaign,
+  updateBroadcastRecipient,
   upsertBroadcastContacts,
 } from '../../../dataService';
 import { createBroadcastOperations } from '../../../services/broadcasts/broadcastOperations.js';
+import { executeBroadcastCampaign } from '../../../services/broadcasts/broadcastWorker.js';
 import {
   RECIPIENT_STATUS,
   CAMPAIGN_STATUS,
+  calculateCampaignCounters,
 } from '../../../services/broadcasts/broadcastStateMachine.js';
 import { getAuthClient, getCurrentSession } from '../../../services/auth/authService.js';
+import { sendN8nCommand } from '../../../services/integration.js';
 import { CHANNEL_OPTIONS } from '../../../services/tenants/tenantAccess.js';
 import {
   parseContactFile,
@@ -44,10 +47,6 @@ import {
   displayContactName,
   displayContactPhone,
 } from '../utils/broadcastImport';
-import { broadcastErrorMessage, broadcastPauseReason } from '../utils/broadcastMessages.js';
-import { optOutIndex, isContactOptedOut } from '../utils/broadcastOptOut.js';
-import { renderBroadcastMessage } from '../utils/broadcastTemplate.js';
-import { scheduleInputToIso } from '../utils/broadcastSchedule.js';
 
 export function Broadcasts({ conversations = [], contacts = [], campaigns = [], tenantSlug, onChanged, ready = true, allowedChannels = CHANNEL_OPTIONS.map(c => c.id) }) {
   const defaultChannel = allowedChannels.includes('telegram') ? 'telegram' : allowedChannels[0] || 'whatsapp';
@@ -61,8 +60,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const [status, setStatusState] = useState({ message: '', tone: 'info' });
   // tone: 'info' | 'progress' | 'success' | 'error'
   const setStatus = (message, tone = 'info') => setStatusState({ message: message || '', tone });
-  const [consentConfirmed, setConsentConfirmed] = useState(false);
-  const [scheduleInput, setScheduleInput] = useState('');
+  const abortControllerRef = useRef(null);
   const fileInputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
@@ -93,20 +91,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       .filter((contact) => allowedChannels.includes(contact.channelType || contact.channel_type || defaultChannel));
   }, [allowedChannels, contacts, conversations, defaultChannel, draftContacts]);
   const stages = useMemo(() => Array.from(new Set(conversations.map((item) => item.stage).filter(Boolean))), [conversations]);
-
-  // Lista de bloqueio do tenant: quem pediu para sair, ou foi bloqueado pela equipe, não entra no disparo.
-  const [optOuts, setOptOuts] = useState([]);
-  const loadOptOuts = useCallback(async () => {
-    if (!tenantSlug) return;
-    try { setOptOuts(await broadcastOps.listBroadcastOptOuts(tenantSlug)); } catch { setOptOuts([]); }
-  }, [broadcastOps, tenantSlug]);
-  useEffect(() => { void loadOptOuts(); }, [loadOptOuts]);
-  const optOutKeys = useMemo(() => optOutIndex(optOuts), [optOuts]);
-  const isBlocked = (contact) => isContactOptedOut(
-    { ...contact, channelType: contact.channelType || contact.channel_type || defaultChannel }, optOutKeys);
-
-  const selectedContacts = allContacts.filter((contact) => selected.has(contact.key) && !isBlocked(contact));
-  const blockedSelectedCount = allContacts.filter((contact) => selected.has(contact.key) && isBlocked(contact)).length;
+  const selectedContacts = allContacts.filter((contact) => selected.has(contact.key));
   const visibleContacts = useMemo(() => {
     const query = contactSearch.trim().toLocaleLowerCase('pt-BR');
     if (!query) return allContacts;
@@ -116,8 +101,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       return `${name} ${phone}`.toLocaleLowerCase('pt-BR').includes(query);
     });
   }, [allContacts, contactSearch]);
-  const selectableVisible = visibleContacts.filter((contact) => !isBlocked(contact));
-  const allVisibleSelected = selectableVisible.length > 0 && selectableVisible.every((contact) => selected.has(contact.key || contactKey(contact)));
+  const allVisibleSelected = visibleContacts.length > 0 && visibleContacts.every((contact) => selected.has(contact.key || contactKey(contact)));
 
   async function importFile(file) {
     if (!file) return;
@@ -224,7 +208,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   function toggleAllVisibleContacts() {
     setSelected((prev) => {
       const next = new Set(prev);
-      selectableVisible.forEach((contact) => {
+      visibleContacts.forEach((contact) => {
         const key = contact.key || contactKey(contact);
         if (allVisibleSelected) next.delete(key);
         else next.add(key);
@@ -237,51 +221,92 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     setSelected(new Set());
   }
 
-  async function toggleOptOut(contact, optedOut) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await broadcastOps.setBroadcastOptOut(tenantSlug,
-        { ...contact, channelType: contact.channelType || contact.channel_type || defaultChannel }, optedOut);
-      if (optedOut) {
-        setSelected((prev) => { const next = new Set(prev); next.delete(contact.key || contactKey(contact)); return next; });
-      }
-      await loadOptOuts();
-      setStatus(optedOut
-        ? `${displayContactName(contact)} não recebe mais disparos desta empresa.`
-        : `${displayContactName(contact)} pode voltar a receber disparos.`, 'success');
-    } catch (error) {
-      setStatus(broadcastErrorMessage(error, 'Não foi possível atualizar a lista de bloqueio.'), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // Campanha que precisa de atenção: na fila, agendada, em envio, pausada ou com envios incertos.
+  // Detecta qualquer campanha em andamento, pausada ou com envios incertos a reconciliar
   const recoverableCampaign = useMemo(() => {
     return (campaigns || []).find((c) =>
       c.status === CAMPAIGN_STATUS.SENDING ||
       c.status === CAMPAIGN_STATUS.PAUSED ||
       c.status === CAMPAIGN_STATUS.QUEUED ||
-      c.status === CAMPAIGN_STATUS.SCHEDULED ||
-      (c.status === CAMPAIGN_STATUS.PARTIAL_ERROR && c.unknown_count > 0)
+      (c.status === CAMPAIGN_STATUS.PARTIAL_ERROR && (c.unknown_count > 0 || (c.sent_count || 0) < (c.total_recipients || 0)))
     );
   }, [campaigns]);
 
-  async function controlCampaign(campaignToControl, action) {
-    if (!campaignToControl || busy) return;
+  useEffect(() => {
+    if (!busy) return undefined;
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = 'Um disparo de mensagens está em processamento persistido. Fechar a aba pausará o envio local sem risco de duplicatas, e a campanha poderá ser retomada.';
+      return event.returnValue;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [busy]);
+
+  async function resumeCampaign(campaignToResume) {
+    if (busy || !campaignToResume) return;
     setBusy(true);
+    setStatus(`Retomando campanha "${campaignToResume.name}" de forma segura...`, 'progress');
+
+    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
+    abortControllerRef.current = abortController;
+
     try {
-      const result = await broadcastOps.controlBroadcastCampaign(campaignToControl.id, action);
-      const messages = {
-        pause: `Campanha "${campaignToControl.name}" pausada. Quem já recebeu não recebe de novo.`,
-        resume: `Campanha "${campaignToControl.name}" retomada. O servidor continua os envios.`,
-        cancel: `Campanha "${campaignToControl.name}" cancelada (${result?.cancelled_recipients || 0} pendentes cancelados).`,
-      };
-      setStatus(messages[action], 'success');
+      // 1. Recupera leases órfãs ('claimed' -> 'queued'; 'sending' -> 'unknown')
+      await broadcastOps.recoverStaleLeases(campaignToResume.id);
+
+      // 2. Dispara sinalização ao backend/n8n se disponível
+      sendN8nCommand('broadcast_resume', {
+        campaign_id: campaignToResume.id,
+        tenant_slug: tenantSlug,
+      }, tenantSlug).catch(() => {});
+
+      // 3. Executa o worker via leases atômicas estritas
+      const message = campaignToResume.message_text || campaignToResume.message_template || messageText;
+      await executeBroadcastCampaign({
+        campaignId: campaignToResume.id,
+        tenantSlug,
+        messageText: message,
+        defaultChannel: campaignToResume.channel_type || defaultChannel,
+        sendCommand: sendN8nCommand,
+        operations: broadcastOps,
+        abortSignal: abortController?.signal,
+        delayMs: 1200,
+        onProgress: ({ message: stepMessage }) => {
+          setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
+        },
+      });
+
+      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaignToResume.id);
+      const counters = calculateCampaignCounters(finalRecipients);
+
+      setStatus(`Retomada concluída: ${counters.sent} enviados, ${counters.failed} falhas${counters.unknown ? `, ${counters.unknown} incertos` : ''}.`, 'success');
       await onChanged?.();
     } catch (error) {
-      setStatus(broadcastErrorMessage(error, 'Não foi possível alterar a campanha.'), 'error');
+      setStatus(userFacingError(error, 'Falha ao retomar campanha.'), 'error');
+    } finally {
+      setBusy(false);
+      abortControllerRef.current = null;
+    }
+  }
+
+  async function cancelCampaign(campaignToCancel) {
+    if (!campaignToCancel || busy) return;
+    setBusy(true);
+    try {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const res = await broadcastOps.cancelBroadcastCampaign(campaignToCancel.id);
+
+      sendN8nCommand('broadcast_cancel', {
+        campaign_id: campaignToCancel.id,
+        tenant_slug: tenantSlug,
+      }, tenantSlug).catch(() => {});
+
+      setStatus(`Campanha "${campaignToCancel.name}" cancelada (${res.cancelled_recipients || 0} pendentes cancelados).`, 'success');
+      await onChanged?.();
+    } catch (error) {
+      setStatus(userFacingError(error, 'Erro ao cancelar campanha.'), 'error');
     } finally {
       setBusy(false);
     }
@@ -310,43 +335,74 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     }
   }
 
-  // Cria a campanha e a entrega ao servidor. O envio não depende desta aba ficar aberta.
   async function sendCampaign() {
     const text = messageText.trim();
-    if (!text || !selectedContacts.length || busy || !consentConfirmed) return;
+    if (!text || !selectedContacts.length || busy) return;
     setBusy(true);
     setStatus('Salvando campanha e destinatários...', 'progress');
 
     let campaign = null;
+    const abortController = typeof window !== 'undefined' && window.AbortController ? new window.AbortController() : null;
+    abortControllerRef.current = abortController;
+
     try {
       const savedContacts = await upsertBroadcastContacts(tenantSlug, selectedContacts);
       const recipients = mergeBroadcastContacts(savedContacts, selectedContacts);
 
       campaign = await createBroadcastCampaign(tenantSlug, {
         name: campaignName.trim() || `Disparo ${new Date().toLocaleDateString('pt-BR')}`,
+        message_template: text,
         messageText: text,
         channelType: defaultChannel,
+        total_recipients: recipients.length,
+        status: CAMPAIGN_STATUS.SENDING,
       }, recipients);
 
-      const scheduledAt = scheduleInputToIso(scheduleInput);
-      await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed, scheduledAt });
+      setStatus('Campanha salva. Iniciando os envios...', 'progress');
 
-      setStatus(scheduledAt
-        ? `Campanha agendada para ${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(scheduledAt))}. O servidor envia aos poucos a partir desse horário.`
-        : 'Campanha na fila. O servidor envia aos poucos; você pode fechar esta tela e acompanhar o progresso aqui.', 'success');
+      // Dispara sinalização ao backend/n8n se disponível
+      sendN8nCommand('broadcast_start', {
+        campaign_id: campaign.id,
+        tenant_slug: tenantSlug,
+      }, tenantSlug).catch(() => {});
+
+      // Executa o processador durável via leases atômicas
+      await executeBroadcastCampaign({
+        campaignId: campaign.id,
+        tenantSlug,
+        messageText: text,
+        defaultChannel,
+        sendCommand: sendN8nCommand,
+        operations: broadcastOps,
+        abortSignal: abortController.signal,
+        delayMs: 1200,
+        onProgress: ({ phase, message: stepMessage }) => {
+          if (phase === 'pacing' || phase === 'sending') {
+            setStatus(stepMessage || 'Aguardando próximo envio...', 'progress');
+          } else if (phase === 'item_completed') {
+            setStatus('Processando destinatários...', 'progress');
+          }
+        },
+      });
+
+      const finalRecipients = await broadcastOps.getBroadcastCampaignRecipients(campaign.id);
+      const finalCounters = calculateCampaignCounters(finalRecipients);
+
+      setStatus(`Disparo concluído: ${finalCounters.sent} enviados, ${finalCounters.failed} falhas${finalCounters.unknown ? `, ${finalCounters.unknown} incertos` : ''}.`, 'success');
       setMessageText('');
       setCampaignName('');
       setSelected(new Set());
-      setConsentConfirmed(false);
-      setScheduleInput('');
       await onChanged?.();
     } catch (error) {
       if (campaign?.id) {
-        await broadcastOps.controlBroadcastCampaign(campaign.id, 'cancel').catch(() => {});
+        await broadcastOps.updateBroadcastCampaign(campaign.id, {
+          status: CAMPAIGN_STATUS.PARTIAL_ERROR,
+        }).catch(() => {});
       }
-      setStatus(broadcastErrorMessage(error, 'Não foi possível colocar o disparo na fila.'), 'error');
+      setStatus(userFacingError(error, 'Falha ao executar disparo.'), 'error');
     } finally {
       setBusy(false);
+      abortControllerRef.current = null;
     }
   }
 
@@ -354,15 +410,8 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const messageLimit = MESSAGE_LIMIT_BY_CHANNEL[defaultChannel] || 4096;
   const messageTooLong = messageText.length > messageLimit;
   const hasChannel = allowedChannels.length > 0;
-  const previewContact = selectedContacts[0] || null;
-  const previewName = previewContact ? (previewContact.name || previewContact.contact_name || '') : 'Maria';
-  const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong && consentConfirmed;
+  const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong;
   const recoverableHasUnknown = (recoverableCampaign?.unknown_count || 0) > 0;
-  // Criada pelo fluxo antigo (navegador): sem agendamento do servidor, nunca é enviada automaticamente.
-  const recoverableIsLegacy = Boolean(recoverableCampaign) && !recoverableCampaign.scheduled_at
-    && recoverableCampaign.status !== CAMPAIGN_STATUS.PARTIAL_ERROR;
-  const recoverableCanPause = !recoverableIsLegacy && [CAMPAIGN_STATUS.QUEUED, CAMPAIGN_STATUS.SCHEDULED, CAMPAIGN_STATUS.SENDING].includes(recoverableCampaign?.status);
-  const recoverableCanResume = !recoverableIsLegacy && recoverableCampaign?.status === CAMPAIGN_STATUS.PAUSED;
 
   return (
     <section className="bc-page">
@@ -373,33 +422,20 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           </span>
           <div className="bc-recover-body">
             <strong>
-              {recoverableHasUnknown ? 'Campanha com envios incertos'
-                : recoverableIsLegacy ? 'Campanha antiga parada'
-                  : recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED ? 'Campanha pausada'
-                    : recoverableCampaign.status === CAMPAIGN_STATUS.SCHEDULED ? 'Campanha agendada'
-                      : 'Campanha em andamento'}
+              {recoverableHasUnknown ? 'Campanha com envios incertos' : 'Campanha em andamento'}
               <span>{recoverableCampaign.name}</span>
             </strong>
             <CampaignProgress campaign={recoverableCampaign} />
             <p>
               {recoverableHasUnknown
                 ? 'Envios incertos não são reenviados, para evitar mensagem duplicada.'
-                : recoverableIsLegacy
-                  ? 'Criada antes do envio pelo servidor: não será enviada automaticamente. Cancele e crie de novo se ainda quiser enviar.'
-                  : recoverableCampaign.status === CAMPAIGN_STATUS.PAUSED && recoverableCampaign.last_error
-                    ? broadcastPauseReason(recoverableCampaign.last_error)
-                    : 'O servidor envia aos poucos, mesmo com esta tela fechada. Quem já recebeu não recebe de novo.'}
+                : 'Quem já recebeu não recebe de novo.'}
             </p>
           </div>
           <div className="bc-recover-actions">
-            {recoverableCanResume && (
-              <button type="button" className="primary-button bc-btn" onClick={() => controlCampaign(recoverableCampaign, 'resume')} disabled={busy}>
+            {(recoverableCampaign.sent_count || 0) < (recoverableCampaign.total_recipients || 0) && (
+              <button type="button" className="primary-button bc-btn" onClick={() => resumeCampaign(recoverableCampaign)} disabled={busy}>
                 <Play size={14} /> Retomar envio
-              </button>
-            )}
-            {recoverableCanPause && (
-              <button type="button" className="secondary-button bc-btn" onClick={() => controlCampaign(recoverableCampaign, 'pause')} disabled={busy}>
-                <Pause size={14} /> Pausar
               </button>
             )}
             {recoverableHasUnknown && (
@@ -413,7 +449,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 <RotateCcw size={14} /> Concluir incertos
               </button>
             )}
-            <button type="button" className="bc-text-btn is-danger" onClick={() => controlCampaign(recoverableCampaign, 'cancel')} disabled={busy}>
+            <button type="button" className="bc-text-btn is-danger" onClick={() => cancelCampaign(recoverableCampaign)} disabled={busy}>
               Cancelar campanha
             </button>
           </div>
@@ -448,14 +484,15 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             {stages.length > 0 && (
               <div className="bc-stage-pick">
                 <NoriaSelect
+                  className="bc-select"
                   value={stageFilter || '__all__'}
-                  onValueChange={(value) => setStageFilter(value === '__all__' ? '' : value)}
+                  onValueChange={(value) => { setStageFilter(value === '__all__' ? '' : value); }}
                   options={[
                     { value: '__all__', label: 'Etapa do quadro' },
                     ...stages.map((stage) => ({ value: stage, label: stage })),
                   ]}
+                  placeholder="Etapa do quadro"
                   ariaLabel="Adicionar contatos de uma etapa do quadro"
-                  className="bc-select"
                 />
                 {stageFilter && <button type="button" className="bc-chip is-accent" onClick={addStageContacts} disabled={busy}>Adicionar</button>}
               </div>
@@ -485,7 +522,6 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
             <button type="button" className="bc-text-btn" onClick={toggleAllVisibleContacts} disabled={!visibleContacts.length}>{allVisibleSelected ? 'Desmarcar todos' : 'Selecionar todos'}</button>
             {selectedContacts.length > 0 && <button type="button" className="bc-text-btn is-muted" onClick={clearSelectedContacts}>Limpar</button>}
           </div>
-          {blockedSelectedCount > 0 && <p className="bc-hint">{blockedSelectedCount} contato{blockedSelectedCount === 1 ? '' : 's'} da lista de bloqueio fica{blockedSelectedCount === 1 ? '' : 'm'} fora do disparo.</p>}
 
           <ul className="bc-list">
             {!ready ? [1, 2, 3, 4].map((i) => <li className="bc-row" key={i}><SkeletonBlock width="16px" height="16px" style={{ borderRadius: '4px' }} /><SkeletonBlock width="30px" height="30px" style={{ borderRadius: '50%' }} /><div style={{ flex: 1 }}><SkeletonLine width="120px" /><SkeletonLine width="90px" style={{ marginTop: '4px' }} /></div></li>) : <>
@@ -494,20 +530,13 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 const name = displayContactName(contact);
                 const phone = displayContactPhone(contact);
                 const channel = contact.channel_type || contact.channelType || defaultChannel;
-                const blocked = isBlocked(contact);
-                const isOn = selected.has(key) && !blocked;
-                return <li key={key} className="bc-row-item"><label className={`bc-row ${isOn ? 'is-selected' : ''} ${blocked ? 'is-blocked' : ''}`}>
-                  <input type="checkbox" checked={isOn} disabled={blocked} onChange={() => toggleContact(key)} />
+                const isOn = selected.has(key);
+                return <li key={key}><label className={`bc-row ${isOn ? 'is-selected' : ''}`}>
+                  <input type="checkbox" checked={isOn} onChange={() => toggleContact(key)} />
                   <ContactAvatar name={name} avatarUrl={contact.avatarUrl} className="bc-avatar" />
-                  <span className="bc-row-text"><strong>{name}</strong><small>{blocked ? 'Não recebe disparos' : phone}</small></span>
+                  <span className="bc-row-text"><strong>{name}</strong><small>{phone}</small></span>
                   <span className={`bc-channel-badge bc-tone-${channelTone(channel)}`} title={channel}><ChannelIcon channel={channel} size={15} /></span>
-                </label>
-                <button type="button" className={`bc-optout-btn ${blocked ? 'is-active' : ''}`} disabled={busy}
-                  onClick={() => toggleOptOut(contact, !blocked)}
-                  aria-label={blocked ? `Permitir disparos para ${name}` : `Não enviar disparos para ${name}`}
-                  title={blocked ? 'Permitir disparos de novo (gestores)' : 'Não enviar disparos para este contato'}>
-                  <Ban size={14} aria-hidden="true" />
-                </button></li>;
+                </label></li>;
               })}
               {!visibleContacts.length && <li className="bc-empty">
                 <span className="bc-empty-icon" aria-hidden="true"><UsersRound size={20} /></span>
@@ -520,94 +549,79 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
 
         <div className="bc-side">
           <section className="bc-card bc-compose" aria-labelledby="bc-compose-title">
-            <header className="bc-head">
-              <h2 id="bc-compose-title">Mensagem</h2>
-              {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
-            </header>
+          <header className="bc-head">
+            <h2 id="bc-compose-title">Mensagem</h2>
+            {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
+          </header>
 
-            <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
-              <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={4} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem que todos vão receber…" />
-              <div className="bc-message-foot">
-                <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
-              </div>
+          <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
+            <textarea className="bc-message" value={messageText} onChange={(event) => setMessageText(event.target.value)} rows={4} aria-label="Mensagem do disparo" placeholder="Escreva a mensagem que todos vão receber…" />
+            <div className="bc-message-foot">
+              <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
             </div>
-            {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
-            {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
+          </div>
+          {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
+          {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
 
-            <p className="bc-hint">Use {'{nome}'} para incluir o primeiro nome de cada contato.</p>
+          {messageText.trim() && (
+            <figure className="bc-preview" aria-label="Prévia da mensagem">
+              <figcaption>Prévia</figcaption>
+              <p className="bc-bubble">{messageText}</p>
+            </figure>
+          )}
 
-            {messageText.trim() && (
-              <figure className="bc-preview" aria-label="Prévia da mensagem">
-                <figcaption>Prévia{previewContact ? ` para ${displayContactName(previewContact)}` : ''}</figcaption>
-                <p className="bc-bubble">{renderBroadcastMessage(messageText, previewName)}</p>
-              </figure>
-            )}
+          <label className="bc-field">
+            <span>Nome da campanha <em>opcional</em></span>
+            <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
+          </label>
 
-            <div className="bc-fields-row">
-              <label className="bc-field">
-                <span>Nome da campanha <em>opcional</em></span>
-                <input value={campaignName} onChange={(event) => setCampaignName(event.target.value)} placeholder={`Disparo ${new Date().toLocaleDateString('pt-BR')}`} />
-              </label>
-
-              <label className="bc-field">
-                <span>Agendar envio <em>opcional</em></span>
-                <input type="datetime-local" value={scheduleInput} onChange={(event) => setScheduleInput(event.target.value)} />
-              </label>
-            </div>
-
-            <label className="bc-consent">
-              <input type="checkbox" checked={consentConfirmed} onChange={(event) => setConsentConfirmed(event.target.checked)} />
-              <span>Confirmo que estes contatos autorizaram receber mensagens desta empresa.</span>
-            </label>
-
-            <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
-              {busy
-                ? <><Loader2 size={16} className="bc-spin" /> Colocando na fila…</>
-                : <><Send size={16} /> {selectedContacts.length ? `${scheduleInputToIso(scheduleInput) ? 'Agendar para' : 'Enviar para'} ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
-            </button>
-            {status.message && (
-              <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
-                {status.tone === 'error' ? <AlertTriangle size={14} aria-hidden="true" />
-                  : status.tone === 'success' ? <CheckCircle2 size={14} aria-hidden="true" />
-                    : busy || status.tone === 'progress' ? <Loader2 size={14} className="bc-spin" aria-hidden="true" />
-                      : <Info size={14} aria-hidden="true" />}
-                <span>{status.message}</span>
-              </p>
-            )}
-          </section>
-
+          <button className="primary-button bc-send-btn" type="button" onClick={sendCampaign} disabled={!canSend}>
+            {busy
+              ? <><Loader2 size={16} className="bc-spin" /> Enviando…</>
+              : <><Send size={16} /> {selectedContacts.length ? `Enviar para ${selectedContacts.length} contato${selectedContacts.length === 1 ? '' : 's'}` : 'Selecione os contatos'}</>}
+          </button>
+          {status.message && (
+            <p className={`bc-status is-${busy && status.tone !== 'error' ? 'progress' : status.tone}`} role="status" aria-live="polite">
+              {status.tone === 'error' ? <AlertTriangle size={14} aria-hidden="true" />
+                : status.tone === 'success' ? <CheckCircle2 size={14} aria-hidden="true" />
+                  : busy || status.tone === 'progress' ? <Loader2 size={14} className="bc-spin" aria-hidden="true" />
+                    : <Info size={14} aria-hidden="true" />}
+              <span>{status.message}</span>
+            </p>
+          )}
+        </section>
           <section className="bc-card bc-history" aria-labelledby="bc-history-title">
-            <header className="bc-head">
-              <h2 id="bc-history-title">Histórico</h2>
-              {campaigns.length > 0 && <span className="bc-count">{campaigns.length} campanha{campaigns.length === 1 ? '' : 's'}</span>}
-            </header>
-            <div className="bc-campaigns">
-              {campaigns.length > 0 && (
-                <div className="bc-campaign bc-campaign-head" aria-hidden="true">
-                  <span>Campanha</span><span>Status</span><span>Data</span><span>Resultado</span>
-                </div>
-              )}
-              {!ready ? [1, 2].map((i) => <article className="bc-campaign" key={i} style={{ pointerEvents: 'none' }}><SkeletonLine width="140px" /><SkeletonLine width="100%" style={{ marginTop: '10px' }} /></article>) : <>
-                {campaigns.map((campaign) => {
-                  const date = campaign.sent_at || campaign.created_at;
-                  const metadata = date ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)) : 'Sem data';
-                  const presentation = CAMPAIGN_STATUS_PRESENTATION[campaign.status] || CAMPAIGN_STATUS_PRESENTATION.sending;
-                  return (
-                    <article className="bc-campaign" key={campaign.id}>
-                      <strong className="bc-campaign-name" title={campaign.name}>{campaign.name}</strong>
-                      <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
-                      <span className="bc-campaign-date">{metadata}</span>
-                      <CampaignProgress campaign={campaign} />
-                    </article>
-                  );
-                })}
-                {!campaigns.length && <div className="bc-empty is-wide">
-                  <span className="bc-empty-icon" aria-hidden="true"><Send size={18} /></span>
-                  <strong>Nenhum disparo ainda</strong>
-                  <span>As campanhas enviadas ficam registradas aqui com o resultado de cada envio.</span>
-                </div>}
-              </>}
+        <header className="bc-head">
+          <h2 id="bc-history-title">Histórico</h2>
+          {campaigns.length > 0 && <span className="bc-count">{campaigns.length} campanha{campaigns.length === 1 ? '' : 's'}</span>}
+        </header>
+        <div className="bc-campaigns">
+          {campaigns.length > 0 && (
+            <div className="bc-campaign bc-campaign-head" aria-hidden="true">
+              <span>Campanha</span><span>Status</span><span>Data</span><span>Resultado</span>
             </div>
+          )}
+          {!ready ? [1, 2].map((i) => <article className="bc-campaign" key={i} style={{ pointerEvents: 'none' }}><SkeletonLine width="140px" /><SkeletonLine width="100%" style={{ marginTop: '10px' }} /></article>) : <>
+            {campaigns.map((campaign) => {
+              const date = campaign.sent_at || campaign.created_at;
+              const metadata = date ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)) : 'Sem data';
+              const presentation = CAMPAIGN_STATUS_PRESENTATION[campaign.status] || CAMPAIGN_STATUS_PRESENTATION.sending;
+              return (
+                <article className="bc-campaign" key={campaign.id}>
+                  <strong className="bc-campaign-name" title={campaign.name}>{campaign.name}</strong>
+                  <span className={`bc-pill is-${presentation.tone}`}>{presentation.label}</span>
+                  <span className="bc-campaign-date">{metadata}</span>
+                  <CampaignProgress campaign={campaign} />
+                </article>
+              );
+            })}
+            {!campaigns.length && <div className="bc-empty is-wide">
+              <span className="bc-empty-icon" aria-hidden="true"><Send size={18} /></span>
+              <strong>Nenhum disparo ainda</strong>
+              <span>As campanhas enviadas ficam registradas aqui com o resultado de cada envio.</span>
+            </div>}
+          </>}
+        </div>
           </section>
         </div>
       </div>
@@ -630,8 +644,6 @@ const CAMPAIGN_STATUS_PRESENTATION = {
   cancelled: { label: 'Cancelada', tone: 'muted' },
   paused: { label: 'Pausada', tone: 'warning' },
   queued: { label: 'Na fila', tone: 'info' },
-  scheduled: { label: 'Agendada', tone: 'info' },
-  draft: { label: 'Rascunho', tone: 'muted' },
   sending: { label: 'Enviando', tone: 'info' },
 };
 

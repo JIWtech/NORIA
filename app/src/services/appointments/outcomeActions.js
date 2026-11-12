@@ -3,6 +3,8 @@ import { getAuthClient } from '../auth/authService.js';
 import { hasSupabaseConfig } from '../tenants/tenantStorage.js';
 import { findTenantBySlug } from '../tenants/tenantDataReads.js';
 import { createLoadDepositRequired, createMarkAppointmentOutcome } from './appointmentOutcome.js';
+import { createAppointmentActions } from './appointmentActions.js';
+import { createLoadServiceCatalog } from './noShowMessage.js';
 
 // Ações de desfecho de agendamento ligadas ao Supabase. Ficam fora de dataService.js de propósito:
 // os testes de arquitetura fixam a lista de exports daquela fachada, e este recurso é opcional por tenant.
@@ -21,3 +23,5 @@ async function loadTenant(activeTenantSlug) {
 
 export const markAppointmentOutcome = createMarkAppointmentOutcome({ getClient });
 export const loadDepositRequired = createLoadDepositRequired({ getClient, loadTenant });
+export const loadServiceCatalog = createLoadServiceCatalog({ getClient, loadTenant });
+export const { updateAppointment, cancelAppointment, archiveAppointment } = createAppointmentActions({ getClient });
