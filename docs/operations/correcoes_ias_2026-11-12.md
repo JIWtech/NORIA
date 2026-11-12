@@ -38,11 +38,12 @@ Referência: [auditoria_funcionamento_ias_2026-11-12.md](auditoria_funcionamento
 | IA-27 | JID `@lid` não vira `contacts.phone` |
 | IA-28 | Salon passa a reter execuções com erro |
 
-## Migrações criadas e NÃO aplicadas (exigem autorização)
+## Migrações aplicadas em produção em 12/11/2026
 
-- `supabase/migrations/20261112120000_conversation_latest_events.sql` — RPC `conversation_latest_events` e índice (IA-16). Sem ela o painel segue com a janela atual, sem erro.
-- `supabase/migrations/20261112130000_broadcast_interval_floor_41min.sql` — piso de **41 minutos** entre mensagens de disparo, intervalo máximo padrão de 55 min e limite diário padrão de 30. Até ser aplicada, vale a cadência atual do banco (padrão 30 a 90 s).
-- As cinco migrações `20261109192247` a `20261109193722` (disparos) já estavam aplicadas em produção; foram apenas versionadas aqui.
+- `conversation_latest_events` (IA-16): índice e função; validada com 910 conversas da Núbia.
+- `broadcast_interval_floor_41min`: piso de 41 min, máximo padrão de 55 min e limite diário padrão de 30. Verificada nos tenants `clinica_nubia_oficial` e `ic_salon`.
+- As cinco migrações `20261109192247` a `20261109193722` (disparos) já estavam aplicadas; foram só versionadas no repositório.
+- Plano para proteger o número nos disparos: [plano_protecao_disparos_2026-11-12.md](plano_protecao_disparos_2026-11-12.md).
 
 ## Revisão posterior (28 commits)
 

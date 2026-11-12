@@ -1,6 +1,6 @@
 -- Proteção do número: intervalo mínimo de 41 minutos entre mensagens de disparo.
 --
--- PROPOSTA (não aplicada). Aplicar somente com autorização explícita do responsável.
+-- APLICADA em produção em 12/11/2026 (nome da migração: broadcast_interval_floor_41min), com autorização do responsável.
 -- Rollback: reaplicar a definição de broadcast_protection_settings da migração 20261109193722_broadcast_opt_out_detection.sql.
 --
 -- Motivo: disparos em cadência curta (padrão anterior: 30 a 90 segundos) elevam o risco de bloqueio do número no WhatsApp.
