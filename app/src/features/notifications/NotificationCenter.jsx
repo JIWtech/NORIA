@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from './useNotifications.js';
 import { humanReplyStatus } from './notificationService.js';
-import { findNotificationConversation, notificationMakesSound, applyClearedBefore, notificationScope, reconcileNotifications } from './operatorEvents.js';
+import { findNotificationConversation, notificationMakesSound, applyClearedBefore, applyDismissed, notificationScope, reconcileNotifications } from './operatorEvents.js';
 import { canOperateNotifications, inboxNotification, pendingNotifications, waitingConversationNotifications } from './notificationPending.js';
 import { useOperatorNotifications } from './useOperatorNotifications.js';
 import { useNotificationSound } from './useNotificationSound.js';
@@ -60,8 +60,8 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
       && !(item.kind === 'handoff' && handoffs.some(other => sameConversation(item, other)))
       && !(item.kind === 'team-review' && tracked.some(other => other.kind === 'team-review' && sameConversation(item, other)))
       && !(item.appointmentId && currentAppointments.get(item.appointmentId) === item.appointmentStatus))];
-    return applyClearedBefore(reconcileNotifications(merged, { appointments, conversations, ready: dataReady, now }), activity.clearedAt);
-  }, [activity.clearedAt, dataReady, tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
+    return applyDismissed(applyClearedBefore(reconcileNotifications(merged, { appointments, conversations, ready: dataReady, now }), activity.clearedAt), activity.dismissedKeys);
+  }, [activity.clearedAt, activity.dismissedKeys, dataReady, tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
 
   const unread = items.filter(item => !item.remote && item.unread).length + (inbox.unread || 0);
   const markRead = item => item.remote ? inbox.markRead(item.remote)
@@ -70,9 +70,16 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
     activity.markAllRead(items.filter(item => item.tracked && item.unread));
     if (!inbox.error && !inbox.syncing && inbox.unread > 0) void inbox.markAllRead();
   };
+  // Limpar todas esconde o histórico e mantém as pendências; limpar selecionadas esconde só o que a pessoa marcou.
   const clearAll = () => {
     markAll();
     activity.clearAll();
+  };
+  const clearSelected = selected => {
+    const remoteUnread = selected.filter(item => item.remote && item.unread);
+    for (const item of selected) if (!item.remote && item.unread) activity.markRead(item.id, item.tracked ? [item] : []);
+    for (const item of remoteUnread) inbox.markRead(item.remote);
+    activity.dismissItems(selected);
   };
   const actionFor = (item, conversation) => {
     if (item.cardId && onOpenCard) return { label: item.kind === 'deposit-review' ? 'Verificar sinal' : 'Ver pedido',
@@ -97,7 +104,7 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
   <NotificationToasts toasts={activity.toasts} conversations={conversations} onOpen={openToast}
     onDismiss={group => activity.dismissToasts(group.items.map(toastItem => toastItem.id))} />
   <NotificationPanel tenantName={tenantName} items={items} conversations={conversations} unread={unread}
-    inbox={inbox} sound={sound} onMarkRead={markRead} onMarkAll={markAll} onClear={clearAll} actionFor={actionFor}
+    inbox={inbox} sound={sound} onMarkRead={markRead} onMarkAll={markAll} onClearAll={clearAll} onClearSelected={clearSelected} actionFor={actionFor}
     showPending={canOperateNotifications(role) || items.some(item => item.pending)}
     onSettings={onOpenPage ? () => onOpenPage('configuracoes') : undefined} />
   </>;

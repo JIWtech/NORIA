@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { appointmentReminders, belongsToTenant, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, OPERATOR_EVENT, operatorEvents, shouldPlayOperatorNotification } from './operatorEvents.js';
+import { appointmentReminders, belongsToTenant, followUpReminders, MAX_NOTIFICATIONS, mergeOperatorNotifications, notificationScope, OPERATOR_EVENT, operatorEvents, dismissKey, shouldPlayOperatorNotification } from './operatorEvents.js';
 
 export function readOperatorNotifications(storage, key, tenantId) {
   if (!key) return [];
@@ -29,6 +29,10 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
   const [soundSequence, setSoundSequence] = useState(0);
   const [toasts, setToasts] = useState([]);
   const clearedKey = key ? `${key}:cleared-at` : null;
+  const dismissedStorageKey = key ? `${key}:dismissed` : null;
+  const [dismissedKeys, setDismissedKeys] = useState(() => {
+    try { const stored = JSON.parse(window.localStorage.getItem(dismissedStorageKey) || '[]'); return new Set(Array.isArray(stored) ? stored : []); } catch { return new Set(); }
+  });
   const [clearedAt, setClearedAt] = useState(() => {
     try { return clearedKey ? Number(window.localStorage.getItem(clearedKey)) || 0 : 0; } catch { return 0; }
   });
@@ -126,10 +130,20 @@ export function useOperatorNotifications({ tenantId, tenantSlug, userId, convers
     try { if (clearedKey) window.localStorage.setItem(clearedKey, String(at)); } catch { /* Sem armazenamento, a limpeza vale só nesta sessão. */ }
   }, [clearedKey]);
 
+  const dismissItems = useCallback((targets) => {
+    setDismissedKeys(current => {
+      const next = new Set([...current, ...targets.map(dismissKey)]);
+      const kept = [...next].slice(-1000);
+      try { if (dismissedStorageKey) window.localStorage.setItem(dismissedStorageKey, JSON.stringify(kept)); } catch { /* Vale só nesta sessão. */ }
+      return new Set(kept);
+    });
+    setToasts(current => current.filter(toast => !targets.some(target => target.id === toast.id)));
+  }, [dismissedStorageKey]);
+
   const dismissToasts = useCallback((ids) => {
     const drop = new Set(ids);
     setToasts(current => current.filter(item => !drop.has(item.id)));
   }, []);
 
-  return { items, pendingReads, soundSequence, toasts, dismissToasts, clearedAt, clearAll, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
+  return { items, pendingReads, soundSequence, toasts, dismissToasts, dismissedKeys, dismissItems, clearedAt, clearAll, markRead, markAllRead: (trackedItems) => markRead(null, trackedItems) };
 }

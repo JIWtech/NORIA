@@ -175,6 +175,13 @@ export function applyClearedBefore(items, clearedAt) {
   return items.filter(item => item.pending || !(Date.parse(item.createdAt) <= clearedAt));
 }
 
+// Dispensa individual: a chave inclui a data do aviso, então um aviso que volta atualizado (outra data) reaparece.
+export const dismissKey = item => `${item.id}@${item.createdAt}`;
+export function applyDismissed(items, dismissedKeys) {
+  if (!dismissedKeys || !dismissedKeys.size) return items;
+  return items.filter(item => !dismissedKeys.has(dismissKey(item)));
+}
+
 export function mergeOperatorNotifications(previous, incoming) {
   const items = new Map(previous.map(item => [item.id, item]));
   for (const item of incoming) if (!items.has(item.id)) items.set(item.id, item);

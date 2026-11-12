@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { findNotificationConversation } from './operatorEvents.js';
 import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
-import { ChannelIcon, getChannelClass } from '../../components/ui/ChannelIcon.jsx';
+import { ChannelIcon } from '../../components/ui/ChannelIcon.jsx';
+import { dismissKey } from './operatorEvents.js';
 import { isUsefulContactName } from '../../services/contacts/contactNames.js';
 import './notifications.css';
 
@@ -87,19 +88,18 @@ function groupByDay(items, conversations) {
   return [...days.values()];
 }
 
-export function NotificationPanel({ tenantName, items, conversations = [], unread, inbox, sound, onMarkRead, onMarkAll, onClear,
+export function NotificationPanel({ tenantName, items, conversations = [], unread, inbox, sound, onMarkRead, onMarkAll, onClearAll, onClearSelected,
   actionFor, onSettings, simulation = false, showPending = true }) {
   const [open, setOpen] = useState(simulation);
   const [filter, setFilter] = useState('all');
   const [category, setCategory] = useState('all');
   const [expanded, setExpanded] = useState(() => new Set());
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearMenu, setClearMenu] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
   const clearable = items.filter(item => !item.pending).length;
-  useEffect(() => {
-    if (!confirmClear) return undefined;
-    const timer = setTimeout(() => setConfirmClear(false), 4000);
-    return () => clearTimeout(timer);
-  }, [confirmClear]);
+  const channelOf = channel => { const type = String(channel || '').toLowerCase(); return type.includes('insta') ? 'instagram' : type.includes('telegram') ? 'telegram' : 'whatsapp'; };
+  const leaveSelection = () => { setSelecting(false); setSelected(new Set()); };
   const root = useRef(null);
   const bell = useRef(null);
   const closeButton = useRef(null);
@@ -163,12 +163,21 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
               aria-label="Marcar todas como lidas" title="Marcar todas como lidas" disabled={Boolean(inbox.syncing && inbox.unread)}>
               <CheckCheck size={17} aria-hidden="true" />
             </button>}
-            {onClear && clearable > 0 && <button type="button" className={`icon-button notification-clear ${confirmClear ? 'is-confirming' : ''}`}
-              onClick={() => { if (confirmClear) { onClear(); setConfirmClear(false); } else setConfirmClear(true); }}
-              aria-label={confirmClear ? 'Confirmar: limpar notificações' : 'Limpar notificações'}
-              title={confirmClear ? 'Clique de novo para limpar' : 'Limpar notificações (as pendências ficam)'}>
-              {confirmClear ? <Check size={17} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
-            </button>}
+            {onClearAll && items.length > 0 && <div className="notification-clear-wrap">
+              <button type="button" className={`icon-button notification-clear ${clearMenu || selecting ? 'is-active' : ''}`}
+                aria-haspopup="menu" aria-expanded={clearMenu} aria-label="Limpar notificações" title="Limpar notificações"
+                onClick={() => (selecting ? leaveSelection() : setClearMenu(value => !value))}>
+                {selecting ? <X size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
+              </button>
+              {clearMenu && <div className="notification-clear-menu" role="menu">
+                <button type="button" role="menuitem" disabled={!clearable} onClick={() => { onClearAll(); setClearMenu(false); }}>
+                  <Trash2 size={14} aria-hidden="true" /><span>Limpar todas<small>As pendências ficam</small></span>
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setClearMenu(false); setSelecting(true); }}>
+                  <Check size={14} aria-hidden="true" /><span>Selecionar para limpar<small>Escolha uma por uma</small></span>
+                </button>
+              </div>}
+            </div>}
             {sound && <button type="button" className="icon-button" onClick={sound.toggle} aria-pressed={sound.enabled}
               aria-label="Som de notificações" title={sound.enabled ? 'Silenciar notificações' : 'Ativar som de notificações'}>
               {sound.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
@@ -216,15 +225,26 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
                 return <li key={key} className="notification-group">
                   <ul className="notification-list">
                     {(isExpanded ? group : group.slice(0, 1)).map(({ item, date, conversation, contact }) => {
+                      const targets = isExpanded ? [item] : group.map(entry => entry.item);
+                      const checked = targets.every(target => selected.has(dismissKey(target)));
+                      const toggleSelected = () => setSelected(current => {
+                        const next = new Set(current);
+                        for (const target of targets) { if (checked) next.delete(dismissKey(target)); else next.add(dismissKey(target)); }
+                        return next;
+                      });
                       const categoryStyle = categories[item.category];
                       const visual = appointmentIcons[item.appointmentStatus] || eventIcons[item.kind] || categoryStyle;
                       const Icon = visual?.icon || Bell;
                       const tone = item.overdue ? 'urgent' : visual?.tone || 'default';
                       const action = actionFor?.(item, conversation);
                       const readDisabled = Boolean(item.remote && (inbox.syncing || inbox.error));
-                      return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : ''}`}>
+                      return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : ''} ${selecting ? 'is-selecting' : ''} ${selecting && checked ? 'is-selected' : ''}`}>
+                        {selecting && <label className="notification-select">
+                          <input type="checkbox" checked={checked} onChange={toggleSelected}
+                            aria-label={`Selecionar: ${item.title}${!isExpanded && group.length > 1 ? ` e mais ${group.length - 1} semelhantes` : ''}`} />
+                        </label>}
                         {conversation || contact
-                          ? <span className={`notification-entry-avatar ${item.kind === 'message' ? getChannelClass(item.channel) : ''}`} data-tone={tone}>
+                          ? <span className="notification-entry-avatar" data-tone={tone} data-channel={item.kind === 'message' ? channelOf(item.channel) : undefined}>
                             <ContactAvatar name={contact || conversation?.contact} avatarUrl={conversation?.avatarUrl} />
                             <span className="notification-entry-badge" aria-hidden="true">
                               {item.kind === 'message' ? <ChannelIcon channel={item.channel} size={11} /> : <Icon size={11} strokeWidth={2.4} />}
@@ -276,6 +296,19 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
           {inbox.isOlderPage && <button className="notification-more secondary-button" type="button"
             disabled={inbox.syncing} onClick={inbox.showLatest}>Voltar aos recentes</button>}
         </div>
+        {selecting && <div className="notification-selection-bar" role="region" aria-label="Limpar selecionadas">
+          <span>{selected.size ? `${selected.size} ${selected.size === 1 ? 'selecionada' : 'selecionadas'}` : 'Marque os avisos que quer limpar'}</span>
+          <div>
+            <button type="button" className="secondary-button" onClick={() => {
+              const all = new Set(filtered.map(dismissKey));
+              setSelected(current => (current.size >= all.size ? new Set() : all));
+            }}>{selected.size >= filtered.length && filtered.length ? 'Desmarcar todas' : 'Marcar todas'}</button>
+            <button type="button" className="primary-button" disabled={!selected.size} onClick={() => {
+              onClearSelected(filtered.filter(entry => selected.has(dismissKey(entry))));
+              leaveSelection();
+            }}>Limpar selecionadas</button>
+          </div>
+        </div>}
       </section>}
     </div>
   );

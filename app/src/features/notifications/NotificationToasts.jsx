@@ -2,20 +2,22 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
-import { ChannelIcon, getChannelClass } from '../../components/ui/ChannelIcon.jsx';
+import { ChannelIcon } from '../../components/ui/ChannelIcon.jsx';
 import { findNotificationConversation } from './operatorEvents.js';
 import { isUsefulContactName } from '../../services/contacts/contactNames.js';
 import { groupToasts, MAX_VISIBLE_TOASTS, TOAST_VISIBLE_MS } from './toastGroups.js';
 import './notificationToasts.css';
 
-const channelNames = { 'channel-whatsapp': 'WhatsApp', 'channel-instagram': 'Instagram', 'channel-telegram': 'Telegram' };
+// O canal vira um atributo próprio (data-channel): as classes .channel-* do app pintam fundo e texto de verde.
+const channelKey = channel => { const type = String(channel || '').toLowerCase(); return type.includes('insta') ? 'instagram' : type.includes('telegram') ? 'telegram' : type.includes('whats') || type.includes('zap') ? 'whatsapp' : 'other'; };
+const channelNames = { whatsapp: 'WhatsApp', instagram: 'Instagram', telegram: 'Telegram' };
 
 const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 function Toast({ group, conversation, onOpen, onDismiss }) {
   const { latest, items } = group;
-  const channelClass = getChannelClass(latest.channel);
-  const channelName = channelNames[channelClass] || 'Mensagem';
+  const channel = channelKey(latest.channel);
+  const channelName = channelNames[channel] || 'Mensagem';
   const contact = conversation?.contact || (isUsefulContactName(latest.contact) ? latest.contact : '') || 'Cliente';
   const count = items.length;
 
@@ -26,7 +28,7 @@ function Toast({ group, conversation, onOpen, onDismiss }) {
     return () => clearTimeout(timer);
   }, [count]);
 
-  return <div className={`notification-toast ${channelClass}`} role="group" aria-label={`Nova mensagem de ${contact} no ${channelName}`}>
+  return <div className="notification-toast" data-channel={channel} role="group" aria-label={`Nova mensagem de ${contact} no ${channelName}`}>
     <button type="button" className="notification-toast-main" onClick={() => onOpen(group, conversation)}
       aria-label={`Abrir conversa com ${contact}`}>
       <span className="notification-toast-avatar">
