@@ -5531,13 +5531,15 @@ function servicesAssertionSharesAuthorityTerms(assertionText, authorityText, nor
   return claimed.some(term => authority.includes(stem(term)));
 }
 
-function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false }) {
+function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false, requireRequestCoverage = false }) {
   const failures = [];
   if (!report || typeof report !== 'object' || !Array.isArray(report.assertions) || report.assertions.length > 80) return { status: 'rejected', failures: ['AUDIT_REPORT_INVALID'], assertions: 0 };
   if (report.covers_entire_reply !== true) failures.push('AUDIT_COVERAGE_NOT_CONFIRMED');
   // A auditoria só roda com texto na resposta: ao menos um item (conversational, se nada for factual) é exigido para comprovar cobertura.
   if (!report.assertions.length) failures.push('AUDIT_REPORT_EMPTY');
   if (hasRecentBusiness && report.opening_repeated !== false) failures.push('AUDIT_REPEATED_OPENING');
+  // Lote com saudação + pedido: a resposta precisa tratar também do pedido (ex.: "Oi" e "queria marcar um bronze").
+  if (requireRequestCoverage && report.addresses_customer_requests !== true) failures.push('AUDIT_REQUEST_NOT_COVERED');
   const facts = new Set((decision.facts || []).map(fact => fact.fact_id));
   const blockKeys = new Set((decision.approved_blocks || []).map(block => block.key));
   const receipt = ['created', 'recovered'].includes(execution.reservation?.status) ? execution.reservation.appointment : null;
@@ -5593,19 +5595,19 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
   return { status: failures.length ? 'rejected' : 'approved', failures: [...new Set(failures)], assertions: report.assertions.length };
 }
 
-async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false }) {
+async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false, customerMessages = [] }) {
   const str = { type: 'STRING' };
   const schema = { type: 'OBJECT', properties: {
     assertions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: str, category: { type: 'STRING', enum: SERVICES_ASSERTION_CATEGORIES },
       support: { type: 'STRING', enum: SERVICES_SUPPORT_KINDS }, reference: str, quote: str, polarity: { type: 'STRING', enum: ['affirms', 'denies'] } },
       required: ['text', 'category', 'support', 'reference', 'quote', 'polarity'] } },
-    covers_entire_reply: { type: 'BOOLEAN' }, opening_repeated: { type: 'BOOLEAN' } }, required: ['assertions', 'covers_entire_reply', 'opening_repeated'] };
+    covers_entire_reply: { type: 'BOOLEAN' }, opening_repeated: { type: 'BOOLEAN' }, addresses_customer_requests: { type: 'BOOLEAN' } }, required: ['assertions', 'covers_entire_reply', 'opening_repeated', 'addresses_customer_requests'] };
   const keys = new Set((decision.approved_blocks || []).map(block => block.key));
   const receipt = ['created', 'recovered'].includes(execution.reservation?.status) ? execution.reservation.appointment : null;
   let generated;
   try {
     generated = await servicesGeminiJson(context, 'services_semantic_audit', {
-      reply, has_recent_business_message: hasRecentBusiness,
+      reply, has_recent_business_message: hasRecentBusiness, customer_messages: customerMessages,
       authorities: {
         facts: decision.facts || [], approved_blocks: blocks.filter(block => keys.has(block.key)),
         availability: proof ? { date: proof.date, available_starts: proof.available_starts } : null,
@@ -5620,13 +5622,14 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
       'Para cada item informe category, o support (a autoridade que a sustenta), o reference (fact_id, chave do bloco, horário ou campo de customer_provided) e o quote: para fact, o value EXATO do fato; para block, um trecho LITERAL do bloco que contém o que foi afirmado; vazio nos demais casos. Se nenhuma autoridade sustenta, use support none. Parafrasear um fato ou bloco autorizado é sustentado por ele; ir além dele não é.',
       'Perguntas, saudações, pedidos de dados e ofertas de ajuda sem conteúdo factual são conversational. Não avalie o tom. covers_entire_reply só é true se você considerou a resposta inteira.',
       'opening_repeated é true somente se has_recent_business_message=true e a resposta começa novamente com cumprimento, saudação ou apresentação de abertura; vocativo breve no meio da resposta não é abertura.',
+      'addresses_customer_requests é true somente se a resposta trata de TODOS os pedidos e perguntas de customer_messages (a mensagem atual pode ter vários itens, por exemplo saudação e pedido de agendamento). É false se algum pedido ou pergunta ficou sem resposta nem próximo passo; uma saudação respondida sozinha, quando há um pedido junto, é false.',
       'A lista nunca fica vazia: se a resposta não tiver afirmação factual, devolva um item conversational com o texto dela.',
       'reservation é SOMENTE a afirmação de que uma reserva foi criada, confirmada ou garantida (exige reservation_receipt). Pedido encaminhado à equipe, "a equipe conclui/confirma a reserva", orientação de como agendar e promessa de retorno NÃO são reservation: são handoff (support handoff_execution) ou, se explicam uma regra do negócio, service/conditions sustentados por fact ou block. Se a resposta disser que a reserva ainda NÃO foi feita, use reservation com polarity denies.',
       'polarity é denies quando o item nega algo (por exemplo, um horário indisponível) e affirms nos demais casos. Um trecho que nega um horário e oferece outro vira dois itens.',
       'O text de cada item é o que a resposta afirma. Só use support fact ou block se o fato ou trecho citado realmente diz o que o text afirma. Se o text diz outra coisa, contradiz a autoridade ou acrescenta uma característica que ela não menciona (por exemplo, "produtos extras" quando o fato fala de sala individual), use support none.',
     ], { persona: false, thinkingBudget: 256, maxOutputTokens: 3072 });
   } catch (error) { return { status: 'rejected', failures: ['AUDIT_UNAVAILABLE'], assertions: 0, error: String(error?.message || error).slice(0, 120) }; }
-  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness }), model: generated.model };
+  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness, requireRequestCoverage: true }), model: generated.model };
 }
 
 async function servicesComposeReply(context, decision, execution, blocks, proof, history, revisionNote = '') {
@@ -5659,6 +5662,7 @@ async function servicesComposeReply(context, decision, execution, blocks, proof,
     'Se usar blocos de approved_blocks, informe as chaves em block_keys (o texto literal sera anexado pelo sistema; nao o reescreva).',
     'Declare em claims, um por afirmacao, tudo o que sua resposta afirma: fact (fact_id e value exatos), slot (date AAAA-MM-DD e time HH:MM de horario ofertado ou reservado), reservation (status completed so se execution.reservation.status for created ou recovered; informe date e time), payment (awaiting_verification apenas se execution.payment_forward foi encaminhado; nunca confirmed), handoff (announced apenas se execution.handoff.executed), preparation (block_key de um bloco de preparo autorizado; so declare se o texto realmente apresentar esse preparo). Em claims que nao sao de preparo, block_key deve ser "' + SERVICES_NO_BLOCK_KEY + '".',
     'Se o cliente perguntar sobre saude, seguranca, contraindicacao, resultado ou condicao de atendimento que nao conste em decision.facts nem em approved_blocks, nao afirme nada sobre isso: diga com naturalidade que nao tem essa informacao confirmada e, se execution.handoff.executed, que a equipe pode confirmar.',
+    'Responda a TODOS os itens de customer_messages do lote atual: se houver saudacao e um pedido (por exemplo marcar um servico), cumprimente brevemente e trate o pedido na mesma resposta; nunca responda so a saudacao.',
     'Se opening=false (recent_conversation ja tem mensagens do negocio), nao abra com saudacao, cumprimento ou vocativo de abertura; va direto ao assunto. Se opening=true, a saudacao segue o tom do negocio.',
     'Se decision.actions.handoff.required por PREVIOUS_SERVICE_CUSTOMER, diga que o atendimento foi encaminhado a equipe por se tratar de um servico que a cliente ja fez; nao tente adivinhar a maquina nem repetir a triagem.',
     'Se business_hours.configured e business_hours.is_open=false, explique que a equipe atendera no proximo expediente, sem citar hora exata; nao prometa que um atendente respondera agora. Se o horario nao estiver configurado, nao prometa atendimento imediato.',
@@ -5729,7 +5733,7 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   let { composed, audit } = await composeChecked('');
   // Independent pass over the prose itself (see servicesSemanticAudit); skipped only when there is no prose, just literal blocks.
   if (composed.value.reply.trim()) {
-    const auditProse = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness });
+    const auditProse = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness, customerMessages: turn.messages.map(item => item.text).filter(Boolean) });
     let semanticAudit = await auditProse();
     if (semanticAudit.failures?.includes('AUDIT_REPEATED_OPENING')) {
       ({ composed, audit } = await composeChecked('REVISAO OBRIGATORIA: esta conversa ja recebeu uma resposta da equipe (opening=false). Comece diretamente pelo assunto da ultima mensagem da cliente, sem saudacao nem vocativo de abertura.'));

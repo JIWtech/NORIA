@@ -319,6 +319,11 @@ test('auditoria semântica: cada afirmação precisa de uma autoridade existente
   const premiumReport = text => verify({ assertions: [item('service', 'fact', 'f2', 'sala individual e máquina dupla', text)], covers_entire_reply: true }, premium);
   assert.ok(premiumReport('O Premium difere do Clássico por produtos e cuidados extras no atendimento').failures.includes('AUDIT_ASSERTION_NOT_GROUNDED:service'), 'afirmação sem relação com o fato citado');
   assert.equal(premiumReport('No Premium você tem sala individual e máquina dupla para o bronze').status, 'approved', 'afirmação fiel ao fato');
+  // IA-02: lote com saudação + pedido; a auditoria precisa confirmar que o pedido foi tratado
+  const covered = (flag) => verify({ assertions: opening, covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: flag }, { ...base, requireRequestCoverage: true });
+  assert.ok(covered(false).failures.includes('AUDIT_REQUEST_NOT_COVERED'), 'só a saudação foi respondida');
+  assert.ok(covered(undefined).failures.includes('AUDIT_REQUEST_NOT_COVERED'), 'relatório sem a confirmação de cobertura');
+  assert.equal(covered(true).status, 'approved');
   assert.ok(report([item('price', 'fact', 'f1', '99.00')]).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'fato existe mas o valor citado não é o dele');
   assert.ok(report([item('preparation', 'block', 'b1', 'basta chegar de biquíni')]).failures.includes('AUDIT_QUOTE_MISMATCH:block'), 'trecho que não está no bloco');
   assert.ok(report([item('preparation', 'block', 'b1', 'pele limpa e sem hidratante')]).status === 'approved', 'trecho literal do bloco');
@@ -487,7 +492,7 @@ test('auditoria: reserva CONCLUÍDA exige recibo; encaminhamento é handoff; neg
 test('auditoria: instrução separa reserva concluída (recibo) de encaminhamento (handoff)', async () => {
   let rules = [];
   const { servicesSemanticAudit } = loadCore(['servicesSemanticAudit', 'servicesVerifySemanticReport'], { ...AUDIT_CONSTS,
-    servicesGeminiJson: async (_c, _n, _p, _s, instructions) => { rules = instructions; return { value: { assertions: [], covers_entire_reply: true, opening_repeated: false }, model: 'm' }; } });
+    servicesGeminiJson: async (_c, _n, _p, _s, instructions) => { rules = instructions; return { value: { assertions: [], covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true }, model: 'm' }; } });
   await servicesSemanticAudit({}, { reply: 'r', decision: { facts: [], approved_blocks: [] }, execution: { handoff: { executed: true } }, proof: null, semantic: {}, blocks: [] });
   const line = rules.find(text => text.startsWith('reservation é SOMENTE'));
   assert.ok(line, 'instrução da fronteira reservation × handoff presente');
@@ -552,7 +557,7 @@ test('compositor: recebe opening como dado (true na primeira resposta da empresa
 function composedFlow({ compositions, semanticReports }) {
   const calls = { compose: [], semantic: 0 };
   const names = ['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys'];
-  const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: { slots: {} } },
+  const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: { slots: {} } }, turn: { messages: [] },
     servicesComposeReply: async (_c, _d, _e, _b, _p, _h, note) => { calls.compose.push(note); return { value: compositions[Math.min(calls.compose.length, compositions.length) - 1], model: 'm', usage: {} }; },
     servicesSemanticAudit: async () => semanticReports[Math.min(calls.semantic++, semanticReports.length - 1)] });
   const decision = { services: [{ service_id: 's1' }], facts: [], approved_blocks: [{ key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }, { key: 'other', purpose: 'preparation', applies_to_service_ids: ['s9'] }] };
