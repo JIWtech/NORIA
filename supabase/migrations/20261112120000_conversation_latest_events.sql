@@ -19,6 +19,9 @@ as $$
     from public.channel_events e
     where e.tenant_slug = p_tenant_slug
       and e.external_conversation_id is not null
+      -- Marcadores internos do painel não representam a conversa (o painel os ignora): ficam de fora.
+      and coalesce(e.service, '') not in ('noria_pipeline_pin', 'kanban_move')
+      and coalesce(e.ai_provider, '') <> 'kanban_action'
     order by e.channel_type, e.external_conversation_id, e.created_at desc, e.id desc
   ) latest
   order by latest.created_at desc, latest.id desc
