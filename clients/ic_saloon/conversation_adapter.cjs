@@ -551,7 +551,12 @@ function createSalonHelpers(helpers, input, env) {
     const verdict = await review(options, draft, null, current, []);
     if (verdict?.allowed !== true) return fallback(verdict ? 'review_rejected' : 'review_unavailable');
     // Afirmação de registro sem ação é leitura do Gemini (claims_registration); campo ausente ou fora do contrato falha fechado.
-    if (verdict.claims_registration !== false) return fallback('claims_booking');
+    // O rascunho deu o pedido por combinado, marcado ou encaminhado sem a ação de registro. O reparo recebe o caminho certo
+    // (agradecer o dia e o horário, dizer que a equipe confirma e pedir o próximo dado que falta) em vez de uma tentativa às cegas,
+    // que acabava reprovada de novo e mandava a pessoa para a equipe só com "vou pedir para conferir".
+    if (verdict.claims_registration !== false) {
+      return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome). Se todos os dados já foram dados, pergunte se pode seguir.');
+    }
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.
     if (verdict.claims_availability !== false) {
       return fallback('claims_availability', 'O rascunho anterior afirmava ou sugeria horário livre ou disponibilidade. Você não vê a agenda: não diga que há vaga ou horário nem sugira horários ou turnos como livres. Se ajudar, pergunte qual dia e horário a pessoa prefere e diga que a equipe confirma o encaixe.');

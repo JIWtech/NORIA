@@ -658,3 +658,14 @@ test('revisão e auditoria de preço pedem limite de saída suficiente para a me
   assert.ok(limits.length >= 2, 'revisão e auditoria enviadas');
   for (const limit of limits) assert.ok(limit >= 4000, 'limite ' + limit);
 });
+
+// Caso real de 12/11 ("As 10?" virou "vou pedir para a equipe conferir"): o reparo precisa saber o que fazer quando o rascunho deu o pedido por combinado.
+test('afirmação de pedido combinado recebe orientação de reparo: agradecer, equipe confirma, pedir o próximo dado', async () => {
+  const result = await run({ draft: 'Pedido anotado, tudo certo, já anotei.', verdict: claimAware });
+  assert.equal(result.diagnostics.adapter_trail[0], 'claims_booking');
+  const repairInstruction = result.generations[1].map(part => part.text).join(' ');
+  assert.match(repairInstruction, /Nada foi marcado ainda/);
+  assert.match(repairInstruction, /a equipe confirma o horário/);
+  assert.match(repairInstruction, /UMA pergunta com o próximo dado que falta/);
+  assert.equal(result.text, repairText);
+});
