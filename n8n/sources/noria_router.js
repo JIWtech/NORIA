@@ -81,6 +81,18 @@ if (legacyExtension) {
 // Para novos tenants SaaS autônomos, busca noria_client_policy diretamente em tenant_settings
 if (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');
 
+// A identidade é confirmada no banco antes de qualquer política (como no ramo NORIA): o slug pertence ao tenant_id, o tenant
+// está ativo e a instância pertence a um canal WhatsApp ativo do MESMO tenant. Divergência falha fechada: o item permanece na fila.
+if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(tenant_id)) throw new Error('NORIA_ROTEAMENTO_IDENTIDADE_INCOMPLETA');
+const saasTenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenant_id) + '&slug=eq.' + enc(tenant_slug) + '&limit=1');
+if (!Array.isArray(saasTenants) || saasTenants.length !== 1 || saasTenants[0].id !== tenant_id || saasTenants[0].slug !== tenant_slug || saasTenants[0].status !== 'active') throw new Error('NORIA_ROTEAMENTO_TENANT_INVALIDO');
+const saasChannels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
+const channelKey = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+const wantedInstance = channelKey(v.instance);
+if (!wantedInstance || !Array.isArray(saasChannels) || !saasChannels.some(c => c.status === 'active'
+  && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id, c.config?.instanceId]
+    .filter(Boolean).map(channelKey).includes(wantedInstance))) throw new Error('NORIA_ROTEAMENTO_INSTANCIA_NAO_PERTENCE');
+
 const rows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(tenant_id) + '&limit=1');
 
 const s = rows?.[0]?.settings || {};

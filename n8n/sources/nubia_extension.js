@@ -24,7 +24,7 @@ const ACTIONABLE_INTENTS = ['availability_request', 'booking_intent', 'slot_chan
   'payment_report', 'human_request', 'complaint'];
 const ROLES = ['mentioned', 'asked_about', 'compared', 'interested', 'selected', 'booking_target'];
 const ACTIONABLE_ROLES = ['interested', 'selected', 'booking_target'];
-const TOPICS = ['presentation', 'price', 'preparation', 'what_to_bring', 'general_info', 'catalog', 'location', 'payment_terms', 'health_or_safety'];
+const TOPICS = ['presentation', 'price', 'preparation', 'what_to_bring', 'general_info', 'catalog', 'location', 'payment_terms', 'health_or_safety', 'audience'];
 const DISPOSITIONS = ['active', 'declined', 'closed_by_customer', 'resolved'];
 const CONFIDENCE = ['low', 'medium', 'high'];
 const AMBIGUITY_KINDS = ['service', 'date', 'time', 'unit', 'other'];
@@ -160,6 +160,8 @@ const moneyInText = text => [...String(text).matchAll(/R\$\s*([0-9][0-9.,]*)/g)]
   const decimal = token.includes(',') ? token.replace(/\./g, '').replace(',', '.') : /\.\d{2}$/.test(token) ? token : token.replace(/\./g, '');
   return cents(decimal);
 });
+// Taxas configuradas do tenant (business_facts.fees) também são valores monetários autorizados em um bloco aprovado.
+const feeCents = new Set(Object.values(isObj(facts.fees) ? facts.fees : {}).filter(fee => fee !== null && fee !== '' && Number.isFinite(Number(fee))).map(cents));
 const validBlocks = new Map();
 const invalidBlocks = [];
 if (approvedUsable) {
@@ -173,10 +175,10 @@ if (approvedUsable) {
         if (!service || !service.active || service.price === null || !Object.prototype.hasOwnProperty.call(catalogPrices, id)
           || cents(catalogPrices[id]) !== cents(service.price)) ok = false;
       }
-      const allowed = new Set(ids.filter(id => services.get(id)?.price !== null && services.get(id)).map(id => cents(services.get(id).price)));
+      const allowed = new Set([...ids.filter(id => services.get(id)?.price !== null && services.get(id)).map(id => cents(services.get(id).price)), ...feeCents]);
       if (moneyInText(text).some(value => !allowed.has(value))) ok = false;
     }
-    if (ok) validBlocks.set(blockKey, { key: blockKey, service_ids: ids, text_length: text.length });
+    if (ok) validBlocks.set(blockKey, { key: blockKey, service_ids: ids, text_length: text.length, topics: asStrings(block.topics) });
     else invalidBlocks.push(blockKey);
   }
 } else configIssues.push('APPROVED_MESSAGES_UNAVAILABLE');
@@ -195,6 +197,7 @@ const currentIds = new Set(currentMessages.map(m => m.id));
 const evidenceText = new Map([...sessionMessages, ...currentMessages].map(m => [m.id, m.text]));
 
 // ------------------------------------------------- validação do contrato semântico
+const explicitOtherSession = value => value !== undefined && value !== null && String(value) !== '' && String(value) !== identity.session_id;
 function validateSemantic(raw) {
   const errors = [];
   if (!isObj(raw)) return { valid: false, errors: ['SEMANTIC_MISSING'], v: null };
@@ -223,8 +226,11 @@ function validateSemantic(raw) {
     for (const ref of raw.services.slice(0, 8)) {
       if (!isObj(ref) || typeof ref.service_id !== 'string' || !services.has(ref.service_id)) { errors.push('UNKNOWN_SERVICE_ID'); continue; }
       if (!ROLES.includes(ref.role)) { errors.push('INVALID_SERVICE_ROLE'); continue; }
-      const ids = evidence(ref.evidence_ids, 'SERVICE', { current: ACTIONABLE_ROLES.includes(ref.role) });
-      if (ids.some(id => !currentIds.has(id)) && String(ref.session_id || '') !== identity.session_id) errors.push('SERVICE_SESSION_MISMATCH');
+      // A escolha do serviço pode ter sido feita antes, na mesma sessão (o turno atual traz dia/hora). A intenção acionável continua
+      // exigindo evidência do turno atual. A prova de sessão é a própria evidência (sessionMessages só traz a sessão atual); o modelo
+      // não precisa ecoar session_id, mas um session_id explícito de outra sessão continua recusado.
+      const ids = evidence(ref.evidence_ids, 'SERVICE');
+      if (explicitOtherSession(ref.session_id)) errors.push('SERVICE_SESSION_MISMATCH');
       refs.push({ service_id: ref.service_id, role: ref.role, evidence_ids: ids });
     }
   }
@@ -255,7 +261,7 @@ function validateSemantic(raw) {
   if (slots.customer_name) {
     slots.name_evidence_ids = evidence(slotsRaw.name_evidence_ids, 'NAME');
     if (!slots.name_evidence_ids.some(id => normalizeText(evidenceText.get(id)).includes(normalizeText(slots.customer_name)))) errors.push('NAME_WITHOUT_EVIDENCE');
-    if (slots.name_evidence_ids.some(id => !currentIds.has(id)) && String(slotsRaw.session_id || '') !== identity.session_id) errors.push('NAME_SESSION_MISMATCH');
+    if (explicitOtherSession(slotsRaw.session_id)) errors.push('NAME_SESSION_MISMATCH');
   }
   const paymentRaw = isObj(raw.payment) ? raw.payment : {};
   const paymentDeclared = paymentRaw.declared === true;
@@ -263,6 +269,11 @@ function validateSemantic(raw) {
   const humanRaw = isObj(raw.human) ? raw.human : {};
   const humanRequested = humanRaw.requested === true;
   const humanEvidence = humanRequested ? evidence(humanRaw.evidence_ids, 'HUMAN', { current: true }) : [];
+  const previousRaw = raw.previous_service;
+  if (previousRaw !== undefined && (!isObj(previousRaw) || typeof previousRaw.declared !== 'boolean')) errors.push('INVALID_PREVIOUS_SERVICE');
+  const previousDeclared = isObj(previousRaw) && previousRaw.declared === true;
+  const previousEvidence = previousDeclared ? evidence(previousRaw.evidence_ids, 'PREVIOUS_SERVICE', { current: true }) : [];
+  if (previousEvidence.some(id => !currentIds.has(id))) errors.push('EVIDENCE_NOT_CURRENT_PREVIOUS_SERVICE');
   const convRaw = isObj(raw.conversation) ? raw.conversation : null;
   if (!convRaw || typeof convRaw.topic_change !== 'boolean' || typeof convRaw.requires_clarification !== 'boolean') errors.push('INVALID_CONVERSATION');
   const correctionRaw = isObj(convRaw?.intent_correction) ? convRaw.intent_correction : { corrects_previous: false };
@@ -284,6 +295,7 @@ function validateSemantic(raw) {
   return { valid: !uniqueErrors.length, errors: uniqueErrors, v: uniqueErrors.length ? null : {
     primary_intent: primary, intents, confidence, evidence_ids: intentEvidence, services: refs, info_requests: infoRequests, slots,
     payment_declared: paymentDeclared, payment_evidence_ids: paymentEvidence, human_requested: humanRequested, human_evidence_ids: humanEvidence,
+    previous_service_declared: previousDeclared, previous_service_evidence_ids: previousEvidence,
     topic_change: convRaw.topic_change, requires_clarification: convRaw.requires_clarification, intent_correction: correction,
     disposition, disposition_evidence_ids: dispositionEvidence, ambiguities,
   } };
@@ -342,6 +354,8 @@ function resolveBlocks(topic, serviceIds) {
     }
     if (!picked.length) notes.push('NO_GUIDANCE_BLOCK_FOR_SERVICES');
   }
+  // Vínculo tópico -> bloco declarado pelo próprio tenant (approved_messages.blocks.<chave>.topics); nenhum nome de bloco vive no código.
+  for (const block of validBlocks.values()) if (block.topics.includes(topic)) add(block, topic, serviceIds);
   return { picked, notes };
 }
 
@@ -364,7 +378,8 @@ const decision = {
   config: { approved_messages_revision: approvedUsable ? approved.revision : null, attendance_lifecycle: settings.attendance_lifecycle || null,
     scheduling_enabled: schedulingEnabled, payment_enabled: paymentEnabled, invalid_approved_blocks: invalidBlocks, issues: uniq(configIssues) },
   semantic: { valid: semantic.valid, validation_errors: semantic.errors, primary_intent: semantic.v?.primary_intent || null,
-    intents: semantic.v?.intents || [], topic_change: semantic.v?.topic_change ?? null, intent_correction: semantic.v?.intent_correction?.corrects_previous ?? null },
+    intents: semantic.v?.intents || [], topic_change: semantic.v?.topic_change ?? null, intent_correction: semantic.v?.intent_correction?.corrects_previous ?? null,
+    previous_service_declared: semantic.v?.previous_service_declared === true },
   services: [], ambiguous_references: [], facts: [], approved_blocks: [], reservation_state: [], reason_codes: [], evidence_used: [],
   actions: {
     present_information: { allowed: false, topics: [], service_ids: [], block_keys: [], notes: [] },
@@ -380,6 +395,12 @@ const decision = {
 const A = decision.actions;
 A.create_reservation.audience_policy = audiencePolicy;
 const addFact = (fact_id, value, source) => { if (!decision.facts.some(f => f.fact_id === fact_id)) decision.facts.push({ fact_id, value: String(value), source }); };
+// Fatos de público (política do tenant): emitidos apenas quando o turno trata de elegibilidade/público ou quando há bloqueio de público.
+const addAudienceFacts = () => {
+  if (!audiencePolicy) return;
+  addFact('audience.exclusive_to', audiencePolicy.exclusive_to, 'business_facts.audience');
+  if (audiencePolicy.policy.trim()) addFact('audience.policy', audiencePolicy.policy.trim(), 'business_facts.audience');
+};
 const finish = status => {
   decision.status = status;
   decision.evidence_used = uniq(decision.evidence_used);
@@ -394,8 +415,42 @@ if (!semantic.valid) {
 }
 const v = semantic.v;
 decision.evidence_used.push(...v.evidence_ids);
+if (v.previous_service_declared) {
+  A.handoff = { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER' };
+  decision.evidence_used.push(...v.previous_service_evidence_ids);
+  decision.follow_up.reason = 'BOOKING_PAYMENT_OR_HANDOFF_FLOW_OUT_OF_SCOPE';
+  decision.follow_up.disposition = v.disposition;
+  return finish('ok');
+}
 const lowConfidence = v.confidence === 'low' || v.requires_clarification || v.ambiguities.length > 0 || v.primary_intent === 'ambiguous';
 if (lowConfidence) decision.reason_codes.push('CLARIFICATION_REQUIRED');
+
+// Duração/permanência: o catálogo prevalece; sem ela, usa o grupo de service_guidance do próprio serviço (dado do tenant).
+const positive = value => { const n = Number(value); return value !== null && value !== '' && Number.isFinite(n) && n > 0 ? n : null; };
+const rangeText = value => {
+  if (Array.isArray(value) && value.length === 2 && positive(value[0]) !== null && positive(value[1]) !== null) return positive(value[0]) + '-' + positive(value[1]);
+  if (isObj(value) && positive(value.min) !== null && positive(value.max) !== null) return positive(value.min) + '-' + positive(value.max);
+  return positive(value) !== null ? String(positive(value)) : null;
+};
+function addGuidanceDurations(id) {
+  for (const { group } of guidanceGroupsFor(id)) {
+    const procedure = positive(group.procedure_minutes_min) !== null && positive(group.procedure_minutes_max) !== null
+      ? rangeText({ min: group.procedure_minutes_min, max: group.procedure_minutes_max }) : rangeText(group.procedure_minutes);
+    if (procedure) addFact('service.' + id + '.procedure_minutes', procedure, 'business_facts.service_guidance');
+    const stay = rangeText(isObj(group.stay_minutes) && Object.prototype.hasOwnProperty.call(group.stay_minutes, id) ? group.stay_minutes[id]
+      : isObj(group.stay_minutes) && !('min' in group.stay_minutes) ? null : group.stay_minutes);
+    if (stay) addFact('service.' + id + '.stay_minutes', stay, 'business_facts.service_guidance');
+  }
+}
+// Atendimento a domicílio: somente informa o estado configurado; a reserva automática continua sujeita ao modo de agendamento do grupo.
+function addGuidanceHomeService(id) {
+  for (const { group } of guidanceGroupsFor(id)) {
+    if (!isObj(group.home_service)) continue;
+    for (const [field, value] of Object.entries(group.home_service)) {
+      if (['boolean', 'string'].includes(typeof value) && String(value).trim() && field !== 'source') addFact('service.' + id + '.home_service.' + field, value, 'business_facts.service_guidance');
+    }
+  }
+}
 
 // Serviços referenciados: validados contra o catálogo vivo; papel preservado, nunca promovido.
 const refIds = uniq([...v.services.map(r => r.service_id), ...v.info_requests.flatMap(r => r.service_ids)]);
@@ -413,7 +468,9 @@ for (const id of refIds) {
     if (depositPercentage !== null) addFact('service.' + id + '.deposit_amount', (service.price * depositPercentage / 100).toFixed(2), 'tenant_service_catalog+settings.payment');
     const min = Number(service.metadata.procedure_minutes_min), max = Number(service.metadata.procedure_minutes_max);
     if (Number.isFinite(min) && Number.isFinite(max)) addFact('service.' + id + '.procedure_minutes', min + '-' + max, 'tenant_service_catalog.metadata');
+    else addGuidanceDurations(id);
   } else decision.reason_codes.push(service.active ? 'SERVICE_WITHOUT_AUTHORIZED_PRICE' : 'SERVICE_INACTIVE');
+  addGuidanceHomeService(id);
   addFact('service.' + id + '.schedulable_by', policy.schedulable_by, 'settings.appointment_scheduling+business_facts.service_guidance');
 }
 for (const item of v.ambiguities) decision.ambiguous_references.push(item);
@@ -435,7 +492,10 @@ if (informational && !lowConfidence) {
     A.present_information.topics.push(request.topic);
     A.present_information.service_ids.push(...usable);
     decision.evidence_used.push(...request.evidence_ids);
-    if (request.topic === 'location') {
+    if (request.topic === 'audience') {
+      // Elegibilidade/público só entra como fato quando a cliente trata disso no turno (sinal semântico do Gemini); nunca por padrão.
+      addAudienceFacts();
+    } else if (request.topic === 'location') {
       for (const row of Array.isArray(facts.locations) ? facts.locations : []) if (row?.verified === true && row.address) addFact('location.' + row.id + '.address', row.address, 'business_facts.locations');
     } else if (request.topic === 'payment_terms') {
       if (paymentEnabled && depositPercentage !== null) addFact('payment.deposit_percentage', depositPercentage, 'settings.payment');
@@ -446,6 +506,8 @@ if (informational && !lowConfidence) {
       if (Array.isArray(payment.accepted_payment_methods)) addFact('payment.accepted_methods', payment.accepted_payment_methods.join(','), 'settings.payment');
       for (const [feeKey, fee] of Object.entries(isObj(facts.fees) ? facts.fees : {})) if (Number.isFinite(Number(fee))) addFact('fee.' + feeKey, Number(fee).toFixed(2), 'business_facts.fees');
       (Array.isArray(facts.policies) ? facts.policies : []).forEach((text, index) => typeof text === 'string' && addFact('policy.' + index, text, 'business_facts.policies'));
+      const termsBlocks = resolveBlocks('payment_terms', usable);
+      for (const block of termsBlocks.picked) if (!decision.approved_blocks.some(b => b.key === block.key)) decision.approved_blocks.push(block);
     } else {
       const resolved = resolveBlocks(request.topic, request.topic === 'catalog' ? [] : usable);
       for (const block of resolved.picked) if (!decision.approved_blocks.some(b => b.key === block.key)) decision.approved_blocks.push(block);
@@ -464,11 +526,14 @@ const reservations = (Array.isArray(input.reservations) ? input.reservations : [
 decision.reservation_state = reservations.map(r => ({ appointment_id: String(r.id), service_id: r.service_id || null, starts_at: r.starts_at || null,
   state: PENDING_PAYMENT_STATES.includes(r.status) ? 'pending_payment' : r.status === 'payment_reported' ? 'awaiting_verification' : r.status === 'confirmed' ? 'confirmed' : 'other' }));
 
-// Agendamento: o serviço-alvo precisa ter papel acionável com evidência do turno atual.
+// Agendamento: o serviço-alvo precisa ter papel acionável. A escolha citada no turno atual prevalece; sem ela, vale a escolha
+// feita antes na mesma sessão (mais de uma escolha anterior vira pedido de esclarecimento).
 const changeRequested = v.intents.some(intent => ['cancellation', 'reschedule', 'slot_change'].includes(intent));
 const wantsAvailability = !changeRequested && (v.intents.includes('availability_request') || v.intents.includes('booking_intent'));
 const wantsBooking = v.intents.includes('booking_intent');
-const targets = uniq(v.services.filter(r => ['selected', 'booking_target'].includes(r.role) && r.evidence_ids.some(id => currentIds.has(id))).map(r => r.service_id));
+const targetRefs = v.services.filter(r => ['selected', 'booking_target'].includes(r.role));
+const currentTargets = uniq(targetRefs.filter(r => r.evidence_ids.some(id => currentIds.has(id))).map(r => r.service_id));
+const targets = currentTargets.length ? currentTargets : uniq(targetRefs.map(r => r.service_id));
 if (wantsAvailability) {
   if (lowConfidence) { A.check_availability.reason = 'CLARIFICATION_REQUIRED'; A.create_reservation.reason = 'CLARIFICATION_REQUIRED'; }
   else {
@@ -508,6 +573,9 @@ if (wantsAvailability) {
           else if (!av.available_starts.includes(v.slots.time)) create.reason = 'SLOT_NOT_AVAILABLE';
           else if (reservations.some(r => r.service_id === targets[0] && r.requested_date === v.slots.date && r.requested_time === v.slots.time)) {
             create.reason = 'DUPLICATE_RESERVATION_CANDIDATE'; A.handoff = { required: true, reason: 'DUPLICATE_RESERVATION_CANDIDATE' };
+          } else if (reservations.some(r => !(Date.parse(r.starts_at || '') <= Date.now()))) {
+            // Já há outra reserva futura ativa conhecida deste contato: a nova reserva é atendida pela equipe, não automaticamente.
+            create.reason = 'EXISTING_FUTURE_RESERVATION'; A.handoff = { required: true, reason: 'EXISTING_FUTURE_RESERVATION' };
           } else {
             const auth = isObj(input.booking_authorization) ? input.booking_authorization : null;
             const scoped = auth && auth.contract === 'current_booking_authorization_v1' && isObj(auth.identity) && isObj(auth.proposal)
@@ -519,8 +587,11 @@ if (wantsAvailability) {
               create.reason = 'BOOKING_AUTHORIZATION_UNAVAILABLE'; A.handoff = { required: true, reason: create.reason };
             } else if (auth.status !== 'accepted') {
               create.reason = auth.status.toUpperCase();
-              const message = auth.status === 'blocked_real_name' ? audience.invalid_name_message : audience.ineligible_booking_message;
+              const specific = auth.status === 'blocked_real_name' ? audience.invalid_name_message : audience.ineligible_booking_message;
+              // Sem mensagem específica configurada, vale a política de público oficial do tenant.
+              const message = typeof specific === 'string' && specific.trim() ? specific : audience.policy;
               if (typeof message === 'string' && message.trim()) addFact('booking.block_message', message.trim(), 'settings.business_facts.audience');
+              if (auth.status === 'blocked_audience') addAudienceFacts();
             }
             else {
               create.allowed = true; create.reason = 'AUTHORIZED';
@@ -536,6 +607,22 @@ if (wantsAvailability) {
         }
       }
     }
+  }
+}
+
+// Taxas condicionadas a horário/dia (business_facts.fee_rules): avaliadas só sobre a data/hora pedidas; feriado só se cadastrado.
+if (wantsAvailability && !lowConfidence && v.slots.date) {
+  const weekday = new Date(v.slots.date + 'T00:00:00Z').getUTCDay();
+  for (const [feeKey, rule] of Object.entries(isObj(facts.fee_rules) ? facts.fee_rules : {})) {
+    const amount = Number(facts.fees?.[feeKey]);
+    if (!isObj(rule) || !Number.isFinite(amount)) continue;
+    const byDay = (Array.isArray(rule.weekdays) && rule.weekdays.includes(weekday)) || asStrings(rule.holiday_dates).includes(v.slots.date);
+    const afterTime = typeof rule.after_time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(rule.after_time) ? rule.after_time : '';
+    const byTime = Boolean(afterTime && v.slots.time && v.slots.time > afterTime);
+    const applies = byDay || byTime;
+    if (!applies && afterTime && !v.slots.time) continue; // ainda indeterminado: depende do horário
+    addFact('booking.fee.' + feeKey + '.applies', applies, 'business_facts.fee_rules');
+    if (applies) addFact('booking.fee.' + feeKey + '.amount', amount.toFixed(2), 'business_facts.fees');
   }
 }
 

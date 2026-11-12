@@ -26,8 +26,8 @@ let engineModule = null;
 async function getEngine() {
   if (engineModule) return engineModule;
   const modifiedCode = coreCode.replace(
-    'try {\n  return { json: await runTurn() };',
-    'return { salesResolveInventoryItemForFact, salesValidatePrimaryDialogue, salesSanitizeSemanticState, salesNaturalDialogue, normalizeText, salesRecoverSafeDialogue, salesCatalogPresentationProof, salesDialogueSalesSchema };\ntry {\n  return { json: await runTurn() };'
+    'try {\n  const turnResult = await runTurn();',
+    'return { salesResolveInventoryItemForFact, salesValidatePrimaryDialogue, salesSanitizeSemanticState, salesNaturalDialogue, normalizeText, salesRecoverSafeDialogue, salesCatalogPresentationProof, salesDialogueSalesSchema };\ntry {\n  const turnResult = await runTurn();'
   );
   const runner = new AsyncFunction(
     '$json', '$env', '$vars', '$getWorkflowStaticData',
@@ -47,10 +47,27 @@ async function getEngine() {
   return engineModule;
 }
 
+test('motor atual: schema de vendas e saneamento do estado do veículo de troca (local, sem rede)', async () => {
+  const engine = await getEngine();
+  for (const name of ['salesDialogueSalesSchema', 'salesSanitizeSemanticState', 'salesResolveInventoryItemForFact', 'salesValidatePrimaryDialogue', 'salesRecoverSafeDialogue', 'salesCatalogPresentationProof']) {
+    assert.equal(typeof engine[name], 'function', name);
+  }
+  const schema = engine.salesDialogueSalesSchema();
+  assert.equal(schema.type, 'OBJECT');
+  assert.ok(schema.properties.reply && schema.properties.response_contract && schema.properties.state, 'schema declara reply, response_contract e state');
+  const state = engine.salesSanitizeSemanticState(
+    { sell_vehicle: { brand: '', model: 'Modelo 2013', year: 2012 } },
+    [{ id: 'm3', text: 'Ano 2012 \n Modelo 2013 \n 2 anos de documento \n 1.500 de multa', direction: 'inbound' }]
+  );
+  assert.equal(state.sell_vehicle.year, 2012, 'Year 2012 must be captured/preserved');
+  assert.notEqual(state.sell_vehicle.model, 'Modelo 2013', 'Modelo 2013 must not be kept as vehicle model name');
+});
+
+// Chamada real ao Gemini: só com autorização explícita (NORIA_LIVE_GEMINI=1) e chave presente; nunca por padrão.
 test('Controlled Real Gemini Call: Motorcycle catalog and Contact (xx) trade-in', async (t) => {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.log('Skipping live Gemini test: GEMINI_API_KEY not found');
+  if (process.env.NORIA_LIVE_GEMINI !== '1' || !apiKey) {
+    t.skip('chamada real ao Gemini exige NORIA_LIVE_GEMINI=1 e GEMINI_API_KEY');
     return;
   }
 

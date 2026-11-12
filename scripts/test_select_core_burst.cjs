@@ -83,7 +83,7 @@ test('travas de segurança continuam iguais', async () => {
 });
 
 test('o nó publicado do Entrada tem exatamente este código', () => {
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const node = workflow.nodes.find(item => item.name === 'Selecionar Motor WhatsApp');
   const normalize = text => String(text || '').replace(/\r\n/g, '\n').trim();
   assert.equal(normalize(node.parameters.jsCode), normalize(code));

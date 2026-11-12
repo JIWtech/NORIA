@@ -27,19 +27,18 @@ function createPriceGuard(tenantId) {
   function nameTokens(text) {
     return ' ' + text.normalize('NFD').toLowerCase().replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' ';
   }
-  function hasCatalogSubject(text, service, services) {
+  function hasCatalogSubject(text, service, services, contextualMatch, hasContext) {
     const sentence = nameTokens(text);
     const subject = nameTokens(service.name);
-    if (subject === '  ' || !sentence.includes(subject)) return false;
-    // A shorter catalog name can be part of the exact service name, such as
-    // "Corte" inside "Corte infantil". Other named services make the quote ambiguous.
-    return [...services.values()].every(candidate => {
+    if (subject === '  ') return false;
+    const unambiguous = [...services.values()].every(candidate => {
       if (candidate.id === service.id) return true;
       const name = nameTokens(candidate.name);
       return name !== subject && (subject.includes(name) || !sentence.includes(name));
     });
+    return unambiguous && (sentence.includes(subject) || (contextualMatch && hasContext));
   }
-  function authorizeText(text, services, report) {
+  function authorizeText(text, services, report, conversationContext = []) {
     if (report?.complete !== true || !Array.isArray(report.segments) || !report.segments.length) return false;
     if (report.segments.some(segment => typeof segment?.text !== 'string' || !segment.text.length)) return false;
     if (report.segments.map(segment => segment.text).join('') !== text) return false;
@@ -56,7 +55,7 @@ function createPriceGuard(tenantId) {
       const service = services.get(segment.service_id);
       return service?.amount_cents === segment.amount_cents && ['fixed', 'from'].includes(service.price_type)
         && segment.price_type === service.price_type && figures[0] === service.amount_cents
-        && hasCatalogSubject(segment.text, service, services);
+        && hasCatalogSubject(segment.text, service, services, segment.contextual_match === true, conversationContext.length > 0);
     });
   }
   const auditPrompt = [
@@ -68,9 +67,12 @@ function createPriceGuard(tenantId) {
     'valor por extenso, sinal em reais, taxas, descontos, parcelamentos, gratuidade sem fonte e ofertas ambíguas: reject.',
     'Preço sob consulta e avaliação gratuita explicitamente descrita como avaliação (não como preço do serviço) podem ser non_price.',
     'Datas, horários, endereços e porcentagens sem preço monetário são non_price. Jamais classifique uma cifra como non_price.',
+    'O nome do serviço pode estar implícito: use o diálogo recente para resolver pronomes, apelidos, abreviações, erros de digitação e referências naturais, sem exigir o nome do catálogo na mesma frase do preço.',
+    'Nesse caso marque contextual_match=true somente se o serviço for inequívoco no diálogo; se houver ambiguidade, use reject. O diálogo serve somente para identificar o serviço, nunca como fonte de preço, desconto, condição ou disponibilidade.',
     'Em caso de dúvida, use reject. Responda só o JSON solicitado.'
   ].join(' ');
   return { officialServices, authorizeText, auditPrompt };
 }
+
 
 module.exports = { createPriceGuard };

@@ -149,14 +149,16 @@ if (text && !media && !productSnapshot) {
   const chatIds = [input.remoteJid];
   if (/^\d+@(?:s\.whatsapp\.net|lid)$/.test(alternateJid) && alternateJid !== input.remoteJid) chatIds.push(alternateJid);
   const scopedChats = chatIds.map(encodeURIComponent).join(',');
-  const attemptsPath = `${base}/rest/v1/appointments?select=status,metadata&tenant_id=eq.${encodeURIComponent(tenantId)}&channel_type=eq.whatsapp&external_conversation_id=in.(${scopedChats})&or=(status.eq.pending_confirmation,metadata->>confirmation_message_id.eq.${encodeURIComponent(input.messageId)})&limit=12`;
+  const attemptsPath = `${base}/rest/v1/appointments?select=status,metadata&tenant_id=eq.${encodeURIComponent(tenantId)}&channel_type=eq.whatsapp&external_conversation_id=in.(${scopedChats})&or=(status.eq.pending_confirmation,metadata->>cancellation_notice_state.in.(sending,uncertain),metadata->>confirmation_message_id.eq.${encodeURIComponent(input.messageId)},metadata->>cancellation_notice_message_id.eq.${encodeURIComponent(input.messageId)})&limit=12`;
   const findConfirmation = async () => {
     const rows = await this.helpers.httpRequest({ method: 'GET', url: attemptsPath, headers, json: true, timeout: 5000 });
     if (!Array.isArray(rows)) throw new Error('appointment_echo_lookup_invalid');
-    if (rows.some(row => row.metadata?.confirmation_message_id === input.messageId)) return 'matched';
+    if (rows.some(row => row.metadata?.confirmation_message_id === input.messageId || row.metadata?.cancellation_notice_message_id === input.messageId)) return 'matched';
     return rows.some(row => row.status === 'pending_confirmation'
       && ['sending', 'uncertain'].includes(row.metadata?.confirmation_state)
-      && row.metadata?.confirmation_echo_text?.trim() === text) ? 'unresolved' : '';
+      && row.metadata?.confirmation_echo_text?.trim() === text || row.status === 'cancelled'
+      && ['sending', 'uncertain'].includes(row.metadata?.cancellation_notice_state)
+      && row.metadata?.cancellation_notice_echo_text?.trim() === text) ? 'unresolved' : '';
   };
   let confirmation = await findConfirmation();
   // Aguardar brevemente permite identificar mensagens manuais com o mesmo texto

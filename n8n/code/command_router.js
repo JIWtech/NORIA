@@ -226,6 +226,79 @@ async function main(helpers) {
     return text.trim();
   }
 
+  // Fuso do tenant: data e hora "de parede" -> instante (sem bibliotecas). NaN se inválido.
+  function zonedWallToEpoch(date, time, timeZone) {
+    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || '')), tm = /^(\d{2}):(\d{2})$/.exec(String(time || ''));
+    if (!dm || !tm) return NaN;
+    const wall = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+    let guess = wall;
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(guess))
+          .filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+        guess = wall - (Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - guess);
+      }
+    } catch (error) { return NaN; }
+    return guess;
+  }
+
+  async function loadTenantTimezone(tenantId) {
+    const { supabaseUrl } = supabaseConfig();
+    const rows = await httpJson('GET', supabaseUrl + '/rest/v1/tenant_settings?select=timezone&tenant_id=eq.' + encodeURIComponent(tenantId) + '&limit=1', serviceHeaders());
+    return String((Array.isArray(rows) ? rows[0]?.timezone : '') || 'America/Sao_Paulo');
+  }
+
+  // Parsing técnico dos campos estruturados devolvidos pelo Gemini (não analisa prosa).
+  function normalizeTimeField(value) {
+    const match = /^(\d{1,2})(?:[:h](\d{2})?)?h?$/.exec(String(value || '').toLowerCase().replace(/\s+/g, ''));
+    if (!match) return '';
+    const hour = Number(match[1]), minute = match[2] === undefined ? 0 : Number(match[2]);
+    return hour > 23 || minute > 59 ? '' : String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+  }
+  function sameDateField(value, expectedIso) {
+    const text = String(value || '').trim();
+    const br = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/.exec(text), iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+    let day, month, year = null;
+    if (br) { day = Number(br[1]); month = Number(br[2]); year = br[3] ? Number(br[3].length === 2 ? '20' + br[3] : br[3]) : null; }
+    else if (iso) { year = Number(iso[1]); month = Number(iso[2]); day = Number(iso[3]); }
+    else return false;
+    return day === Number(expectedIso.slice(8, 10)) && month === Number(expectedIso.slice(5, 7)) && (year === null || year === Number(expectedIso.slice(0, 4)));
+  }
+  function plainKey(value) { return String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase(); }
+
+  // O Gemini redige; o código só confere os dados estruturados que ele declara ter usado.
+  // expected: { date: 'AAAA-MM-DD', time: 'HH:MM', services?: [], template?: string }. Devolve o texto ou lança.
+  async function composeWithGemini(settings, tenant, row, purpose, expected, extraFacts = {}) {
+    const model = env('GEMINI_MODEL', 'gemini-2.5-flash-lite');
+    const key = required(env('GEMINI_API_KEY'), 'GEMINI_API_KEY');
+    if (!/^gemini-[a-z0-9.-]+$/i.test(model)) throw new Error('Modelo Gemini invalido');
+    const displayDate = expected.date.slice(8, 10) + '/' + expected.date.slice(5, 7) + '/' + expected.date.slice(0, 4);
+    const facts = { empresa: tenant.name || tenant.slug, tom: String(settings.tone || '').slice(0, 400), cliente: row.contact_name || '',
+      servicos: expected.services || row.metadata?.services || [], data: displayDate, hora: expected.time, ...extraFacts,
+      ...(expected.template ? { modelo_do_estabelecimento: expected.template } : {}) };
+    const prompt = purpose + ' Escreva em português brasileiro, no tom do estabelecimento descrito em tom, como atendente da equipe (no feminino); trate a pessoa atendida de forma neutra, sem presumir gênero. Use somente os dados fornecidos, sem inventar fatos, disponibilidade ou promessas. '
+      + (expected.template ? 'O modelo_do_estabelecimento traz informações e avisos obrigatórios do estabelecimento: reescreva com naturalidade, mas preserve todas elas (sem copiar a forma); marque avisos_do_modelo_mantidos como verdadeiro somente se nenhuma foi omitida. ' : '')
+      + 'Informe também, nos campos estruturados, a data, a hora e os serviços exatamente como aparecem na mensagem. Não inclua instruções internas nem aspas. Dados: ' + JSON.stringify(facts);
+    const schema = { type: 'OBJECT', properties: { text: { type: 'STRING' }, date: { type: 'STRING' }, time: { type: 'STRING' },
+      services: { type: 'ARRAY', items: { type: 'STRING' } }, avisos_do_modelo_mantidos: { type: 'BOOLEAN' } }, required: ['text', 'date', 'time'] };
+    const generated = await httpJson('POST', `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 600, responseMimeType: 'application/json', responseSchema: schema } });
+    const raw = generated?.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('').trim();
+    let value;
+    try { value = JSON.parse(raw || ''); } catch (error) { throw new Error('Gemini nao devolveu mensagem estruturada'); }
+    const text = String(value?.text || '').trim();
+    if (!text) throw new Error('Gemini nao gerou mensagem');
+    if (!sameDateField(value.date, expected.date) || normalizeTimeField(value.time) !== expected.time) throw new Error('Gemini nao gerou mensagem com data e horario exatos');
+    if (Array.isArray(expected.services) && expected.services.length) {
+      const used = new Set((Array.isArray(value.services) ? value.services : []).map(plainKey));
+      if (!expected.services.every(service => used.has(plainKey(service)))) throw new Error('Gemini nao citou os servicos do pedido');
+    }
+    if (expected.template && value.avisos_do_modelo_mantidos !== true) throw new Error('Gemini omitiu avisos obrigatorios do modelo');
+    return { text, model };
+  }
+
   async function confirmAppointment(tenantId, appointmentId) {
     const { supabaseUrl } = supabaseConfig();
     const rows = await httpJson(
@@ -286,7 +359,7 @@ async function main(helpers) {
   const command = required(input.command, 'command');
   const tenantSlug = required(input.tenant_slug, 'tenant_slug').toLowerCase();
   const payload = input.payload || {};
-  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
+  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
 
   const user = await validateUserSession();
   const tenant = await loadTenant(tenantSlug);
@@ -320,7 +393,7 @@ async function main(helpers) {
     ? String(payload.message_text || 'Atendimento encerrado').trim()
     : command === 'assign_conversation'
       ? String(payload.message_text || 'Conversa atribuida').trim()
-      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)
+      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'].includes(command)
         ? String(payload.message_text || '').trim()
     : required(payload.message_text, 'payload.message_text');
   const token = tokenFor(tenantSlug, channelType);
@@ -367,6 +440,95 @@ async function main(helpers) {
     return { ok: true, command, tenant_slug: tenantSlug, channel_type: normalizedChannel, command_id: commandId, external_message_id: event.external_message_id, saved };
   }
 
+  if (command === 'notify_appointment_cancellation') {
+    const appointmentId = required(payload.appointment_id, 'payload.appointment_id');
+    const reason = required(payload.cancellation_reason, 'payload.cancellation_reason');
+    if (normalizedChannel !== 'whatsapp') throw new Error('Canal incorreto para este agendamento');
+    const { supabaseUrl } = supabaseConfig();
+    const path = supabaseUrl + '/rest/v1/appointments?tenant_id=eq.' + encodeURIComponent(tenant.id)
+      + '&id=eq.' + encodeURIComponent(appointmentId) + '&status=eq.cancelled';
+    const rows = await httpJson('GET', path + '&select=*', serviceHeaders());
+    const row = rows?.[0];
+    if (!row || row.channel_type !== normalizedChannel || row.external_conversation_id !== externalConversationId || row.status !== 'cancelled')
+      throw new Error('Agendamento cancelado nao pertence a esta conversa/canal');
+    const metadata = row.metadata || {};
+    if (String(metadata.cancel_reason || '').trim() !== reason) throw new Error('Motivo nao corresponde ao cancelamento registrado');
+    if (payload.notice_resolution !== undefined) {
+      // Conferência humana do aviso com entrega incerta (ou preso em envio há mais de 2 minutos). Nunca reenvia.
+      const resolution = String(payload.notice_resolution || '');
+      if (!['delivered', 'not_delivered'].includes(resolution)) throw new Error('Resolucao do aviso invalida');
+      const noticeAge = Date.now() - Date.parse(metadata.cancellation_notice_at || '');
+      const stuck = metadata.cancellation_notice_state === 'sending' && Number.isFinite(noticeAge) && noticeAge > 120000;
+      if (metadata.cancellation_notice_state !== 'uncertain' && !stuck) throw new Error('Este aviso nao tem entrega incerta para verificar');
+      if (!row.updated_at) throw new Error('Agendamento sem versao para controle de envio');
+      const now = new Date().toISOString();
+      const { cancellation_notice_state: _state, cancellation_notice_command: _command, cancellation_notice_echo_text: _echo, cancellation_notice_at: _at, ...cleared } = metadata;
+      let next = cleared;
+      if (resolution === 'delivered') {
+        const knownId = String(payload.notice_message_id || metadata.cancellation_notice_message_id || '').trim();
+        next = { ...cleared, cancellation_notice_state: 'sent', cancellation_notice_message_id: knownId || 'manual:' + (metadata.cancellation_notice_command || commandId),
+          cancellation_notice_reconciled: { resolution, actor: user.id, at: now, message_id_unknown: !knownId } };
+      } else {
+        const { cancellation_notice_message_id: _id, ...withoutId } = cleared;
+        next = { ...withoutId, cancellation_notice_reconciled: { resolution, actor: user.id, at: now } };
+      }
+      const settled = await httpJson('PATCH', path + '&updated_at=eq.' + encodeURIComponent(row.updated_at), serviceHeaders('return=representation'),
+        { metadata: next, updated_at: now });
+      if (settled?.length !== 1) throw new Error('Agendamento alterado por outro operador. Atualize a tela.');
+      return { ok: true, command, resolved: true, resolution, appointment: settled[0] };
+    }
+    if (metadata.cancellation_notice_state === 'sent') return { ok: true, command, already_sent: true };
+    if (metadata.cancellation_notice_state) throw new Error('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.');
+    if (!row.updated_at) throw new Error('Agendamento sem versao para controle de envio');
+    const settings = await loadTenantSettings(tenant.id);
+    const model = env('GEMINI_MODEL', 'gemini-2.5-flash-lite');
+    const key = required(env('GEMINI_API_KEY'), 'GEMINI_API_KEY');
+    if (!/^gemini-[a-z0-9.-]+$/i.test(model)) throw new Error('Modelo Gemini invalido');
+    const context = { empresa: tenant.name || tenant.slug, segmento: tenant.industry || settings.industry || '',
+      tom: String(settings.tone || '').slice(0, 400),
+      cliente: row.contact_name || '', servico: row.title || row.metadata?.services || '', horario: row.starts_at || '', motivo: reason };
+    const prompt = 'Escreva uma mensagem curta e acolhedora em português brasileiro para informar à pessoa atendida o cancelamento do agendamento, no tom do estabelecimento descrito em tom e como atendente da equipe (no feminino); trate a pessoa de forma neutra, sem presumir gênero. Use somente os dados fornecidos, sem inventar fatos ou promessas. Não inclua instruções internas, aspas ou explicações. Dados: ' + JSON.stringify(context);
+    const generated = await httpJson('POST', `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 400 } });
+    const text = generated?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+    if (!text) throw new Error('Gemini nao gerou mensagem de cancelamento');
+    const claim = { ...metadata, cancellation_notice_state: 'sending', cancellation_notice_command: commandId, cancellation_notice_echo_text: text,
+      cancellation_notice_at: new Date().toISOString() };
+    const claimed = await httpJson('PATCH', path + '&updated_at=eq.' + encodeURIComponent(row.updated_at), serviceHeaders('return=representation'),
+      { metadata: claim, updated_at: new Date().toISOString() });
+    if (claimed?.length !== 1) throw new Error('Agendamento alterado por outro operador. Atualize a tela.');
+    const claimPath = path + '&metadata->>cancellation_notice_state=eq.sending&metadata->>cancellation_notice_command=eq.' + encodeURIComponent(commandId);
+    let sent;
+    try {
+      sent = await sendWhatsApp(evolution, externalConversationId, text);
+      if (!sent.messageId) throw new Error('Evolution nao retornou identificador da mensagem');
+    } catch (error) {
+      let marked = true;
+      try { await httpJson('PATCH', claimPath, serviceHeaders(), { metadata: { ...claim, cancellation_notice_state: 'uncertain' }, updated_at: new Date().toISOString() }); }
+      catch (markError) { marked = false; }
+      throw new Error('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.'
+        + (marked ? '' : ' Nao foi possivel registrar a entrega incerta: o aviso continua em envio e pode ser conferido apos alguns minutos.'));
+    }
+    const { cancellation_notice_echo_text: _echoText, ...settledClaim } = claim;
+    let updated;
+    try {
+      updated = await httpJson('PATCH', claimPath, serviceHeaders('return=representation'),
+        { metadata: { ...settledClaim, cancellation_notice_state: 'sent', cancellation_notice_message_id: sent.messageId }, updated_at: new Date().toISOString() });
+      if (updated?.length !== 1) throw new Error('registro alterado');
+    } catch (error) {
+      // O envio funcionou: guarda o id para a conferência não depender de digitação e deixa o aviso conferível.
+      try { await httpJson('PATCH', claimPath, serviceHeaders(), { metadata: { ...claim, cancellation_notice_state: 'uncertain', cancellation_notice_message_id: sent.messageId }, updated_at: new Date().toISOString() }); } catch (markError) {}
+      throw new Error('Mensagem enviada, mas o registro nao foi atualizado. Entrega incerta: confira no WhatsApp e registre o resultado.');
+    }
+    const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+      external_conversation_id: externalConversationId, external_message_id: sent.messageId, direction: 'outbound', sender_type: 'system',
+      contact_name: row.contact_name || 'Contato', message_text: text, service: 'appointment_cancellation_notice',
+      stage: 'Agendamento cancelado', handoff: false, response_text: null, ai_provider: 'gemini', ai_model: model,
+      sent_by_user: null, delivery_status: 'sent', command_id: commandId, raw_payload: { command, appointment_id: appointmentId, requested_by: user.id } });
+    return { ok: true, command, appointment: updated[0], saved };
+  }
+
   if (command === 'confirm_appointment_request' || command === 'reject_appointment_slot') {
     const appointmentId = required(payload.appointment_id, 'payload.appointment_id');
     const isConfirm = command === 'confirm_appointment_request';
@@ -386,6 +548,77 @@ async function main(helpers) {
     if (isConfirm && row.status === 'confirmed') return { ok: true, command, already_confirmed: true, appointment: row };
     if (row.status !== 'pending_confirmation') throw new Error('Este pedido nao esta mais aguardando confirmacao');
     const metadata = row.metadata || {};
+    if (!isConfirm && payload.proposal_resolution !== undefined) {
+      const resolution = String(payload.proposal_resolution || '');
+      if (!['delivered', 'not_delivered'].includes(resolution)) throw new Error('Resolucao da proposta invalida');
+      const proposal = metadata.slot_proposal;
+      // Incerta, ou presa em envio há mais de 2 minutos (n8n caiu entre preparar e ativar). O banco confere de novo.
+      const preparedAge = Date.now() - Date.parse(proposal?.prepared_at || '');
+      const stuck = proposal?.status === 'sending' && metadata.confirmation_state === 'sending' && Number.isFinite(preparedAge) && preparedAge > 120000;
+      if (!proposal?.id || !((metadata.confirmation_state === 'uncertain' && proposal.status === 'uncertain') || stuck))
+        throw new Error('Esta proposta nao tem entrega incerta para verificar');
+      // O id é opcional: sem ele o banco usa o id gravado no envio ou registra a conferência manual sem id.
+      const informedId = String(payload.proposal_message_id || '').trim();
+      const messageId = resolution === 'delivered' && informedId ? informedId : null;
+      const result = await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_slot_proposal_reconcile', serviceHeaders(), {
+        p_tenant: tenant.id, p_channel: normalizedChannel, p_chat: externalConversationId, p_appointment: appointmentId,
+        p_proposal_id: proposal.id, p_resolution: resolution, p_actor: user.id, p_message_id: messageId,
+      });
+      if (!result?.appointment || !result?.proposal) throw new Error('Resolucao da proposta nao comprovada. Atualize o quadro.');
+      return { ok: true, command, resolved: true, appointment: result.appointment, proposal: result.proposal };
+    }
+    if (!isConfirm && (payload.suggested_date !== undefined || payload.suggested_time !== undefined)) {
+      // A proposta só é útil se a resposta puder ser lida: as duas chaves precisam estar ligadas.
+      if (config.slot_proposal_enabled !== true || config.slot_proposal_resolution_enabled !== true) throw new Error('Proposta de horario nao esta ativa nesta empresa');
+      const date = required(payload.suggested_date, 'payload.suggested_date');
+      const time = required(payload.suggested_time, 'payload.suggested_time');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error('Data ou horario da proposta invalido');
+      const parsed = new Date(date + 'T00:00:00Z');
+      if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) throw new Error('Data da proposta invalida');
+      if (!Number.isInteger(Number(payload.request_version)) || Number(payload.request_version) !== Number(metadata.request_version)) throw new Error('Pedido alterado pela cliente. Atualize o quadro.');
+      if (metadata.confirmation_state) throw new Error('Envio em andamento ou entrega incerta. Verifique no WhatsApp antes de tentar novamente.');
+      // Futuro no fuso do tenant, antes de gastar uma chamada ao Gemini.
+      const proposalStart = zonedWallToEpoch(date, time, await loadTenantTimezone(tenant.id));
+      if (!Number.isFinite(proposalStart)) throw new Error('Data ou horario da proposta invalido');
+      if (proposalStart <= Date.now()) throw new Error('O horario proposto ja passou');
+      const composed = await composeWithGemini(settings, tenant, row, 'Redija uma mensagem curta e acolhedora propondo à pessoa atendida o novo horário informado e perguntando se aceita. O horário ainda não está confirmado.', { date, time });
+      const text = composed.text, model = composed.model;
+      const proposalId = commandId + ':' + Date.now() + ':' + Math.random().toString(36).slice(2);
+      const scope = { p_tenant: tenant.id, p_channel: normalizedChannel, p_chat: externalConversationId, p_appointment: appointmentId, p_proposal_id: proposalId };
+      const prepared = await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_slot_proposal_prepare', serviceHeaders(),
+        { ...scope, p_expected_version: Number(payload.request_version), p_date: date, p_time: time, p_echo_text: text });
+      if (!prepared?.proposal || prepared.proposal.status !== 'sending' || prepared.already) throw new Error('Proposta nao foi preparada para envio. Atualize o quadro.');
+      let sent;
+      try {
+        sent = await sendWhatsApp(evolution, externalConversationId, text);
+        if (!sent.messageId) throw new Error('Evolution nao retornou identificador da mensagem');
+      } catch (error) {
+        let markFailure = '';
+        try { await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_slot_proposal_mark_uncertain', serviceHeaders(), scope); }
+        catch (markError) { markFailure = String(markError?.message || markError).slice(0, 160); }
+        throw new Error('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.'
+          + (markFailure ? ' Nao foi possivel marcar a proposta como incerta (' + markFailure + '): o pedido ficou em envio e pode ser conferido apos 2 minutos.' : ''));
+      }
+      let finalized;
+      try {
+        finalized = await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_slot_proposal_finalize', serviceHeaders(), { ...scope, p_message_id: sent.messageId });
+        if (!finalized?.proposal || finalized.proposal.status !== 'sent') throw new Error('Proposta nao ativada');
+      } catch (error) {
+        // O envio funcionou: grava o id do provedor para a conferência não exigir que a equipe o digite.
+        let markFailure = '';
+        try { await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_slot_proposal_mark_uncertain', serviceHeaders(), { ...scope, p_message_id: sent.messageId }); }
+        catch (markError) { markFailure = String(markError?.message || markError).slice(0, 160); }
+        throw new Error('Mensagem enviada, mas proposta nao ativada. Verifique o agendamento antes de tentar novamente.'
+          + (markFailure ? ' Nao foi possivel marcar a proposta como incerta (' + markFailure + '): o pedido ficou em envio e pode ser conferido apos 2 minutos.' : ''));
+      }
+      const saved = await insertEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+        external_conversation_id: externalConversationId, external_message_id: sent.messageId, direction: 'outbound', sender_type: 'system',
+        contact_name: row.contact_name || 'Contato', message_text: text, service: 'appointment_slot_proposed', stage: 'Horario indisponivel',
+        handoff: false, response_text: null, ai_provider: 'gemini', ai_model: model, sent_by_user: null, delivery_status: 'sent',
+        command_id: commandId, raw_payload: { command, appointment_id: appointmentId, proposal_id: proposalId, requested_by: user.id } });
+      return { ok: true, command, appointment: finalized.appointment, proposal: finalized.proposal, saved };
+    }
+    const messageInfo = { source: 'template_fallback', fallback_reason: '' };
     const currentClaimPath = (claim, state) => openPath + '&metadata->>confirmation_state=eq.' + state
       + '&metadata->>confirmation_command=eq.' + encodeURIComponent(claim.confirmation_command);
 
@@ -407,7 +640,8 @@ async function main(helpers) {
         service: isConfirmAction ? 'appointment_request_confirmed' : 'appointment_request_rejected',
         stage: isConfirmAction ? 'Agendamento confirmado' : 'Horario indisponivel', handoff: false, response_text: null,
         ai_provider: 'operator_confirmation', sent_by_user: null, delivery_status: 'sent', command_id: claimedMetadata.confirmation_command,
-        raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0] } });
+        raw_payload: { command, appointment_id: appointmentId, confirmed_by: user.id, appointment: updated[0], message_source: messageInfo.source,
+          ...(messageInfo.fallback_reason ? { message_fallback_reason: messageInfo.fallback_reason } : {}) } });
       return { ok: true, command, appointment: updated[0], saved };
     };
 
@@ -425,11 +659,28 @@ async function main(helpers) {
     if (Number(payload.request_version) !== Number(metadata.request_version)) throw new Error('Pedido alterado pela cliente. Atualize o quadro.');
     if (isConfirm && Date.parse(row.starts_at) <= Date.now()) throw new Error('O horario deste pedido ja passou');
     const zoneRows = await httpJson('GET', supabaseUrl + '/rest/v1/tenant_settings?select=timezone&tenant_id=eq.' + encodeURIComponent(tenant.id) + '&limit=1', serviceHeaders());
-    const text = renderAppointmentRequest(isConfirm ? config.confirmation_template : config.slot_rejected_template, row, { timezone: zoneRows?.[0]?.timezone });
+    // O modelo do tenant valida a configuração, fornece os avisos obrigatórios ao Gemini e é o texto técnico de contingência.
+    const templateText = renderAppointmentRequest(isConfirm ? config.confirmation_template : config.slot_rejected_template, row, { timezone: zoneRows?.[0]?.timezone });
     if (isConfirm && payload.conflicts_acknowledged !== true) {
       const conflicts = await httpJson('POST', supabaseUrl + '/rest/v1/rpc/magia_appointment_request_conflicts', serviceHeaders(),
         { p_tenant: tenant.id, p_appointment: appointmentId });
       if (Array.isArray(conflicts) && conflicts.length) return { ok: true, command, requires_acknowledgement: true, conflicts };
+    }
+    let text = templateText;
+    try {
+      const zone = String(zoneRows?.[0]?.timezone || 'America/Sao_Paulo');
+      const wall = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .formatToParts(new Date(row.starts_at)).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+      const expected = { date: wall.year + '-' + wall.month + '-' + wall.day, time: wall.hour + ':' + wall.minute, template: templateText,
+        ...(isConfirm ? { services: Array.isArray(metadata.services) ? metadata.services : [] } : {}) };
+      const weekday = new Intl.DateTimeFormat('pt-BR', { timeZone: zone, weekday: 'long' }).format(new Date(row.starts_at));
+      const composed = await composeWithGemini(settings, tenant, row, isConfirm
+        ? 'Escreva a mensagem confirmando o agendamento: o horário está confirmado pela equipe. Cite os serviços, a data e a hora exatos.'
+        : 'Avise com empatia que o horário solicitado (data e hora fornecidas) não está disponível e peça que a pessoa informe outro dia ou horário. Não proponha nenhum horário.',
+      expected, { dia_da_semana: weekday });
+      text = composed.text; messageInfo.source = 'gemini'; messageInfo.model = composed.model;
+    } catch (error) {
+      messageInfo.fallback_reason = String(error?.message || error).slice(0, 160);
     }
     const claimedMetadata = { ...metadata, confirmation_state: 'sending', confirmation_action: isConfirm ? 'confirm' : 'reject',
       confirmation_command: commandId, ...(config.reply_mode === 'contextual' ? { confirmation_echo_text: text } : {}) };

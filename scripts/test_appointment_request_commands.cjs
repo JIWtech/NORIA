@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 // O painel chama o nó "Executar Comando1" da Entrada, não o arquivo: os dois precisam passar.
-const entrada = JSON.parse(fs.readFileSync(path.join(__dirname, '../n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+const entrada = JSON.parse(fs.readFileSync(path.join(process.env.NORIA_WORKFLOWS_DIR || path.join(__dirname, '../n8n/workflows'), 'NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
 const routers = [
   ['arquivo', fs.readFileSync(path.join(__dirname, '../n8n/code/command_router.js'), 'utf8')],
   ['nó publicado', entrada.nodes.find(node => node.name === 'Executar Comando1').parameters.jsCode],

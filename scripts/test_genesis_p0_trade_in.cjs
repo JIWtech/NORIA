@@ -289,8 +289,8 @@ async function runExtTradeIn(text, semantic = null, extraPayload = {}) {
 
 test('canonical sources, generated JavaScript and both workflow nodes are byte-identical', () => {
   assert.equal(coreCode, "const NORIA_NODE_PHASE = 'single';\n" + coreSource);
-  const coreWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
-  const extWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json'), 'utf8'));
+  const coreWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
+  const extWorkflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-EXT-Genesis-Automoveis-Politica-Comercial--fXGorIlPbyf9Qtsp.json'), 'utf8'));
   for (const name of ['CORE | Motor conversacional único', 'CORE | Preparar resposta', 'CORE | Finalizar resposta']) assert.ok(coreWorkflow.nodes.find(node => node.name === name).parameters.jsCode.endsWith(coreSource));
   assert.equal(extWorkflow.nodes.find((node) => node.name.startsWith('EXT | Política Gênesis')).parameters.jsCode, extSource);
   assert.doesNotMatch(coreSource, /^\s*humanDispatchData\s*=\s*\{/m);

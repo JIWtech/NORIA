@@ -5,11 +5,45 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
+// Diretório de saída opcional (NORIA_BUILD_OUT_DIR): tudo o que o build escreve (workflows, metadados do CORE, n8n/code,
+// manifesto) vai para lá, espelhando a estrutura do repositório. Os exports já presentes no diretório de saída são lidos
+// de lá (cópia de trabalho); os demais vêm de n8n/workflows do repositório. Sem a variável, escreve no próprio repositório.
+const outRoot = process.env.NORIA_BUILD_OUT_DIR ? path.resolve(process.env.NORIA_BUILD_OUT_DIR) : root;
+const outPath = relative => path.join(outRoot, relative);
+const writeOut = (relative, content) => {
+  const target = outPath(relative);
+  if (outRoot !== root) fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, content);
+};
+const readWorkflowFile = relative => {
+  const copy = outPath(relative);
+  return fs.readFileSync(outRoot !== root && fs.existsSync(copy) ? copy : path.join(root, relative), 'utf8');
+};
+
+// Exports atuais, identificados pelo ID do workflow no n8n (gitignored; o nome do arquivo é NORIA-...--<id>.json).
+const WORKFLOWS_DIR = 'n8n/workflows/';
+const WORKFLOW_FILES = {
+  engine: 'NORIA-CORE-Motor-Conversacional-Compartilhado--mlKNPv862H2g3Gap.json',
+  router: 'NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json',
+  salon: 'NORIA-EXT-IC-Salon-Atendimento-e-Agendamentos--yxdKP0PeskDMUFSo.json',
+  nubiaServices: 'NORIA-EXT-Nubia-NB-Bronze-Catalogo-de-Servicos--6jSiEH2ugboYSack.json',
+  nubiaPolicy: 'NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json',
+  genesis: 'NORIA-EXT-Genesis-Automoveis-Politica-Comercial--fXGorIlPbyf9Qtsp.json',
+  noriaExt: 'NORIA-EXT-NORIA-Politica--sLxNG9o2falquchd.json',
+};
+const WORKFLOW_IDS = { engine: 'mlKNPv862H2g3Gap', router: '3N5oN6sxtir9lFrA', salon: 'yxdKP0PeskDMUFSo',
+  nubiaServices: '6jSiEH2ugboYSack', nubiaPolicy: 'vCDXJLqIBCZJRTVv', genesis: 'fXGorIlPbyf9Qtsp', noriaExt: 'sLxNG9o2falquchd' };
+const { wrapSalonEngine } = require('../clients/ic_saloon/conversation_adapter.cjs');
+const { configuredSalonId, isWorkflowId, applySalonRoute } = require('../clients/ic_saloon/conversation_route.cjs');
+
 // 1. Read sources
 const coreSourcePath = path.join(root, 'n8n/sources/noria_core.js');
 const extSourcePath = path.join(root, 'n8n/sources/genesis_extension.js');
 const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_identity.js');
 let coreCode = fs.readFileSync(coreSourcePath, 'utf8');
+// O I&C Salon tem motor próprio (decisão de 2026-11-12): evolui separado do compartilhado.
+const salonEngineSourcePath = path.join(root, 'clients/ic_saloon/salon_engine.js');
+const salonEngineSource = fs.readFileSync(salonEngineSourcePath, 'utf8');
 const extCode = fs.readFileSync(extSourcePath, 'utf8');
 const genesisIdentityCode = fs.readFileSync(genesisIdentitySourcePath, 'utf8');
 const intakeNormalizerCode = fs.readFileSync(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js'), 'utf8').trimEnd();
@@ -44,7 +78,7 @@ const routerSlice = (from, to) => {
   return routerCode.slice(start, end).trimEnd();
 };
 const appointmentRequestHelpers = routerSlice('  function renderAppointmentRequest(', '  async function confirmAppointment(');
-const appointmentRequestCommands = routerSlice("  if (command === 'confirm_appointment_request' || command === 'reject_appointment_slot') {", "  if (command === 'confirm_payment_signal') {");
+const appointmentRequestCommands = routerSlice("  if (command === 'notify_appointment_cancellation') {", "  if (command === 'confirm_payment_signal') {");
 const assignConversationStart = "  if (command === 'assign_conversation') {";
 const assignConversationEnd = "  const sent = normalizedChannel === 'telegram'";
 const assignConversationCommand = routerSlice(assignConversationStart, assignConversationEnd);
@@ -65,7 +99,10 @@ function projectAppointmentRequestCommands(code) {
   }
   const text = "      : command === 'confirm_payment_signal'\n        ? String(payload.message_text || '').trim()";
   if (out.includes(text)) out = out.replace(text, "      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text || '').trim()");
-  else if (!out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text")) throw new Error('APPOINTMENT_REQUEST_MESSAGE_TEXT_MISSING');
+  else if (!out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text")
+    && !out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'].includes(command)\n        ? String(payload.message_text")) throw new Error('APPOINTMENT_REQUEST_MESSAGE_TEXT_MISSING');
+  out = out.replace(/'confirm_appointment_request', 'reject_appointment_slot'(?!, 'notify_appointment_cancellation')/g,
+    "'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'");
   return out;
 }
 
@@ -97,7 +134,7 @@ const updatedMetadataBlock = `const coreBuildMetadata = {
 };`;
 
 coreCode = coreCode.replace(/const coreBuildMetadata = \{[\s\S]*?\};/, updatedMetadataBlock);
-fs.writeFileSync(coreSourcePath, coreCode);
+writeOut('n8n/sources/noria_core.js', coreCode);
 
 // 3. Validate syntax of both sources
 new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', coreCode);
@@ -112,11 +149,6 @@ new AsyncFunction('$json', '$env', '$vars', routerCode);
 // 4. Update workflow JSON files
 // The conversational engine (~0.9 MB) lives once, in its own sub-workflow. The CORE only calls it for real turns,
 // so webhook events, queue recovery and follow-up ticks no longer carry the engine in every execution.
-const CORE_WORKFLOW_FILE = 'NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json';
-const targets = [
-  ['noria_core.js', CORE_WORKFLOW_FILE, null, null],
-  ['genesis_extension.js', 'NORIA EXT _ Gênesis _ Política comercial v2 (1).json', 'EXT | Política Gênesis', extCode],
-];
 
 function ensureGenesisTerminalBypass(workflow) {
   const dispatchPrepareName = 'CORE | Preparar dispatch Genesis';
@@ -124,6 +156,9 @@ function ensureGenesisTerminalBypass(workflow) {
   const prepareName = 'CORE | Preparar resposta';
   const extensionName = 'CORE | Executar EXT Genesis comercial';
   const finalizeName = 'CORE | Finalizar resposta';
+  // As fases do motor são entradas pelos marcadores "| Fase", que definem a fase e o contrato no item.
+  const prepareEntry = prepareName + ' | Fase';
+  const finalizeEntry = finalizeName + ' | Fase';
   const preDispatchGateName = 'CORE | Turno terminal Genesis?';
   const postPrepareGateName = 'CORE | Turno terminal Genesis após prepare?';
   if (![dispatchPrepareName, dispatchExtensionName, prepareName, extensionName, finalizeName]
@@ -223,32 +258,30 @@ if (readiness?.ready!==true || readiness.contract!=='noria_turn_lifecycle_v1') t
   // turns from reaching either EXT phase without reconnecting the phases.
   workflow.connections[dispatchPrepareName] = { main: [[{ node: preDispatchGateName, type: 'main', index: 0 }]] };
   workflow.connections[preDispatchGateName] = { main: [
-    [{ node: finalizeName, type: 'main', index: 0 }],
+    [{ node: finalizeEntry, type: 'main', index: 0 }],
     [{ node: dispatchExtensionName, type: 'main', index: 0 }],
   ] };
-  workflow.connections[dispatchExtensionName] = { main: [[{ node: prepareName, type: 'main', index: 0 }]] };
+  workflow.connections[dispatchExtensionName] = { main: [[{ node: prepareEntry, type: 'main', index: 0 }]] };
   workflow.connections[prepareName] = { main: [[{ node: postPrepareGateName, type: 'main', index: 0 }]] };
   workflow.connections[postPrepareGateName] = { main: [
-    [{ node: finalizeName, type: 'main', index: 0 }],
+    [{ node: finalizeEntry, type: 'main', index: 0 }],
     [{ node: extensionName, type: 'main', index: 0 }],
   ] };
-  workflow.connections[extensionName] = { main: [[{ node: finalizeName, type: 'main', index: 0 }]] };
+  workflow.connections[extensionName] = { main: [[{ node: finalizeEntry, type: 'main', index: 0 }]] };
 
   const hasConnection = (from, to, branch) => (workflow.connections[from]?.main?.[branch] || [])
     .some(connection => connection.node === to);
   if (!hasConnection(dispatchPrepareName, preDispatchGateName, 0)
-    || !hasConnection(preDispatchGateName, finalizeName, 0)
+    || !hasConnection(preDispatchGateName, finalizeEntry, 0)
     || !hasConnection(preDispatchGateName, dispatchExtensionName, 1)
-    || !hasConnection(dispatchExtensionName, prepareName, 0)
+    || !hasConnection(dispatchExtensionName, prepareEntry, 0)
     || !hasConnection(prepareName, postPrepareGateName, 0)
-    || !hasConnection(postPrepareGateName, finalizeName, 0)
+    || !hasConnection(postPrepareGateName, finalizeEntry, 0)
     || !hasConnection(postPrepareGateName, extensionName, 1)
-    || !hasConnection(extensionName, finalizeName, 0)) {
+    || !hasConnection(extensionName, finalizeEntry, 0)) {
     throw new Error('INVALID_GENESIS_TERMINAL_ROUTE');
   }
 }
-
-const NUBIA_EXT_WORKFLOW_FILE = 'NORIA EXT _ NB Bronze _ Serviços v2.json';
 
 const SERVICES_EXT_PLACEHOLDER = 'PREENCHER_ID_EXT_NUBIA_V2';
 const SERVICES_PREFIX = 'CORE | Serviços | ';
@@ -308,10 +341,14 @@ function configureServicesChain(workflow) {
     delete node.disabled;
   });
 
-  const link = (from, ...branches) => {
-    workflow.connections[SERVICES_PREFIX + from] = { main: branches.map(to => [{ node: to.startsWith('CORE') ? to : SERVICES_PREFIX + to, type: 'main', index: 0 }]) };
+  // Fases do motor entram pelo marcador "| Fase". O resolvedor liga ao seletor da EXT NORIA, conferido em verifyParentEngine.
+  const entry = to => {
+    const name = to.startsWith('CORE') ? to : SERVICES_PREFIX + to;
+    return name in ENGINE_PHASES ? name + ' | Fase' : name;
   };
-  workflow.connections[resolver] = { main: [[{ node: SERVICES_PREFIX + 'Núbia v2?', type: 'main', index: 0 }]] };
+  const link = (from, ...branches) => {
+    workflow.connections[SERVICES_PREFIX + from] = { main: branches.map(to => [{ node: entry(to), type: 'main', index: 0 }]) };
+  };
   link('Núbia v2?', 'Executar EXT bootstrap', legacyNext);
   link('Executar EXT bootstrap', 'Preparar dispatch');
   link('Preparar dispatch', 'Turno terminal?');
@@ -377,41 +414,31 @@ function configureNubiaExtRoute(workflow) {
       position: [gateNode.position[0] + 224, gateNode.position[1] - 160] };
     workflow.nodes.push(node);
   }
-  Object.assign(node, { type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, parameters: {
+  // Mantém os demais parâmetros do export (por exemplo workflowInputs).
+  Object.assign(node, { type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, parameters: { ...node.parameters,
     workflowId: { __rl: true, value: NUBIA_EXT_WORKFLOW_ID, mode: 'id', cachedResultUrl: '/workflow/' + NUBIA_EXT_WORKFLOW_ID },
     mode: 'each', options: { waitForSubWorkflow: true } } });
   workflow.connections[gate] = { main: [
     [{ node: execute, type: 'main', index: 0 }],
     [{ node: 'CORE - É Gênesis?', type: 'main', index: 0 }],
   ] };
-  workflow.connections[execute] = { main: [[{ node: single, type: 'main', index: 0 }]] };
+  workflow.connections[execute] = { main: [[{ node: single + ' | Fase', type: 'main', index: 0 }]] };
 }
 
-function deterministicNubiaExtId(name) {
-  const h = crypto.createHash('sha1').update('noria-services-pipeline:' + name).digest('hex');
-  return [h.slice(0, 8), h.slice(8, 12), '4' + h.slice(13, 16), '8' + h.slice(17, 20), h.slice(20, 32)].join('-');
-}
-
-function writeNubiaV2ExtWorkflow() {
-  const target = path.join(root, 'n8n/workflows', NUBIA_EXT_WORKFLOW_FILE);
-  const trigger = 'Entrada do NORIA CORE | Núbia serviços v2';
-  const policy = 'EXT | Serviços Núbia v2';
-  const previous = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : null;
-  const workflow = {
-    name: 'NORIA EXT | Núbia · NB Bronze | Política de Atendimento v2', pinData: {}, active: false,
-    nodes: [
-      { parameters: { inputSource: 'passthrough' }, id: previous?.nodes?.find(node => node.name === trigger)?.id || deterministicNubiaExtId(trigger), name: trigger, type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [416, -64] },
-      { parameters: { mode: 'runOnceForEachItem', jsCode: nubiaExtCode }, id: previous?.nodes?.find(node => node.name === policy)?.id || deterministicNubiaExtId(policy), name: policy, type: 'n8n-nodes-base.code', typeVersion: 2, position: [704, -64] },
-    ],
-    connections: { [trigger]: { main: [[{ node: policy, type: 'main', index: 0 }]] } },
-    settings: { executionOrder: 'v1', timezone: 'America/Sao_Paulo', callerPolicy: 'workflowsFromSameOwner' },
-  };
-  applyLeanExecutionSettings(workflow);
-  fs.writeFileSync(target, JSON.stringify(workflow, null, 2) + '\n');
-}
-
-const ENGINE_WORKFLOW_FILE = 'NORIA CORE _ Motor conversacional.json';
-const NORIA_EXT_WORKFLOW_ID = process.env.NORIA_EXT_WORKFLOW_ID || 'mlKNPv862H2g3Gap';
+// O motor conversacional vive uma vez, no sub-workflow compartilhado (mlKNPv862H2g3Gap); o roteador só chama o motor em
+// turnos reais, escolhendo o fluxo por fase. O Salon (yxdKP0PeskDMUFSo) executa o mesmo motor com o adaptador do tenant.
+// O motor recebe a fase e o contrato no item (marcadores "| Fase" do roteador) e os consome antes de executar a fonte.
+const ENGINE_WORKFLOW_ID = WORKFLOW_IDS.engine;
+const NORIA_EXT_WORKFLOW_ID = WORKFLOW_IDS.noriaExt;
+const ENGINE_PHASE_HEADER = [
+  "const NORIA_NODE_PHASE = String($json.noria_engine_phase || '');",
+  "if (!['single', 'prepare', 'availability', 'finalize'].includes(NORIA_NODE_PHASE)) throw new Error('NORIA_ENGINE_PHASE_REQUIRED');",
+  "if (String($json.noria_engine_contract || '') !== 'noria_engine_phase_v1') throw new Error('NORIA_ENGINE_CONTRACT_MISMATCH');",
+  'delete $json.noria_engine_phase;',
+  'delete $json.noria_engine_contract;',
+  '',
+].join('\n');
+const ENGINE_NODE_NAME = 'CORE | Motor conversacional';
 const ENGINE_PHASES = {
   'CORE | Motor conversacional único': 'single', 'CORE | Preparar resposta': 'prepare',
   'CORE | Finalizar resposta': 'finalize', 'CORE | Serviços | Preparar resposta': 'prepare',
@@ -421,132 +448,126 @@ function deterministicNodeId(namespace, name) {
   const h = crypto.createHash('sha1').update(namespace + ':' + name).digest('hex');
   return [h.slice(0, 8), h.slice(8, 12), '4' + h.slice(13, 16), '8' + h.slice(17, 20), h.slice(20, 32)].join('-');
 }
-function writeNoriaExtWorkflow() {
-  const target = path.join(root, 'n8n/workflows', ENGINE_WORKFLOW_FILE);
-  const previous = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : null;
-  const trigger = 'Entrada da EXT NORIA', policy = 'EXT NORIA - Política';
-  const idFor = name => previous?.nodes?.find(node => node.name === name)?.id || deterministicNodeId('noria-ext', name);
-  new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', noriaExtCode);
-  const workflow = { name: 'NORIA EXT | Política NORIA', pinData: {}, active: false, nodes: [
-    { parameters: { inputSource: 'passthrough' }, id: idFor(trigger), name: trigger, type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [0, 0] },
-    { parameters: { mode: 'runOnceForEachItem', jsCode: noriaExtCode }, id: idFor(policy), name: policy, type: 'n8n-nodes-base.code', typeVersion: 2, position: [320, 0] },
-  ], connections: { [trigger]: { main: [[{ node: policy, type: 'main', index: 0 }]] } },
-  settings: { executionOrder: 'v1', timezone: 'America/Sao_Paulo', callerPolicy: 'workflowsFromSameOwner' } };
-  applyLeanExecutionSettings(workflow); fs.writeFileSync(target, JSON.stringify(workflow, null, 2) + '\n');
+
+// Código gerado do motor: o do sub-workflow compartilhado e o do Salon (motor + diferenças do tenant + adaptador).
+const engineNodeCode = ENGINE_PHASE_HEADER + coreCode;
+// O adaptador é exportado com LF; price_guard.cjs entra como está no disco. Function.toString preserva o fim de linha do
+// arquivo, então o trecho do adaptador é normalizado para LF para que o build não dependa do checkout.
+function salonEngineNodeCode() {
+  // O comentário de cabeçalho do arquivo não vai ao workflow; o carimbo de build é o mesmo do motor compartilhado.
+  const marker = '// Generated by scripts/build_noria_workflows.cjs';
+  const start0 = salonEngineSource.indexOf(marker);
+  const metadata = /const coreBuildMetadata = \{[\s\S]*?\};/;
+  if (start0 < 0 || !metadata.test(salonEngineSource)) throw new Error('IC_SALON_ENGINE_SOURCE_INVALID');
+  const salonCore = salonEngineSource.slice(start0).replace(metadata, () => metadata.exec(coreCode)[0]);
+  const wrapped = wrapSalonEngine(ENGINE_PHASE_HEADER + salonCore);
+  const start = wrapped.indexOf('function createSalonHelpers(');
+  const end = wrapped.indexOf('\nconst salonHelpers = createSalonHelpers(', start);
+  if (start < 0 || end < 0) throw new Error('IC_SALON_ADAPTER_SOURCE_MISSING');
+  return wrapped.slice(0, start) + wrapped.slice(start, end).replace(/\r\n/g, '\n') + wrapped.slice(end);
 }
-const { configuredSalonId, isWorkflowId } = require('../clients/ic_saloon/conversation_route.cjs');
-function configureParentEngine(workflow) {
-  workflow.name = 'NORIA CORE | Roteador WhatsApp, Comandos e Follow-ups';
-  const salonName = 'CORE | Executar motor I&C Salon';
-  const salonId = process.env.NORIA_IC_SALON_ENGINE_WORKFLOW_ID || configuredSalonId(workflow) || workflow.nodes.find(n => n.name === salonName)?.parameters?.workflowId?.value;
-  if (!isWorkflowId(salonId) || salonId === NORIA_EXT_WORKFLOW_ID) throw new Error('IC_SALON_ROUTE_INVALID_WORKFLOW_ID');
+
+function setNodeCode(workflow, name, code) {
+  const nodes = workflow.nodes.filter(node => node.name === name);
+  if (nodes.length !== 1 || nodes[0].type !== 'n8n-nodes-base.code') throw new Error('AMBIGUOUS_WORKFLOW_NODE: ' + name);
+  nodes[0].parameters.jsCode = code;
+}
+
+// O roteador não embute mais o motor: confere o contrato das chamadas por fase e da rota do I&C Salon / EXT NORIA.
+function verifyParentEngine(workflow) {
+  if (workflow.name !== 'NORIA CORE | Roteador WhatsApp, Comandos e Follow-ups') throw new Error('PARENT_WORKFLOW_NAME_MISMATCH');
+  const find = name => workflow.nodes.find(node => node.name === name);
+  const links = name => (workflow.connections[name]?.main || []).map(branch => branch.map(connection => connection.node));
   for (const [name, phase] of Object.entries(ENGINE_PHASES)) {
-    const node = workflow.nodes.find(n => n.name === name); if (!node) throw new Error('MISSING_ENGINE_NODE: ' + name);
-    Object.assign(node, { type: 'n8n-nodes-base.code', typeVersion: 2, parameters: { mode: 'runOnceForEachItem', jsCode: "const NORIA_NODE_PHASE = '" + phase + "';\n" + coreCode } });
-    const markerName = name + ' | Fase';
-    for (const [from, entry] of Object.entries(workflow.connections)) {
-      if (from === markerName) continue;
-      for (const branch of entry?.main || []) for (const connection of branch || []) if (connection.node === markerName) connection.node = name;
-    }
-    workflow.nodes = workflow.nodes.filter(n => n.name !== markerName); delete workflow.connections[markerName];
+    const node = find(name); const marker = find(name + ' | Fase');
+    if (node?.type !== 'n8n-nodes-base.executeWorkflow' || node.parameters?.options?.waitForSubWorkflow !== true) throw new Error('ENGINE_PHASE_NODE_DRIFT: ' + name);
+    if (name !== 'CORE | Motor conversacional único' && node.parameters.workflowId?.value !== ENGINE_WORKFLOW_ID) throw new Error('ENGINE_PHASE_ID_DRIFT: ' + name);
+    if (marker?.type !== 'n8n-nodes-base.code' || !marker.parameters?.jsCode?.includes("noria_engine_phase: '" + phase + "', noria_engine_contract: 'noria_engine_phase_v1'")
+        || JSON.stringify(links(marker.name)) !== JSON.stringify([[name]])) throw new Error('ENGINE_PHASE_MARKER_DRIFT: ' + name);
   }
-  function put(name, node) {
-    let existing = workflow.nodes.find(n => n.name === name);
-    if (!existing) { existing = { name, id: deterministicNodeId('noria-parent', name), position: [0, 0] }; workflow.nodes.push(existing); }
-    Object.assign(existing, node);
-  }
-  const single = 'CORE | Motor conversacional único', gate = 'CORE | É I&C Salon?', marker = 'CORE | Preparar fase I&C Salon';
-  const condition = (leftValue, rightValue, operator) => ({ conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 }, conditions: [{ leftValue, rightValue, operator }], combinator: 'and' }, options: {} });
-  put(gate, { type: 'n8n-nodes-base.if', typeVersion: 2.2, parameters: condition("={{ $json.tenant_id === '76aff8a0-0466-42b9-a80d-db186ff3d8bd' && $json.tenant_slug === 'ic_salon' && $json.instance === 'ic_saloon' }}", true, { type: 'boolean', operation: 'true', singleValue: true }) });
-  put(marker, { type: 'n8n-nodes-base.code', typeVersion: 2, parameters: { mode: 'runOnceForEachItem', jsCode: "return { json: { ...$json, noria_engine_phase: 'single' }, binary: $input.item.binary };" } });
-  put(salonName, { type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, parameters: { workflowId: { __rl: true, value: salonId, mode: 'id' }, mode: 'each', options: { waitForSubWorkflow: true } } });
-  for (const [from, entry] of Object.entries(workflow.connections)) {
-    if (from === gate) continue;
-    for (const branch of entry?.main || []) for (const connection of branch || []) if (connection.node === single) connection.node = gate;
-  }
-  workflow.connections[gate] = { main: [[{ node: marker, type: 'main', index: 0 }], [{ node: single, type: 'main', index: 0 }]] };
-  workflow.connections[marker] = { main: [[{ node: salonName, type: 'main', index: 0 }]] };
-  if (workflow.connections[single]) workflow.connections[salonName] = structuredClone(workflow.connections[single]);
-  const resolver = 'CORE - Resolver extensão do tenant', extGate = 'CORE | É tenant NORIA?', extNode = 'CORE | Executar EXT NORIA', next = 'CORE | Serviços | Núbia v2?';
-  put(extGate, { type: 'n8n-nodes-base.if', typeVersion: 2.2, parameters: condition('={{ $json.noria_extension }}', 'noria', { type: 'string', operation: 'equals' }) });
-  put(extNode, { type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, parameters: { workflowId: { __rl: true, value: NORIA_EXT_WORKFLOW_ID, mode: 'id' }, mode: 'each', options: { waitForSubWorkflow: true } } });
-  workflow.connections[resolver] = { main: [[{ node: extGate, type: 'main', index: 0 }]] };
-  workflow.connections[extGate] = { main: [[{ node: extNode, type: 'main', index: 0 }], [{ node: next, type: 'main', index: 0 }]] };
-  workflow.connections[extNode] = { main: [[{ node: gate, type: 'main', index: 0 }]] };
+  const salonId = configuredSalonId(workflow);
+  if (!isWorkflowId(salonId) || salonId === ENGINE_WORKFLOW_ID || salonId !== WORKFLOW_IDS.salon) throw new Error('IC_SALON_ROUTE_INVALID_WORKFLOW_ID');
+  applySalonRoute(workflow, ENGINE_WORKFLOW_ID, salonId);
+  const ext = find('CORE | Executar EXT NORIA');
+  if (ext?.parameters?.workflowId?.value !== NORIA_EXT_WORKFLOW_ID) throw new Error('NORIA_EXT_ROUTE_DRIFT');
+  if (JSON.stringify(links('CORE | É tenant NORIA?')) !== JSON.stringify([['CORE | Executar EXT NORIA'], ['CORE | Serviços | Núbia v2?']])
+      || JSON.stringify(links('CORE | Executar EXT NORIA')) !== JSON.stringify([['CORE | Motor conversacional único | Fase']])) throw new Error('NORIA_EXT_ROUTE_DRIFT');
 }
 
-for (const [source, file, prefix, code] of targets) {
-  const target = path.join(root, 'n8n/workflows', file);
-  const workflow = JSON.parse(fs.readFileSync(target, 'utf8'));
-  if (prefix !== null) {
-    // Prefer the exact node name: phase-specific nodes may share the logical
-    // prefix (for example "... | Fase") and must not make the target ambiguous.
-    const exactNodes = workflow.nodes.filter(n => n.name === prefix);
-    const nodes = exactNodes.length ? exactNodes : workflow.nodes.filter(n => n.name.startsWith(prefix));
-    if (nodes.length !== 1) throw new Error('AMBIGUOUS_WORKFLOW_NODE: ' + prefix);
-    nodes[0].parameters.jsCode = code;
-  }
+function loadWorkflow(key) { return JSON.parse(readWorkflowFile(WORKFLOWS_DIR + WORKFLOW_FILES[key])); }
+function saveWorkflow(key, workflow) { writeOut(WORKFLOWS_DIR + WORKFLOW_FILES[key], JSON.stringify(workflow, null, 2) + '\n'); }
 
-  if (source === 'genesis_extension.js') {
-    const identityNode = workflow.nodes.find(n => n.name === 'Validar identidade e capacidade do tenant');
-    if (!identityNode || !identityNode.parameters?.jsCode) throw new Error('MISSING_GENESIS_IDENTITY_NODE');
-    identityNode.parameters.jsCode = genesisIdentityCode;
-  }
+// Motor compartilhado, Salon e EXTs: só o código dos nós vem das fontes; o restante do export (IDs, versões, configuração) é mantido.
+const engineWorkflow = loadWorkflow('engine');
+setNodeCode(engineWorkflow, ENGINE_NODE_NAME, engineNodeCode);
+saveWorkflow('engine', engineWorkflow);
 
-  // If shared core workflow, also update the intake node 'Registrar Mensagem na Fila'
-  if (source === 'noria_core.js') {
-    const normalizerNode = workflow.nodes.find(n => n.name === 'Normalizar Entrada WhatsApp');
-    if (!normalizerNode) throw new Error('MISSING_INTAKE_NORMALIZER_NODE');
-    new AsyncFunction('$json', '$env', intakeNormalizerCode);
-    normalizerNode.parameters.jsCode = intakeNormalizerCode;
-    // Preserve the embedded router's independent changes outside the projected blocks.
-    const commandNode = workflow.nodes.find(n => n.name === 'Executar Comando1');
-    const embeddedRouter = commandNode?.parameters?.jsCode?.replace(/\r\n/g, '\n');
-    const insertStart = embeddedRouter?.indexOf('  async function insertEvent(event) {') ?? -1;
-    const insertEnd = embeddedRouter?.indexOf('  async function loadTenantSettings(', insertStart) ?? -1;
-    if (insertStart < 0 || insertEnd < 0) throw new Error('CONTROL_ORIGIN_ROUTER_MISSING');
-    const assignStart = embeddedRouter.indexOf(assignConversationStart, insertEnd);
-    const assignEnd = embeddedRouter.indexOf(assignConversationEnd, assignStart);
-    if (assignStart < 0 || assignEnd < 0) throw new Error('ASSIGN_CONVERSATION_ROUTER_MISSING');
-    commandNode.parameters.jsCode = projectAppointmentRequestCommands(embeddedRouter.slice(0, insertStart) + routerInsertCode
-      + '\n\n' + embeddedRouter.slice(insertEnd, assignStart) + assignConversationCommand + '\n\n' + embeddedRouter.slice(assignEnd));
-    new AsyncFunction('$json', '$env', '$vars', commandNode.parameters.jsCode);
-    const manualReplyNode = workflow.nodes.find(n => n.name === 'Capturar Resposta Manual WhatsApp');
-    if (!manualReplyNode) throw new Error('MANUAL_REPLY_CAPTURE_NODE_MISSING');
-    new AsyncFunction('$json', '$env', manualReplyCaptureCode);
-    manualReplyNode.parameters.jsCode = manualReplyCaptureCode;
-    const recoveryNode = workflow.nodes.find(n => n.name === 'Ler Fila WhatsApp');
-    if (!recoveryNode || recoveryNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_TURN_RECOVERY_NODE');
-    recoveryNode.parameters.jsCode = recoveryCode;
-    const followUpNode = workflow.nodes.find(n => n.name === 'Processar Follow-ups');
-    if (!followUpNode || followUpNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_FOLLOW_UP_DISPATCH_NODE');
-    followUpNode.parameters.jsCode = followUpDispatchCode;
-    const recoveryTrigger = workflow.nodes.find(n => n.name === 'Recuperar Fila WhatsApp');
-    if (!recoveryTrigger || recoveryTrigger.type !== 'n8n-nodes-base.scheduleTrigger') throw new Error('MISSING_TURN_RECOVERY_TRIGGER');
-    recoveryTrigger.parameters.rule = { interval: [{ field: 'seconds', secondsInterval: RECOVERY_TRIGGER_SECONDS }] };
-    const enqueueNode = workflow.nodes.find(n => n.name === 'Registrar Mensagem na Fila');
-    if (enqueueNode && enqueueNode.parameters?.jsCode) {
-      enqueueNode.parameters.jsCode = enqueueNode.parameters.jsCode.replace(
-        /core_revision:\s*'[^']+'/,
-        `core_revision: '${coreRevision}'`
-      );
-    }
-    ensureGenesisTerminalBypass(workflow);
-    configureServicesChain(workflow);
-    configureRoyalRoute(workflow);
-    configureNubiaExtRoute(workflow);
-    configureParentEngine(workflow);
-  }
+const salonWorkflow = loadWorkflow('salon');
+setNodeCode(salonWorkflow, ENGINE_NODE_NAME, salonEngineNodeCode());
+saveWorkflow('salon', salonWorkflow);
 
+const genesisWorkflow = loadWorkflow('genesis');
+setNodeCode(genesisWorkflow, 'EXT | Política Gênesis', extCode);
+setNodeCode(genesisWorkflow, 'Validar identidade e capacidade do tenant', genesisIdentityCode);
+saveWorkflow('genesis', genesisWorkflow);
+
+const nubiaServicesWorkflow = loadWorkflow('nubiaServices');
+setNodeCode(nubiaServicesWorkflow, 'EXT | Serviços Núbia v2', nubiaExtCode);
+saveWorkflow('nubiaServices', nubiaServicesWorkflow);
+
+new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', noriaExtCode);
+const noriaExtWorkflow = loadWorkflow('noriaExt');
+setNodeCode(noriaExtWorkflow, 'EXT NORIA - Política', noriaExtCode);
+saveWorkflow('noriaExt', noriaExtWorkflow);
+
+// Roteador: projeta as fontes nos nós de código e mantém a topologia do export (conferida abaixo).
+{
+  const workflow = loadWorkflow('router');
+  const set = (name, code) => setNodeCode(workflow, name, code);
+  const normalizerNode = workflow.nodes.find(n => n.name === 'Normalizar Entrada WhatsApp');
+  if (!normalizerNode) throw new Error('MISSING_INTAKE_NORMALIZER_NODE');
+  new AsyncFunction('$json', '$env', intakeNormalizerCode);
+  normalizerNode.parameters.jsCode = intakeNormalizerCode;
+  // Preserve the embedded router's independent changes outside the projected blocks.
+  const commandNode = workflow.nodes.find(n => n.name === 'Executar Comando1');
+  const embeddedRouter = commandNode?.parameters?.jsCode?.replace(/\r\n/g, '\n');
+  const insertStart = embeddedRouter?.indexOf('  async function insertEvent(event) {') ?? -1;
+  const insertEnd = embeddedRouter?.indexOf('  async function loadTenantSettings(', insertStart) ?? -1;
+  if (insertStart < 0 || insertEnd < 0) throw new Error('CONTROL_ORIGIN_ROUTER_MISSING');
+  const assignStart = embeddedRouter.indexOf(assignConversationStart, insertEnd);
+  const assignEnd = embeddedRouter.indexOf(assignConversationEnd, assignStart);
+  if (assignStart < 0 || assignEnd < 0) throw new Error('ASSIGN_CONVERSATION_ROUTER_MISSING');
+  commandNode.parameters.jsCode = projectAppointmentRequestCommands(embeddedRouter.slice(0, insertStart) + routerInsertCode
+    + '\n\n' + embeddedRouter.slice(insertEnd, assignStart) + assignConversationCommand + '\n\n' + embeddedRouter.slice(assignEnd));
+  new AsyncFunction('$json', '$env', '$vars', commandNode.parameters.jsCode);
+  new AsyncFunction('$json', '$env', manualReplyCaptureCode);
+  set('Capturar Resposta Manual WhatsApp', manualReplyCaptureCode);
+  const recoveryNode = workflow.nodes.find(n => n.name === 'Ler Fila WhatsApp');
+  if (!recoveryNode || recoveryNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_TURN_RECOVERY_NODE');
+  recoveryNode.parameters.jsCode = recoveryCode;
+  const followUpNode = workflow.nodes.find(n => n.name === 'Processar Follow-ups');
+  if (!followUpNode || followUpNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_FOLLOW_UP_DISPATCH_NODE');
+  followUpNode.parameters.jsCode = followUpDispatchCode;
+  const recoveryTrigger = workflow.nodes.find(n => n.name === 'Recuperar Fila WhatsApp');
+  if (!recoveryTrigger || recoveryTrigger.type !== 'n8n-nodes-base.scheduleTrigger') throw new Error('MISSING_TURN_RECOVERY_TRIGGER');
+  recoveryTrigger.parameters.rule = { interval: [{ field: 'seconds', secondsInterval: RECOVERY_TRIGGER_SECONDS }] };
+  const enqueueNode = workflow.nodes.find(n => n.name === 'Registrar Mensagem na Fila');
+  if (enqueueNode && enqueueNode.parameters?.jsCode) {
+    enqueueNode.parameters.jsCode = enqueueNode.parameters.jsCode.replace(
+      /core_revision:\s*'[^']+'/,
+      `core_revision: '${coreRevision}'`
+    );
+  }
+  ensureGenesisTerminalBypass(workflow);
+  configureServicesChain(workflow);
+  configureRoyalRoute(workflow);
+  configureNubiaExtRoute(workflow);
+  verifyParentEngine(workflow);
   applyLeanExecutionSettings(workflow);
-  fs.writeFileSync(target, JSON.stringify(workflow, null, 2) + '\n');
-  if (source === 'noria_core.js') {
-    fs.writeFileSync(path.join(root, 'n8n/code/whatsapp_conversation_core.generated.js'), "const NORIA_NODE_PHASE = 'single';\n" + coreCode);
-  }
+  saveWorkflow('router', workflow);
+  // Projeção do motor de fase única, usada pelos testes locais (o nó do sub-workflow usa o cabeçalho de fase acima).
+  writeOut('n8n/code/whatsapp_conversation_core.generated.js', "const NORIA_NODE_PHASE = 'single';\n" + coreCode);
 }
-
-writeNoriaExtWorkflow();
-writeNubiaV2ExtWorkflow();
 
 // 5. Generate whatsapp_sales.js projection
 const ts = require('../app/node_modules/typescript');
@@ -556,9 +577,9 @@ const sales = ast.statements
   .filter(n => /^(sales|runSales|executeCommercial|commercialResult)/.test(n.name.text) || n.name.text === 'modelOutputDiagnostic')
   .map(n => n.getText(ast))
   .join('\n\n');
-fs.writeFileSync(path.join(root, 'n8n/code/whatsapp_sales.js'), '// NORIA sales source projection; canonical source: n8n/sources/noria_core.js\n' + sales + '\n');
+writeOut('n8n/code/whatsapp_sales.js', '// NORIA sales source projection; canonical source: n8n/sources/noria_core.js\n' + sales + '\n');
 
-const rawDiskSha256 = crypto.createHash('sha256').update(fs.readFileSync(coreSourcePath, 'utf8')).digest('hex');
+const rawDiskSha256 = crypto.createHash('sha256').update(coreCode).digest('hex');
 const manifest = {
   deployment: {
     contract: 'noria_turn_lifecycle_v1',
@@ -594,10 +615,8 @@ const manifest = {
     'n8n/sources/nubia_extension.js',
     'n8n/sources/noria_extension.js',
     'n8n/sources/noria_router_core.js',
-    'n8n/workflows/' + NUBIA_EXT_WORKFLOW_FILE,
-    'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json',
-    'n8n/workflows/' + ENGINE_WORKFLOW_FILE,
-    'n8n/workflows/NORIA EXT _ Gênesis _ Política comercial v2 (1).json',
+    ...Object.keys(WORKFLOW_FILES).map(key => WORKFLOWS_DIR + WORKFLOW_FILES[key]),
+    'clients/ic_saloon/salon_engine.js',
     'n8n/code/whatsapp_conversation_core.generated.js',
     'n8n/code/whatsapp_sales.js',
     'n8n/code/whatsapp_recover_core.js',
@@ -606,7 +625,7 @@ const manifest = {
     'scripts/turn_queue_operational_bridge.cjs',
   ],
 };
-fs.writeFileSync(path.join(root, 'n8n/build_manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+writeOut('n8n/build_manifest.json', JSON.stringify(manifest, null, 2) + '\n');
 
 console.log('Built current NORIA CORE and Genesis EXT from canonical sources.');
 console.log('Build manifest:', JSON.stringify(manifest, null, 2));

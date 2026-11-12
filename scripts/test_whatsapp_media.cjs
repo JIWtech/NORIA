@@ -244,7 +244,7 @@ test('media sender uses tenant credentials and records partial failures without 
   assert.deepEqual(result.json.product_media_delivery.sent.map((x) => x.status), ['accepted', 'failed', 'accepted']);
 });
 test('generated workflow embeds exactly the tested source', () => {
-  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const embedded = (name) => w.nodes.find((n) => n.name === name).parameters.jsCode.replace(/\r\n/g, '\n').trimEnd();
   const tested = (code) => code.replace(/\r\n/g, '\n').trimEnd();
   assert.equal(embedded('Preparar Contexto JIW'), tested(contextCode));
@@ -299,7 +299,7 @@ test('pre-send guard discards replies generated before closing and permits curre
   assert.equal(failed.json.should_send_response, false);
 });
 test('workflow uses the computed Redis key and all sends pass through the session guard', () => {
-  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const w = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   assert.equal(w.nodes.find((n) => n.name === 'Memoria Redis da Conversa').parameters.sessionKey, '={{ $json.memory_session_key }}');
   assert.equal(w.connections['Restaurar Contexto para Envio'].main[0][0].node, 'Validar Sessao Antes do Envio');
   assert.equal(w.connections['Sessao ainda ativa?'].main[1][0].node, 'Responder Resposta Cancelada');

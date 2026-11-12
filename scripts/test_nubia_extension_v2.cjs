@@ -248,3 +248,53 @@ test('política de público e mensagens de bloqueio vêm da configuração do te
   assert.ok(d.facts.some(f=>f.fact_id==='booking.block_message' && f.value===value));
  }
 });
+
+// ---- incidentes NB Bronze 2026-11-12: sessão sem eco do modelo e fatos de público sob demanda
+test('sessão: o modelo não precisa ecoar session_id (a prova é a evidência da própria sessão); session_id explícito de outra sessão continua recusado', async () => {
+  const hist = [{ id: 'h1', text: 'meu nome e Maria Silva', direction: 'inbound', sender_type: 'contact', session_id: 'initial' }];
+  const turnWithoutName = turnOf({ messages: [{ event_id: 'm1', text: 'quero agendar amanha' }] });
+  const semantic = ({ refExtra = {}, slotsExtra = {} } = {}) => ({ primary_intent: 'booking_intent', services: [{ service_id: 'svc_a', role: 'booking_target', evidence_ids: ['h1'], ...refExtra }],
+    slots: { ...slots, name_evidence_ids: ['h1'], ...slotsExtra } });
+  const go = over => run({ semantic: semantic(over), extra: { availability, booking_authorization: bookingProof, session_evidence: hist, turn: turnWithoutName } });
+  const sem = await go();
+  assert.equal(sem.commercial_decision.status, 'ok', 'serviço e nome provados por mensagens da sessão, sem session_id');
+  assert.equal(sem.commercial_decision.actions.create_reservation.allowed, true);
+  assert.equal((await go({ refExtra: { session_id: '' }, slotsExtra: { session_id: '' } })).commercial_decision.status, 'ok', 'vazio equivale a ausente');
+  assert.equal((await go({ refExtra: { session_id: 'initial' }, slotsExtra: { session_id: 'initial' } })).commercial_decision.status, 'ok', 'eco correto continua aceito');
+  const otherService = (await go({ refExtra: { session_id: 'outra' } })).commercial_decision;
+  assert.equal(otherService.status, 'refused');
+  assert.ok(otherService.reason_codes.includes('SERVICE_SESSION_MISMATCH'));
+  const otherName = (await go({ slotsExtra: { session_id: 'outra' } })).commercial_decision;
+  assert.equal(otherName.status, 'refused');
+  assert.ok(otherName.reason_codes.includes('NAME_SESSION_MISMATCH'));
+  // evidência de outra sessão segue sem valer (não entra em sessionMessages)
+  assert.equal((await run({ semantic: semantic(), extra: { availability, booking_authorization: bookingProof, session_evidence: [{ ...hist[0], session_id: 'outra' }], turn: turnWithoutName } })).commercial_decision.status, 'refused');
+});
+
+test('público: os fatos audience.* só saem quando o turno trata de elegibilidade (info_requests.topic=audience) ou há bloqueio de público', async () => {
+  const settings = baseSettings();
+  settings.business_facts.audience = { exclusive_to: 'female', allow_proxy_booking_for_female: true, policy: 'política oficial', invalid_name_message: 'Informe nome real', ineligible_booking_message: 'Público definido' };
+  const audienceFacts = d => d.facts.filter(f => f.fact_id.startsWith('audience.'));
+  const decide = async semantic => (await run({ settings, semantic })).commercial_decision;
+  // turnos sem relação com elegibilidade: nenhum fato de público
+  assert.equal(audienceFacts(await decide({ primary_intent: 'other', evidence_ids: [] })).length, 0, 'assunto fora do escopo (ex.: vaga de emprego)');
+  assert.equal(audienceFacts(await decide({ primary_intent: 'ambiguous', conversation: { topic_change: false, requires_clarification: true } })).length, 0);
+  assert.equal(audienceFacts(await decide({ primary_intent: 'info_inquiry', services: [ref('svc_a', 'asked_about')], info_requests: [{ topic: 'price', service_ids: ['svc_a'], evidence_ids: ['m1'] }] })).length, 0);
+  assert.equal(audienceFacts(await decide({ primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots })).length, 0, 'pedido de disponibilidade para a própria cliente');
+  // a cliente pergunta quem pode ser atendida: sinal semântico do Gemini
+  const asked = await decide({ primary_intent: 'info_inquiry', info_requests: [{ topic: 'audience', service_ids: [], evidence_ids: ['m1'] }] });
+  assert.equal(asked.status, 'ok');
+  assert.deepEqual(audienceFacts(asked).map(f => [f.fact_id, f.value]), [['audience.exclusive_to', 'female'], ['audience.policy', 'política oficial']]);
+  assert.ok(asked.actions.present_information.topics.includes('audience'));
+  // tenant sem política de público: o tópico não inventa fato
+  const bare = (await run({ semantic: { primary_intent: 'info_inquiry', info_requests: [{ topic: 'audience', service_ids: [], evidence_ids: ['m1'] }] } })).commercial_decision;
+  assert.equal(audienceFacts(bare).length, 0);
+  // bloqueio de público: fatos + mensagem de bloqueio; bloqueio de nome não traz o público
+  const booking = { primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots };
+  const blocked = (await run({ settings, semantic: booking, extra: { availability, booking_authorization: { ...bookingProof, status: 'blocked_audience' } } })).commercial_decision;
+  assert.ok(blocked.facts.some(f => f.fact_id === 'booking.block_message' && f.value === 'Público definido'));
+  assert.equal(audienceFacts(blocked).length, 2);
+  const name = (await run({ settings, semantic: booking, extra: { availability, booking_authorization: { ...bookingProof, status: 'blocked_real_name' } } })).commercial_decision;
+  assert.ok(name.facts.some(f => f.fact_id === 'booking.block_message' && f.value === 'Informe nome real'));
+  assert.equal(audienceFacts(name).length, 0);
+});

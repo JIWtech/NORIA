@@ -30,7 +30,7 @@ async function engine(reply, claims, { verdict = 'supported_fact', badScope = fa
     if (!options.url.includes('generativelanguage.googleapis.com')) throw new Error('NO_NETWORK:' + options.url);
     requests.push(options.body);
     const schema = options.body.generationConfig.responseSchema;
-    if (schema.properties.action) return body({ action, reply, state: responseState, message_keys: messageKeys, price_claims: claims });
+    if (schema.properties.action) return body({ action, reply, state: responseState, message_keys: messageKeys, price_claims: claims, reference_intent: 'none', reply_assertions: { states_address: false, memory_excuse: false, claims_booking_or_payment_done: false } });
     if (auditError) throw new Error('fixture auditor unavailable');
     const input = JSON.parse(options.body.contents[0].parts[0].text);
     return body({ scope_key: badScope ? 'another-turn' : input.scope_key, complete: true,
@@ -49,7 +49,7 @@ async function engine(reply, claims, { verdict = 'supported_fact', badScope = fa
 test('valor válido de outro serviço não comprova o preço do serviço atual', async () => {
   const text = 'O Serviço Comfort custa R$ 99,99.';
   const { core } = await engine(text, [claim('comfort', 9999, text)]);
-  assert.throws(() => core.groundingValidateResponse({ action: 'reply', reply: text, state, message_keys: [], price_claims: [claim('comfort', 9999, text)] },
+  assert.throws(() => core.groundingValidateResponse({ action: 'reply', reply: text, state, message_keys: [], price_claims: [claim('comfort', 9999, text)], reference_intent: 'none', reply_assertions: { states_address: false, memory_excuse: false, claims_booking_or_payment_done: false } },
     context, [{ id: 'in-now', text: 'Qual o valor do Comfort?' }], catalog, { rows: [] }), /PRICE_SOURCE_VALUE_MISMATCH/);
 });
 
@@ -121,7 +121,7 @@ test('fala sem preço passa pela verificação e permanece livre de frases pront
 test('catálogo de outro tenant ou serviço inativo não autoriza o valor', async () => {
   const text = 'O Comfort custa R$ 179,99.';
   const { core } = await engine(text, [claim('comfort', 17999, text)]);
-  const result = { action: 'reply', reply: text, state, message_keys: [], price_claims: [claim('comfort', 17999, text)] };
+  const result = { action: 'reply', reply: text, state, message_keys: [], price_claims: [claim('comfort', 17999, text)], reference_intent: 'none', reply_assertions: { states_address: false, memory_excuse: false, claims_booking_or_payment_done: false } };
   for (const patch of [{tenant_id:'other'}, {active:false}, {price:null}]) {
     const changed = { matches: catalog.matches.map(row => row.external_id === 'comfort' ? {...row,...patch} : row) };
     assert.throws(() => core.groundingValidateResponse(result, context, [{id:'in-now',text:'Qual o valor?'}], changed, {rows:[]}), /PRICE_SERVICE_SOURCE_INVALID|Price absent/);

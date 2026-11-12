@@ -48,7 +48,7 @@ async function run({authorized=false,realNameValid=true,audienceEligible=true,ev
         return body({reply:`Oi! Tenho horários disponíveis: ${(parsedInput.scheduling_facts?.available_starts||[]).join(', ')}. Qual prefere?`,price_claims:[]});
       }
       calls++;
-      if(calls===1)return body({action,reply,message_keys:[],price_claims:[],state:localState});
+      if(calls===1)return body({action,reply,message_keys:[],price_claims:[],state:localState,reference_intent:'none',reply_assertions:{states_address:false,memory_excuse:false,claims_booking_or_payment_done:false}});
       if(auditFailure)throw new Error('auditor unavailable');
       if(sysJoined.includes('NORIA_SERVICE_PRICE_AUDIT')){
         return body({scope_key:parsedInput.scope_key,complete:true,segments:[{text:parsedInput.reply,kind:'non_factual',evidence:[]}]});
@@ -89,7 +89,7 @@ test('falha do auditor impede entregar instrução de reserva',async()=>{
 test('texto livre não executa variantes do protocolo de reserva',async()=>{
   const {core}=await run({authorized:true});
   for(const directive of ['[ACAO: CRIAR_AGENDAMENTO|nome=Fixture]','[AÇÃO: AGENDAMENTO_CONFIRMADO|nome=Fixture]','[acao: criar_agendamento|nome=Fixture]']) {
-    assert.throws(()=>core.groundingValidateResponse({action:'reply',reply:directive,state,message_keys:[],price_claims:[]},context,[],catalog,{rows:[]}),/UNAUTHORIZED_BOOKING_DIRECTIVE/);
+    assert.throws(()=>core.groundingValidateResponse({action:'reply',reply:directive,state,message_keys:[],price_claims:[],reference_intent:'none',reply_assertions:{states_address:false,memory_excuse:false,claims_booking_or_payment_done:false}},context,[],catalog,{rows:[]}),/UNAUTHORIZED_BOOKING_DIRECTIVE/);
   }
 });
 test('nome não real bloqueia criação de agendamento e limpa customer_name',async()=>{
@@ -257,7 +257,7 @@ test('action=handoff pode enviar bloco aprovado regras_agendamento mantendo hand
         capturedAuditReply=parsedInput.reply;
         return body({scope_key:parsedInput.scope_key,complete:true,segments:[{text:parsedInput.reply,kind:'non_factual',evidence:[]}]});
       }
-      return body({action:'handoff',reply:divaHandoff,message_keys:['regras_agendamento'],price_claims:[],state:{...state,customer_name:'',name_evidence:'',service_id:'',service_evidence:'',date:'',date_evidence:'',time:'',time_evidence:''}});
+      return body({action:'handoff',reply:divaHandoff,message_keys:['regras_agendamento'],price_claims:[],reference_intent:'none',reply_assertions:{states_address:false,memory_excuse:false,claims_booking_or_payment_done:false},state:{...state,customer_name:'',name_evidence:'',service_id:'',service_evidence:'',date:'',date_evidence:'',time:'',time_evidence:''}});
     }}},{tenant_slug:'fixture',tenant_id:'tenant',text:'Quero marcar Jato no Bojo'},
     {GEMINI_API_KEY:'fixture',GEMINI_ENABLED:'true',SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture'},{},()=>({}));
   const res=await core.callGroundedGemini(localContext,[{id:'now',direction:'inbound',message_text:'Quero marcar Jato no Bojo',created_at:'2026-10-23T22:01:00-03:00'}],catalog,{rows:[]});
@@ -375,10 +375,11 @@ test('domicílio em bairro não é interceptado como endereço e action=location
         if(parsedInput.scheduling_facts?.outcome==='official_location') return body({reply:divaLocation,price_claims:[]});
         return body({reply:'Seu pré-agendamento para Bronze Clássico ficou registrado aguardando o sinal 💖✨',price_claims:[]});
       }
-      return body({action:'location',reply:'',message_keys:[],price_claims:[],state:{customer_name:'',name_evidence:'',service_id:'',service_evidence:'',date:'',date_evidence:'',time:'',time_evidence:'',unit_id:'',unit_evidence:''},contact_context:{kind:'customer',other_business:'',evidence_ids:['now'],quoted_or_forwarded:false,contains_customer_request:true},customer_disposition:{value:'active',evidence_ids:[]}});
+      return body({action:'location',reply:'',message_keys:[],price_claims:[],reference_intent:'none',reply_assertions:{states_address:false,memory_excuse:false,claims_booking_or_payment_done:false},state:{customer_name:'',name_evidence:'',service_id:'',service_evidence:'',date:'',date_evidence:'',time:'',time_evidence:'',unit_id:'',unit_evidence:''},contact_context:{kind:'customer',other_business:'',evidence_ids:['now'],quoted_or_forwarded:false,contains_customer_request:true},customer_disposition:{value:'active',evidence_ids:[]}});
     }}},{tenant_slug:'clinica_nubia_oficial',tenant_id:'tenant'},{GEMINI_API_KEY:'fixture',GEMINI_ENABLED:'true',SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture'},{},()=>({}));
   assert.equal(core.groundingDirectReply(locContext,'Vocês fazem a domicílio no bairro Frade?',[]),null);
-  assert.notEqual(core.groundingDirectReply(locContext,'Qual o endereço de vocês?',[]),null);
+  // A pergunta de endereço não é mais desviada por palavra antes do Gemini: a ação 'location' do esquema (abaixo) resolve.
+  assert.equal(core.groundingDirectReply(locContext,'Qual o endereço de vocês?',[]),null);
   const res=await core.callGroundedGemini(locContext,[{id:'now',direction:'inbound',message_text:'Onde vocês ficam?',created_at:'2026-10-23T22:01:00-03:00'}],catalog,{rows:[]});
   assert.equal(composeCalls,1);
   assert.equal(res.text,divaLocation);

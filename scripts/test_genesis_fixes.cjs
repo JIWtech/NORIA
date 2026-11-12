@@ -91,7 +91,7 @@ Promise.resolve(testedFns).then(async (fns) => {
 
   // 6.1 A contact already present in the CRM is still a customer. Only an
   // explicit Evolution isMyContact flag may classify it as owner-saved.
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const normalizer = workflow.nodes.find((node) => node.name === 'Normalizar Entrada WhatsApp');
   assert.ok(normalizer, 'Workflow deve conter o normalizador WhatsApp');
   assert.doesNotMatch(normalizer.parameters.jsCode, /\/rest\/v1\/contacts\?phone=/, 'Normalizador nao pode inferir contato pessoal a partir do CRM');

@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const core = JSON.parse(fs.readFileSync(path.join(root,
-  'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
 const NUBIA_EXT_ID = 'vCDXJLqIBCZJRTVv';
 const gate = 'CORE - É Núbia?';
 const execute = 'CORE | Executar EXT Núbia';
@@ -21,7 +21,7 @@ test('o desvio da Núbia chama a EXT Núbia v1 e segue para o motor em fase úni
   assert.equal(node.parameters.workflowId.value, NUBIA_EXT_ID);
   assert.equal(node.parameters.mode, 'each');
   assert.equal(node.parameters.options.waitForSubWorkflow, true);
-  assert.deepEqual(branches(execute), [['CORE | É I&C Salon?']]);
+  assert.deepEqual(branches(execute), [['CORE | Motor conversacional único | Fase']]);
 });
 
 test('nenhum turno de fila termina em "evento ignorado"; só eventos de webhook descartados chegam lá', () => {
@@ -35,7 +35,7 @@ test('nenhum turno de fila termina em "evento ignorado"; só eventos de webhook 
 test('a EXT Núbia v1 exige exatamente o que o roteador do CORE entrega', () => {
   const router = fs.readFileSync(path.join(root, 'n8n/sources/noria_router_core.js'), 'utf8');
   assert.match(router, /clinica_nubia_oficial: 'nubia'/);
-  const ext = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json'), 'utf8'));
+  const ext = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json'), 'utf8'));
   const guard = ext.nodes.find(n => n.name === 'Validar identidade e capacidade do tenant').parameters.jsCode;
   assert.match(guard, /expectedExtension = 'nubia'/);
   assert.match(guard, /noria_contract_version \|\| ''\) !== '1\.0'/);

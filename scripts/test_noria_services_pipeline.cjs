@@ -31,6 +31,12 @@ const selector = ({ policy, settings = {}, version = '2.0' }) => {
 };
 const servicesPolicy = { contract: 'noria_policy_v2', profile: 'services_booking_v2', capability: 'standard', modules: { turn_pipeline: offered } };
 
+test('contrato semântico do CORE expõe declaração de serviço anterior à EXT', () => {
+  const { servicesSemanticSchema } = loadCore(['servicesSemanticSchema'], {});
+  const schema = servicesSemanticSchema(offered, []);
+  assert.deepEqual(schema.properties.previous_service.required, ['declared', 'evidence_ids']);
+});
+
 test('Gênesis, Núbia v1 e tenant legado não selecionam o pipeline de serviços', () => {
   const genesis = { contract: 'noria_policy_v2', profile: 'vehicle_sales_v1', capability: 'sales_v1', modules: {} };
   assert.equal(selector({ policy: genesis, settings: { conversation_capability: 'sales_v1' } })(), null);
@@ -76,7 +82,7 @@ test('decisão com identidade, versão ou proveniência incorretas é recusada; 
 });
 
 test('auditor: cada afirmação é checada na sua autoridade; horários, datas e valores da prosa precisam ser autorizados', () => {
-  const audit = loadCore(['servicesAudit'], { SERVICES_CLAIM_KINDS: ['fact', 'slot', 'reservation', 'payment', 'handoff', 'preparation'] }).servicesAudit;
+  const audit = loadCore(['servicesAudit'], { SERVICES_CLAIM_KINDS: ['fact', 'slot', 'reservation', 'payment', 'handoff', 'preparation'], SERVICES_PREPARATION_PURPOSES: ['preparation', 'what_to_bring', 'general_info'] }).servicesAudit;
   const decision = { facts: [{ fact_id: 'f1', value: '10.00' }], services: [{ service_id: 's1' }],
     approved_blocks: [{ key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }, { key: 'other', purpose: 'preparation', applies_to_service_ids: ['s9'] }] };
   const none = { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } };
@@ -208,16 +214,17 @@ test('preparação não reserva nem altera pagamento; só responde (após commit
 });
 
 test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançável pela configuração; rotas legadas intactas', () => {
-  const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
+  const core = JSON.parse(read('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
   const CHAIN = [
     'CORE | Serviços | Núbia v2?', 'CORE | Serviços | Executar EXT bootstrap', 'CORE | Serviços | Preparar dispatch',
     'CORE | Serviços | Turno terminal?', 'CORE | Serviços | Preparar resposta',
     'CORE | Serviços | Turno terminal após prepare?', 'CORE | Serviços | Executar EXT decisão',
     'CORE | Serviços | Verificar disponibilidade',
     'CORE | Serviços | Executar EXT reavaliação', 'CORE | Serviços | Finalizar resposta',
+    'CORE | Serviços | Preparar resposta | Fase', 'CORE | Serviços | Verificar disponibilidade | Fase', 'CORE | Serviços | Finalizar resposta | Fase',
   ];
   const chain = core.nodes.filter(n => n.name.startsWith('CORE | Serviços | '));
-  assert.deepEqual(chain.map(n => n.name).sort(), [...CHAIN].sort(), 'exatamente os 10 nós da cadeia');
+  assert.deepEqual(chain.map(n => n.name).sort(), [...CHAIN].sort(), 'exatamente os 10 nós da cadeia mais os 3 marcadores de fase');
   assert.ok(chain.every(n => n.disabled !== true), 'nenhum nó desativado: a cadeia só é alcançada pela configuração');
   const names = new Set(core.nodes.map(n => n.name));
   for (const [from, entry] of Object.entries(core.connections)) {
@@ -229,7 +236,7 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
 
   // Seleção: o roteador decide; sem declaração válida e ligada, todo tenant segue o caminho de hoje.
   assert.deepEqual(branches('CORE - Resolver extensão do tenant'), [['CORE | É tenant NORIA?']]);
-  assert.deepEqual(branches('CORE | Executar EXT NORIA'), [['CORE | É I&C Salon?']]);
+  assert.deepEqual(branches('CORE | Executar EXT NORIA'), [['CORE | Motor conversacional único | Fase']]);
   assert.deepEqual(branches('CORE | Serviços | Núbia v2?'), [['CORE | Serviços | Executar EXT bootstrap'], ['CORE - É Núbia?']]);
   assert.match(JSON.stringify(by('CORE | Serviços | Núbia v2?').parameters.conditions), /\$json\.noria_pipeline === 'services_v1'/);
   assert.equal(by('CORE - Resolver extensão do tenant').parameters.jsCode, read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n'));
@@ -237,12 +244,15 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   // Sequência: bootstrap -> despacho -> prepare -> decisão -> disponibilidade -> reavaliação -> finalize, com atalhos terminais.
   assert.deepEqual(branches('CORE | Serviços | Executar EXT bootstrap'), [['CORE | Serviços | Preparar dispatch']]);
   assert.deepEqual(branches('CORE | Serviços | Preparar dispatch'), [['CORE | Serviços | Turno terminal?']]);
-  assert.deepEqual(branches('CORE | Serviços | Turno terminal?'), [['CORE | Serviços | Finalizar resposta'], ['CORE | Serviços | Preparar resposta']]);
+  assert.deepEqual(branches('CORE | Serviços | Turno terminal?'), [['CORE | Serviços | Finalizar resposta | Fase'], ['CORE | Serviços | Preparar resposta | Fase']]);
   assert.deepEqual(branches('CORE | Serviços | Preparar resposta'), [['CORE | Serviços | Turno terminal após prepare?']]);
-  assert.deepEqual(branches('CORE | Serviços | Turno terminal após prepare?'), [['CORE | Serviços | Finalizar resposta'], ['CORE | Serviços | Executar EXT decisão']]);
-  assert.deepEqual(branches('CORE | Serviços | Executar EXT decisão'), [['CORE | Serviços | Verificar disponibilidade']]);
+  assert.deepEqual(branches('CORE | Serviços | Preparar resposta | Fase'), [['CORE | Serviços | Preparar resposta']]);
+  assert.deepEqual(branches('CORE | Serviços | Turno terminal após prepare?'), [['CORE | Serviços | Finalizar resposta | Fase'], ['CORE | Serviços | Executar EXT decisão']]);
+  assert.deepEqual(branches('CORE | Serviços | Executar EXT decisão'), [['CORE | Serviços | Verificar disponibilidade | Fase']]);
+  assert.deepEqual(branches('CORE | Serviços | Verificar disponibilidade | Fase'), [['CORE | Serviços | Verificar disponibilidade']]);
   assert.deepEqual(branches('CORE | Serviços | Verificar disponibilidade'), [['CORE | Serviços | Executar EXT reavaliação']]);
-  assert.deepEqual(branches('CORE | Serviços | Executar EXT reavaliação'), [['CORE | Serviços | Finalizar resposta']]);
+  assert.deepEqual(branches('CORE | Serviços | Executar EXT reavaliação'), [['CORE | Serviços | Finalizar resposta | Fase']]);
+  assert.deepEqual(branches('CORE | Serviços | Finalizar resposta | Fase'), [['CORE | Serviços | Finalizar resposta']]);
   for (const gate of ['CORE | Serviços | Turno terminal?', 'CORE | Serviços | Turno terminal após prepare?']) {
     assert.match(JSON.stringify(by(gate).parameters.conditions), /noria_terminal === true \|\| \$json\.skipped === true/, gate);
   }
@@ -251,8 +261,13 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   assert.equal(by('CORE | Serviços | Preparar dispatch').parameters.jsCode, read('n8n/sources/noria_turn_dispatch.js').replace(/\r\n/g, '\n'));
   for (const [name, phase] of [['Preparar resposta', 'prepare'], ['Verificar disponibilidade', 'availability'], ['Finalizar resposta', 'finalize']]) {
     const call = by('CORE | Serviços | ' + name);
-    assert.equal(call.type, 'n8n-nodes-base.code', name);
-    assert.ok(call.parameters.jsCode.startsWith("const NORIA_NODE_PHASE = '" + phase + "';\n"));
+    assert.equal(call.type, 'n8n-nodes-base.executeWorkflow', name);
+    assert.equal(call.parameters.workflowId.value, 'mlKNPv862H2g3Gap', name);
+    assert.equal(call.parameters.options.waitForSubWorkflow, true, name);
+    assert.equal(call.parameters.jsCode, undefined, 'nenhum motor embutido no pai');
+    const marker = by('CORE | Serviços | ' + name + ' | Fase');
+    assert.equal(marker.type, 'n8n-nodes-base.code', name);
+    assert.ok(marker.parameters.jsCode.includes("noria_engine_phase: '" + phase + "', noria_engine_contract: 'noria_engine_phase_v1'"), name);
   }
   // As três chamadas à EXT v2 apontam para o mesmo workflow, nunca para a EXT v1 nem para a Gênesis.
   const extIds = new Set(['bootstrap', 'decisão', 'reavaliação'].map(step => {
@@ -267,18 +282,18 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   // Rotas legadas intactas.
   const has = (from, to, branch) => (core.connections[from]?.main?.[branch] || []).some(c => c.node === to);
   assert.ok(has('CORE - É Núbia?', 'CORE | Executar EXT Núbia', 0));
-  assert.ok(has('CORE | Executar EXT Núbia', 'CORE | É I&C Salon?', 0));
+  assert.ok(has('CORE | Executar EXT Núbia', 'CORE | Motor conversacional único | Fase', 0));
   assert.ok(has('CORE | Preparar dispatch Genesis', 'CORE | Turno terminal Genesis?', 0));
-  assert.ok(has('CORE | Executar EXT Genesis por turno', 'CORE | Preparar resposta', 0));
-  assert.ok(has('CORE | Executar EXT Genesis comercial', 'CORE | Finalizar resposta', 0));
+  assert.ok(has('CORE | Executar EXT Genesis por turno', 'CORE | Preparar resposta | Fase', 0));
+  assert.ok(has('CORE | Executar EXT Genesis comercial', 'CORE | Finalizar resposta | Fase', 0));
   assert.ok(has('Recuperar Fila WhatsApp', 'Ler Fila WhatsApp', 0));
   assert.deepEqual(core.nodes.find(n => n.name === 'Recuperar Fila WhatsApp').parameters.rule.interval[0], { field: 'seconds', secondsInterval: 30 });
-  const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json'], { cwd: root }).toString().trim();
+  const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json'], { cwd: root }).toString().trim();
   assert.equal(diff, '', 'EXT Núbia v1 não foi alterada');
   const manifest = JSON.parse(read('n8n/build_manifest.json'));
   const sha = text => require('node:crypto').createHash('sha256').update(text).digest('hex');
   assert.equal(manifest.router_sha256, sha(read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n')));
-  const ext = JSON.parse(read('n8n/workflows/NORIA EXT _ NB Bronze _ Serviços v2.json'));
+  const ext = JSON.parse(read('n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Catalogo-de-Servicos--6jSiEH2ugboYSack.json'));
   assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode, read('n8n/sources/nubia_extension.js'));
 });
 
@@ -294,6 +309,9 @@ test('auditoria semântica: cada afirmação precisa de uma autoridade existente
     proof: { available_starts: ['10:00'] }, semantic: { slots: { customer_name: 'Maria' } }, blocks: [{ key: 'b1', text: 'O preparo exige pele limpa e sem hidratante. Custa R$ 10,00.' }] };
   const report = (assertions, covers = true) => verify({ assertions, covers_entire_reply: covers }, base);
   const item = (category, support, reference = '', quote = '', text = 't') => ({ text, category, support, reference, quote });
+  const opening = [item('conversational', 'none', '', '', 'Oie, maravilhosa! Como posso ajudar?')];
+  assert.ok(verify({ assertions: opening, covers_entire_reply: true, opening_repeated: true }, { ...base, hasRecentBusiness: true }).failures.includes('AUDIT_REPEATED_OPENING'));
+  assert.equal(verify({ assertions: opening, covers_entire_reply: true, opening_repeated: false }, { ...base, hasRecentBusiness: true }).status, 'approved');
   assert.equal(report([item('price', 'fact', 'f1', '10.00'), item('conversational', 'none'), item('availability', 'availability', '10:00'), item('service', 'customer_provided', 'customer_name')]).status, 'approved');
   // existence is not support: the quote must be literal and the asserted figures must be the authority's
   assert.ok(report([item('price', 'fact', 'f1', '99.00')]).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'fato existe mas o valor citado não é o dele');
@@ -321,6 +339,9 @@ async function route({ input = NUBIA, declared, claimed = [], pins = [], failSet
   const httpRequest = async ({ url }) => {
     const endpoint = url.split('/rest/v1/')[1]; calls.push(endpoint);
     if (failSettings && endpoint.startsWith('tenant_settings')) throw new Error('db');
+    // O roteador confirma a identidade no banco: slug do tenant ativo e instância de canal WhatsApp ativo do mesmo tenant.
+    if (endpoint.startsWith('tenants?')) return [{ id: input.tenant_id, slug: input.tenant_slug, status: 'active' }];
+    if (endpoint.startsWith('channels?')) return [{ external_id: input.instance, config: {}, status: 'active' }];
     if (endpoint.startsWith('tenant_settings')) return [{ settings: { ...settingsExtra, ...(declared === undefined ? {} : { noria_turn_pipeline: declared }) } }];
     if (endpoint.startsWith('conversation_turn_queue')) return claimed.length ? [{ claimed }] : [];
     // pins are scoped by tenant: a marker of another tenant is invisible
@@ -400,7 +421,7 @@ test('publicação: a comparação com o n8n ignora a ordem das chaves e ainda a
 
 test('publicação: nova arquitetura é recusada para revisão', () => {
   const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
-  const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
+  const core = JSON.parse(read('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
   assert.throws(() => buildArtifact(core, 'EXT-V2-REAL-ID'), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
 });
 
@@ -425,4 +446,150 @@ test('lote fixado: desligar a declaração não tira o turno em andamento do pip
     assert.equal(pipelineFor(off, true).capability, 'services_v1', 'lote já despachado: continua no pipeline');
   }
   assert.throws(() => pipelineFor({ ...declared, decision_provenance: 'outra' }, true), /NORIA_TURN_PIPELINE_CONFIG_INVALID/, 'declaração ligada e divergente continua falhando fechado');
+});
+
+// ------------------------------------------------------------ contrato de auditoria e composição (incidentes NB Bronze 2026-11-12)
+// Carrega constantes REAIS do CORE (não cópias) para que o teste acompanhe o código.
+function coreConsts(names) {
+  const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const source = ast.statements.filter(ts.isVariableStatement)
+    .filter(n => n.declarationList.declarations.some(d => names.includes(d.name.getText(ast)))).map(n => n.getText(ast)).join('\n');
+  return new Function(source + '\nreturn {' + names.join(',') + '};')();
+}
+const AUDIT_CONSTS = coreConsts(['SERVICES_ASSERTION_CATEGORIES', 'SERVICES_SUPPORT_KINDS', 'SERVICES_SUPPORT_RULES']);
+
+test('auditoria: reserva CONCLUÍDA exige recibo; encaminhamento é handoff; negar reserva é permitido; afirmar sem recibo continua reprovado', () => {
+  const verify = loadCore(['servicesVerifySemanticReport'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const exec = (over = {}) => ({ reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: true }, ...over });
+  const base = (execution = exec()) => ({ decision: { facts: [], approved_blocks: [] }, execution, proof: null, semantic: { slots: {} }, blocks: [] });
+  const item = (category, support, polarity = 'affirms', text = 'texto') => ({ text, category, support, reference: '', quote: '', polarity });
+  const run = (assertions, execution) => verify({ assertions, covers_entire_reply: true }, base(execution));
+  // "vou encaminhar seu pedido à equipe" = handoff executado
+  assert.equal(run([item('handoff', 'handoff_execution')]).status, 'approved');
+  assert.ok(run([item('handoff', 'handoff_execution')], exec({ handoff: { executed: false } })).failures.includes('AUDIT_SUPPORT_NOT_FOUND:handoff:handoff_execution'));
+  // afirmar reserva sem recibo (com ou sem handoff) segue reprovado
+  assert.ok(run([item('reservation', 'handoff_execution')]).failures.includes('AUDIT_UNSUPPORTED_ASSERTION:reservation'));
+  assert.ok(run([item('reservation', 'none')]).failures.includes('AUDIT_UNSUPPORTED_ASSERTION:reservation'));
+  // negar a reserva ("ainda não foi feita") não induz a erro quando não há recibo
+  assert.equal(run([item('reservation', 'none', 'denies', 'ainda não reservei nada')]).status, 'approved');
+  // mas negar uma reserva que existe (recibo) é contradição
+  const receipt = exec({ reservation: { status: 'created', appointment: { requested_date: '2031-03-15', requested_time: '10:00' } } });
+  assert.ok(run([item('reservation', 'none', 'denies')], receipt).failures.includes('AUDIT_UNSUPPORTED_ASSERTION:reservation'));
+  // com recibo, a afirmação de reserva concluída é sustentada
+  assert.equal(verify({ assertions: [{ ...item('reservation', 'reservation_receipt'), reference: '10:00' }], covers_entire_reply: true }, base(receipt)).status, 'approved');
+});
+
+test('auditoria: instrução separa reserva concluída (recibo) de encaminhamento (handoff)', async () => {
+  let rules = [];
+  const { servicesSemanticAudit } = loadCore(['servicesSemanticAudit', 'servicesVerifySemanticReport'], { ...AUDIT_CONSTS,
+    servicesGeminiJson: async (_c, _n, _p, _s, instructions) => { rules = instructions; return { value: { assertions: [], covers_entire_reply: true, opening_repeated: false }, model: 'm' }; } });
+  await servicesSemanticAudit({}, { reply: 'r', decision: { facts: [], approved_blocks: [] }, execution: { handoff: { executed: true } }, proof: null, semantic: {}, blocks: [] });
+  const line = rules.find(text => text.startsWith('reservation é SOMENTE'));
+  assert.ok(line, 'instrução da fronteira reservation × handoff presente');
+  assert.ok(line.includes('reservation_receipt') && line.includes('handoff_execution') && line.includes('polarity denies'));
+});
+
+test('auditoria: schedule aceita customer_provided para repetir dia/horário da cliente; horário diferente ou disponibilidade seguem exigindo prova', () => {
+  const verify = loadCore(['servicesVerifySemanticReport'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const base = { decision: { facts: [], approved_blocks: [] }, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+    proof: null, semantic: { slots: { date: '2031-03-15', time: '09:30' } }, blocks: [] };
+  const item = (category, support, reference, text) => ({ text, category, support, reference, quote: '', polarity: 'affirms' });
+  const run = (assertions, over = {}) => verify({ assertions, covers_entire_reply: true }, { ...base, ...over });
+  assert.equal(run([item('schedule', 'customer_provided', 'time', 'Você pediu amanhã às 9:30')]).status, 'approved');
+  assert.equal(run([item('schedule', 'customer_provided', 'date', 'Você pediu o dia 15/03')]).status, 'approved');
+  assert.ok(run([item('schedule', 'customer_provided', 'time', 'Pode ser às 10:00?')]).failures.includes('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY'), 'horário que a cliente não pediu');
+  assert.ok(run([item('schedule', 'customer_provided', 'time', 'às 9:30')], { semantic: { slots: {} } }).failures.includes('AUDIT_SUPPORT_NOT_FOUND:schedule:customer_provided'), 'a cliente não informou horário');
+  assert.ok(run([item('availability', 'customer_provided', 'time', 'Tenho 9:30 livre')]).failures.includes('AUDIT_UNSUPPORTED_ASSERTION:availability'), 'horário como disponível exige prova');
+});
+
+test('esquema semântico não exige session_id do modelo', () => {
+  const { servicesSemanticSchema } = loadCore(['servicesSemanticSchema'], {});
+  const schema = servicesSemanticSchema(offered, ['s1']);
+  assert.equal(schema.properties.services.items.properties.session_id, undefined);
+  assert.ok(!schema.properties.services.items.required.includes('session_id'));
+  assert.equal(schema.properties.slots.properties.session_id, undefined);
+  assert.ok(!schema.properties.slots.required.includes('session_id'));
+});
+
+const COMPOSE_CONSTS = coreConsts(['SERVICES_CLAIM_KINDS', 'SERVICES_PREPARATION_PURPOSES', 'SERVICES_NO_BLOCK_KEY']);
+async function composeCapture({ decision, history = [] }) {
+  let captured = null;
+  const names = ['servicesComposeReply', 'servicesPreparationBlockKeys', 'servicesHasRecentBusiness'];
+  const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: {} }, turn: { messages: [] }, buildDateContext: () => ({}), audioHistoryText: row => row.message_text,
+    tenantBusinessHoursStatus: () => ({ configured: false, is_open: false }),
+    servicesGeminiJson: async (_c, _n, payload, schema, rules) => { captured = { payload, schema, rules }; return { value: {}, model: 'm', usage: {} }; } });
+  await core.servicesComposeReply({}, decision, { reservation: { status: 'not_attempted' } }, [], null, history);
+  return captured;
+}
+const outboundRow = { direction: 'outbound', message_text: 'Oi!', ai_provider: 'services_pipeline' };
+
+test('compositor: block_key de claims restrito aos blocos de preparo autorizados para os serviços; sem bloco, sem claim de preparo', async () => {
+  const decision = { services: [{ service_id: 's1' }], facts: [], actions: {}, approved_blocks: [
+    { key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }, { key: 'other', purpose: 'preparation', applies_to_service_ids: ['s9'] },
+    { key: 'intro', purpose: 'presentation', applies_to_service_ids: ['s1'] }, { key: 'bring', purpose: 'what_to_bring', applies_to_service_ids: ['s1'] }] };
+  const { schema } = await composeCapture({ decision });
+  const claim = schema.properties.claims.items.properties;
+  assert.deepEqual(claim.block_key.enum, ['prep', 'bring', COMPOSE_CONSTS.SERVICES_NO_BLOCK_KEY]);
+  assert.ok(claim.kind.enum.includes('preparation'));
+  const none = (await composeCapture({ decision: { ...decision, approved_blocks: [decision.approved_blocks[1], decision.approved_blocks[2]] } })).schema.properties.claims.items.properties;
+  assert.deepEqual(none.block_key.enum, [COMPOSE_CONSTS.SERVICES_NO_BLOCK_KEY]);
+  assert.ok(!none.kind.enum.includes('preparation'), 'sem bloco autorizado a claim de preparo não existe');
+});
+
+test('compositor: recebe opening como dado (true na primeira resposta da empresa, false depois)', async () => {
+  const decision = { services: [], facts: [], actions: {}, approved_blocks: [] };
+  assert.equal((await composeCapture({ decision, history: [{ direction: 'inbound', message_text: 'oi' }] })).payload.opening, true);
+  assert.equal((await composeCapture({ decision, history: [{ direction: 'inbound', message_text: 'oi' }, outboundRow] })).payload.opening, false);
+  assert.equal((await composeCapture({ decision, history: [{ direction: 'outbound', message_text: 'x', ai_provider: 'buffer' }] })).payload.opening, true, 'buffer não conta como resposta da empresa');
+});
+
+// Orquestração composição + auditoria com o compositor e o auditor semântico simulados (sem Gemini).
+function composedFlow({ compositions, semanticReports }) {
+  const calls = { compose: [], semantic: 0 };
+  const names = ['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys'];
+  const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: { slots: {} } },
+    servicesComposeReply: async (_c, _d, _e, _b, _p, _h, note) => { calls.compose.push(note); return { value: compositions[Math.min(calls.compose.length, compositions.length) - 1], model: 'm', usage: {} }; },
+    servicesSemanticAudit: async () => semanticReports[Math.min(calls.semantic++, semanticReports.length - 1)] });
+  const decision = { services: [{ service_id: 's1' }], facts: [], approved_blocks: [{ key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }, { key: 'other', purpose: 'preparation', applies_to_service_ids: ['s9'] }] };
+  const run = () => core.servicesComposeAudited({}, { decision, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+    blocks: [{ key: 'prep', text: 't' }, { key: 'other', text: 't' }], proof: null, history: [outboundRow] });
+  return { run, calls };
+}
+const reply = (text, claims = [], block_keys = []) => ({ reply: text, block_keys, claims });
+const prepClaim = block_key => ({ kind: 'preparation', fact_id: '', value: '', date: '', time: '', status: '', block_key });
+const okReport = { status: 'approved', failures: [], assertions: 1 };
+const openingReport = { status: 'rejected', failures: ['AUDIT_REPEATED_OPENING'], assertions: 1 };
+
+test('composição: claim de preparo indevida recompõe UMA vez informando o código; segunda falha vai à contingência; outras falhas não recompõem', async () => {
+  let flow = composedFlow({ compositions: [reply('Preparo.', [prepClaim('other')], ['prep']), reply('Preparo.', [prepClaim('prep')], ['prep'])], semanticReports: [okReport] });
+  const result = await flow.run();
+  assert.equal(result.audit.status, 'approved');
+  assert.equal(flow.calls.compose.length, 2);
+  assert.ok(flow.calls.compose[1].includes('AUDIT_PREPARATION_NOT_AUTHORIZED'), 'a falha vai ao compositor');
+  flow = composedFlow({ compositions: [reply('Preparo.', [prepClaim('other')], ['prep'])], semanticReports: [okReport] });
+  await assert.rejects(flow.run, /SERVICES_AUDIT_REJECTED:AUDIT_PREPARATION_NOT_AUTHORIZED/);
+  assert.equal(flow.calls.compose.length, 2, 'uma única recomposição');
+  flow = composedFlow({ compositions: [reply('Custa R$ 99,00.')], semanticReports: [okReport] });
+  await assert.rejects(flow.run, /AUDIT_AMOUNT_NOT_AUTHORIZED/);
+  assert.equal(flow.calls.compose.length, 1, 'falha factual não é recomposta');
+});
+
+test('composição: abertura repetida recompõe sem abertura; se só ela restar, entrega com ressalva; com outra falha, contingência', async () => {
+  let flow = composedFlow({ compositions: [reply('Oie! Segue.'), reply('Segue.')], semanticReports: [openingReport, okReport] });
+  let result = await flow.run();
+  assert.equal(flow.calls.compose.length, 2);
+  assert.ok(flow.calls.compose[1].includes('sem saudacao'));
+  assert.equal(result.audit.status, 'approved');
+  assert.equal(result.composed.value.reply, 'Segue.');
+  flow = composedFlow({ compositions: [reply('Oie! Segue.'), reply('Oie! Segue.')], semanticReports: [openingReport, openingReport] });
+  result = await flow.run();
+  assert.equal(result.audit.status, 'approved', 'falha cosmética isolada não vira contingência');
+  assert.deepEqual(result.audit.semantic.tolerated_failures, ['AUDIT_REPEATED_OPENING']);
+  assert.deepEqual(result.audit.semantic.failures, []);
+  assert.equal(flow.calls.compose.length, 2, 'uma única reescrita');
+  flow = composedFlow({ compositions: [reply('Oie!'), reply('Oie!')], semanticReports: [openingReport, { status: 'rejected', failures: ['AUDIT_REPEATED_OPENING', 'AUDIT_UNSUPPORTED_ASSERTION:reservation'], assertions: 1 }] });
+  await assert.rejects(flow.run, /AUDIT_UNSUPPORTED_ASSERTION:reservation/);
+  flow = composedFlow({ compositions: [reply('Segue.')], semanticReports: [{ status: 'rejected', failures: ['AUDIT_UNSUPPORTED_ASSERTION:price'], assertions: 1 }] });
+  await assert.rejects(flow.run, /AUDIT_UNSUPPORTED_ASSERTION:price/);
+  assert.equal(flow.calls.compose.length, 1);
 });

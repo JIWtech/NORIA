@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const prepareCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_prepare_media_ingestion.js'), 'utf8');
 const finalizeCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_finalize_media_ingestion.js'), 'utf8');
-const workflowPath = path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json');
+const workflowPath = path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json');
 const corePath = path.join(root, 'n8n/code/whatsapp_conversation_core.generated.js');
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);

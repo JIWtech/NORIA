@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const core = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), 'utf8').replace(/\r\n/g, '\n');
 // O nó publicado é a fonte deste código: n8n/code/whatsapp_enqueue_core.js é uma versão antiga e não é usado no build.
-const entrada = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+const entrada = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
 const enqueueCode = entrada.nodes.find(node => node.name === 'Registrar Mensagem na Fila').parameters.jsCode;
 const slice = name => { const start = core.indexOf('function ' + name + '('); assert.ok(start >= 0, name); return core.slice(start, core.indexOf('\n}\n', start) + 3); };
 const stale = new Function(slice('turnStaleMessages') + '; return turnStaleMessages;')();
@@ -71,7 +71,7 @@ test('sem hora válida, a Entrada não inventa', async () => {
 });
 
 test('o nó publicado da Entrada grava a hora', () => {
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const code = workflow.nodes.find(node => node.name === 'Registrar Mensagem na Fila').parameters.jsCode;
   assert.match(code, /message_timestamp: messageTimestamp/);
 });

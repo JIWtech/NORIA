@@ -7,7 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const intake = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
+const intake = JSON.parse(read('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
 const normalize = intake.nodes.find(n => n.name === 'Normalizar Entrada WhatsApp').parameters.jsCode;
 const channel = { external_id: 'registered-instance', status: 'active', config: {}, tenants: { slug: 'tenant_a', status: 'active' } };
 const transient = () => Object.assign(new Error('timeout of 7000ms exceeded'), { code: 'ECONNABORTED' });

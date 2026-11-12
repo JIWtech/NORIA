@@ -45,7 +45,7 @@ function mergeWithSnapshotCas(current, patch, expectedSnapshot) {
 }
 
 test('media confirmation uses an atomic RPC, never GET plus full raw_payload PATCH', () => {
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const node = codeNode(workflow, 'Confirmar Mídia WhatsApp');
   assert.ok(node.parameters.jsCode.includes('/rpc/magia_confirm_whatsapp_media'));
   assert.ok(!node.parameters.jsCode.includes('select=id,raw_payload'));
@@ -107,7 +107,7 @@ test('atomic merge preserves media, audio and unrelated fields in either orderin
 });
 
 test('manual echo node calls the scoped atomic merge and never PATCHes raw_payload', () => {
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const node = codeNode(workflow, 'Capturar Resposta Manual WhatsApp');
   const code = node.parameters.jsCode;
   for (const fragment of ['/rpc/magia_merge_channel_event_raw', 'p_tenant: tenantId', "p_channel: 'whatsapp'", 'p_conversation: prior.external_conversation_id', 'p_external_message: input.messageId', 'evolution_echo']) assert.ok(code.includes(fragment));
@@ -154,7 +154,7 @@ test('all current raw_payload writers use scoped atomic merge when mutating an e
 });
 
 test('confirmation node never reports persisted for missing identity, transport errors, empty replies or mismatched already_stored', async () => {
-  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'), 'utf8'));
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
   const code = codeNode(workflow, 'Confirmar Mídia WhatsApp').parameters.jsCode;
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const run = new AsyncFunction('$json', '$env', '$binary', '$', code);
@@ -193,7 +193,7 @@ test('confirmation node never reports persisted for missing identity, transport 
 });
 
 test('patching and canonical generation are idempotent and preserve workflow topology', () => {
-  const workflowPath = path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json');
+  const workflowPath = path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json');
   const before = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
   const beforeTopology = JSON.stringify({ connections: before.connections, nodes: before.nodes.map(({ id, name, type }) => ({ id, name, type })) });
   const { execFileSync } = require('node:child_process');
@@ -208,7 +208,7 @@ test('patching and canonical generation are idempotent and preserve workflow top
 test('patch accepts CRLF code anchors and changes only the intended Code node', () => {
   const os = require('node:os');
   const { execFileSync } = require('node:child_process');
-  const sourcePath = path.join(root, 'n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json');
+  const sourcePath = path.join(root, 'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json');
   const tempPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'noria-media-patch-')), 'workflow.json');
   const before = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
   const target = JSON.parse(JSON.stringify(before));

@@ -3374,7 +3374,7 @@ async function salesResolveDefaultAssignee(context) {
   return null;
 }
 
-async function salesAssignConversation(context, assignee, lead) {
+async function salesAssignConversation(context, assignee, lead, assignedBy = 'IA - Anti-loop') {
   if (!assignee || (!assignee.id && !assignee.name)) return null;
   const commandId = context.tenant.slug + ':whatsapp:' + chatId + ':assign:' + Date.now();
   salesCurrentAssignmentCommandId = commandId;
@@ -3402,7 +3402,7 @@ async function salesAssignConversation(context, assignee, lead) {
     command_id: commandId,
     raw_payload: {
       command: 'assign_conversation',
-      assigned_by: 'IA - Anti-loop',
+      assigned_by: assignedBy,
       sales_lead_id: lead?.id || null,
       assignee: {
         id: assignee.id || null,
@@ -3456,6 +3456,8 @@ function salesHandoffMessage(contextOrAssignee, maybeAssignee, maybeFrustrated =
     }
     return 'Entendi! No momento nossa equipe de atendimento está fora do horário comercial. Seu atendimento já ficou registrado na fila e nosso próximo atendimento inicia' + whenNotice + '.';
   }
+
+  if (!status.configured) return 'Seu atendimento ficou registrado para a equipe continuar no horário de atendimento.';
 
   if (!reaction) return 'Vou passar seu atendimento para ' + target + ' continuar por aqui.';
   if (isFrustrated) {

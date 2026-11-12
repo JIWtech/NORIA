@@ -45,7 +45,8 @@ test('roteador e EXT recusam identidade ou canal incompatível', async () => {
   await assert.rejects(run('noria_extension.js', { ...input, tenant_slug: 'outro', noria_extension: 'noria', noria_contract_version: '1.0' }), /TENANT_INCORRETO/);
 });
 test('EXT exige política do tenant e roteamento dinâmico de terceiros é preservado', async () => {
-  const routed = await run('noria_router.js', { ...input, tenant_slug: 'outro' });
+  // O roteador confirma no banco que o slug pertence ao tenant_id ativo: o terceiro precisa existir com o slug informado.
+  const routed = await run('noria_router.js', { ...input, tenant_slug: 'outro' }, { tenants: [{ id, slug: 'outro', status: 'active' }] });
   assert.equal(routed.value.noria_extension, 'saas_dynamic');
   assert.deepEqual(routed.value.noria_client_policy, policy);
   await assert.rejects(run('noria_extension.js', { ...input, noria_extension: 'noria', noria_contract_version: '1.0' }, { tenant_settings: [{ settings: {} }] }), /SEM_EXTENSAO_CONFIGURADA/);
