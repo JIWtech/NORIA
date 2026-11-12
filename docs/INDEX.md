@@ -25,6 +25,7 @@ Antes de uma publicação autorizada, confira no n8n os IDs e as versões ativas
 - [Follow-ups no WhatsApp](operations/whatsapp_follow_up.md)
 - [Configuração de um tenant](operations/onboarding_tenant.md)
 - [Checklist de publicação](operations/production_deploy_checklist.md)
+- [Correções do Salon e da NB Bronze (12/11/2026)](operations/correcoes_salon_nubia_2026-11-12.md)
 
 ## Histórico
 
