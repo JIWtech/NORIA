@@ -78,7 +78,8 @@ function createSalonHelpers(helpers, input, env) {
   }
   // Uma leitura do contato em qualquer atendimento: futuros ativos (conflito e contexto) e desfechos/cancelamentos (histórico).
   // Sem leitura confiável, o atendimento segue, mas nenhum registro é liberado.
-  const activeStatuses = ['confirmed', 'pending_confirmation'];
+  // Mesmos estados de reserva futura aberta que a agenda do painel mostra (appointmentAgenda.js), mais os pedidos em confirmação.
+  const activeStatuses = ['confirmed', 'pending_confirmation', 'scheduled', 'reserved', 'pending_payment', 'payment_requested', 'payment_reported', 'aguardando_verificacao'];
   const historyStatuses = ['no_show', 'cancelled', 'completed', 'done'];
   async function readContactAppointments() {
     if (!historyRequest) throw Error('IC_SALON_SESSION_SCOPE_UNAVAILABLE');

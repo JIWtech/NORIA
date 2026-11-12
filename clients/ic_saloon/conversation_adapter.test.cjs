@@ -97,7 +97,7 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
       assert.equal(url.searchParams.get('tenant_id'), 'eq.' + tenant);
       assert.equal(url.searchParams.get('channel_type'), 'eq.whatsapp');
       assert.equal(url.searchParams.get('external_conversation_id'), 'in.("' + chat + '","5511000000000")');
-      assert.match(url.searchParams.get('or'), /^\(and\(status\.in\.\(confirmed,pending_confirmation\),starts_at\.gte\..+\),status\.in\.\(no_show,cancelled,completed,done\)\)$/);
+      assert.match(url.searchParams.get('or'), /^\(and\(status\.in\.\(confirmed,pending_confirmation,scheduled,reserved,pending_payment,payment_requested,payment_reported,aguardando_verificacao\),starts_at\.gte\..+\),status\.in\.\(no_show,cancelled,completed,done\)\)$/);
       
       if (appointmentsFail) throw Error('appointments down');
       return appointments;
