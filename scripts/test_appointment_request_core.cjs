@@ -23,12 +23,14 @@ const mode = {
 const CREATE = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servico=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]';
 const open = {
   id: 'a-open', status: 'pending_confirmation', title: 'Corte - Maria Silva', contact_name: 'Maria Silva', starts_at: '2099-09-29T13:00:00Z',
-  created_at: '2099-01-01T00:00:00Z', metadata: { services: ['Corte'], customer_name: 'Maria Silva', requested_date: '2099-09-29', requested_time: '10:00', request_version: 1 },
+  created_at: '2099-01-01T00:00:00Z', updated_at: '2099-01-01T00:01:00Z',
+  metadata: { services: ['Corte'], customer_name: 'Maria Silva', requested_date: '2099-09-29', requested_time: '10:00', request_version: 1 },
 };
 
-async function run({ response = CREATE, request = mode, extra = {}, appointments = [], texts = ['Quero marcar'], rpcError = null } = {}) {
-  const calls = [], events = [], rpc = [], posted = [];
-  let sent = 0, sentText = '';
+async function run({ response = CREATE, request = mode, extra = {}, appointments = [], history = [], texts = ['Quero marcar'],
+  rpcError = null, suppression = {}, boundary = null, replaceBeforeWrite = null } = {}) {
+  const calls = [], events = [], rpc = [], posted = [], patched = [];
+  let sent = 0, sentText = '', generations = 0;
   const input = {
     tenant_id: 't-salon', tenant_slug: 'salon', remoteJid: CHAT, instance: 'salon',
     noria_client_policy: {
@@ -48,20 +50,24 @@ async function run({ response = CREATE, request = mode, extra = {}, appointments
   const httpRequest = async ({ method, url, body }) => {
     const u = new URL(url); calls.push({ method, url, body });
     if (u.hostname === 'evo.test') { sent++; sentText = body.text; return { key: { id: 'sent-1' } }; }
-    if (u.hostname === 'generativelanguage.googleapis.com') return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: response }] } }], usageMetadata: {} };
+    if (u.hostname === 'generativelanguage.googleapis.com') {
+      const text = Array.isArray(response) ? response[generations++] : response;
+      return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text }] } }], usageMetadata: {} };
+    }
     assert.equal(u.hostname, 'db.test');
     const table = u.pathname.split('/').at(-1);
-    if (table === 'magia_turn_suppression_status') return { contract: 'noria_turn_lifecycle_v1', evidence: {} };
+    if (table === 'magia_turn_suppression_status') return { contract: 'noria_turn_lifecycle_v1', evidence: suppression };
     if (table === 'magia_gemini_reserve') return { allowed: true };
     if (table === 'magia_gemini_release' || table === 'magia_gemini_commit') return {};
     if (table === 'contacts' || table === 'conversation_turn_queue') return [];
     if (table === 'magia_turn_lifecycle_status') return { ready: true, contract: 'noria_turn_lifecycle_v1' };
-    if (table === 'magia_claim_turn') return { claimed: true, contract: 'noria_turn_lifecycle_v1', token: 'claim-1', boundary_id: 'initial', messages: texts.map((text, i) => ({ event_id: 'e' + i, id: 'm' + i, text, name: 'Maria', received_at: '2026-11-06T12:00:00Z' })) };
+    if (table === 'magia_claim_turn') return { claimed: true, contract: 'noria_turn_lifecycle_v1', token: 'claim-1', boundary_id: boundary?.id || 'initial', messages: texts.map((text, i) => ({ event_id: 'e' + i, id: 'm' + i, text, name: 'Maria', received_at: '2026-11-06T12:00:00Z' })) };
     if (table === 'magia_begin_turn_delivery') return { id: 'delivery-attempt-1', delivery_attempt_id: 'delivery-attempt-1', dispatch_allowed: true, contract: 'noria_turn_lifecycle_v1' };
     if (table === 'magia_confirm_turn_delivery') return { confirmed: true, contract: 'noria_turn_lifecycle_v1' };
     if (table === 'magia_merge_channel_event_raw') return { applied: true };
     if (table === 'magia_commit_turn') return { committed: true, contract: 'noria_turn_lifecycle_v1' };
     if (table === 'magia_finish_turn') return { finished: true, contract: 'noria_turn_lifecycle_v1', outcome: body.p_outcome };
+    if (table === 'magia_fail_turn') return { finished: true, contract: 'noria_turn_lifecycle_v1', outcome: 'review' };
     if (table === 'magia_upsert_appointment_request') {
       rpc.push({ name: table, body });
       if (rpcError) throw Object.assign(new Error('Request failed with status code 400'), { response: { data: { message: rpcError } } });
@@ -75,11 +81,35 @@ async function run({ response = CREATE, request = mode, extra = {}, appointments
     if (table === 'tenant_service_catalog' || table === 'search_tenant_service_catalog') return services;
     if (table === 'channel_events') {
       if (method === 'PATCH' || method === 'POST') { events.push(body); return [{ id: 'out' }]; }
+      if (u.searchParams.get('or') === '(ai_provider.is.null,ai_provider.neq.buffer)') return [...history];
+      if (boundary && u.searchParams.get('or')?.includes('service.eq.conversation_closed')) return [boundary];
       return [];
     }
     if (table === 'appointments') {
-      if (method === 'POST') { posted.push(body); return [{ id: 'a-legacy', ...body }]; }
+      if (method === 'PATCH') {
+        if (replaceBeforeWrite) appointments = replaceBeforeWrite;
+        const target = appointments.find(a => a.status === 'pending_confirmation'
+          && u.searchParams.get('id') === 'eq.' + a.id && u.searchParams.get('updated_at') === 'eq.' + a.updated_at
+          && u.searchParams.get('metadata->>request_version') === 'eq.' + a.metadata.request_version
+          && !a.metadata.confirmation_state);
+        if (!target) return [];
+        patched.push(body);
+        return [{ ...target, ...body }];
+      }
+      if (method === 'POST') {
+        if (replaceBeforeWrite) {
+          appointments = replaceBeforeWrite;
+          if (body.status === 'pending_confirmation' && appointments.some(a => a.status === 'pending_confirmation')) {
+            throw Object.assign(new Error('Request failed with status code 409'), {
+              response: { data: { code: '23505', message: 'duplicate key violates unique constraint "appointments_one_open_request_idx"' } },
+            });
+          }
+        }
+        posted.push(body);
+        return [{ id: 'a-legacy', ...body }];
+      }
       if (u.searchParams.get('status') === 'eq.pending_confirmation') return appointments.filter(a => a.status === 'pending_confirmation');
+      if (u.searchParams.has('created_at')) return appointments.filter(a => a.created_at > u.searchParams.get('created_at').slice(3));
       return appointments;
     }
     throw Error('Unexpected ' + method + ' ' + u.pathname);
@@ -87,7 +117,7 @@ async function run({ response = CREATE, request = mode, extra = {}, appointments
   const usage = {};
   const result = await execute.call({ helpers: { httpRequest } }, input, environment, {}, () => usage);
   const prompt = JSON.stringify(calls.find(c => c.url.includes('generateContent'))?.body || {});
-  return { result: result.json, calls, events, rpc, posted, sent, sentText, prompt };
+  return { result: result.json, calls, events, rpc, posted, patched, sent, sentText, prompt };
 }
 
 test('a tag registra o pedido sem travar e responde com o modelo do tenant', async () => {
@@ -161,6 +191,149 @@ test('ATUALIZAR_PEDIDO mantém o que não mudou', async () => {
 test('ATUALIZAR_PEDIDO sem pedido aberto não grava', async () => {
   const r = await run({ response: 'Ok [ACAO: ATUALIZAR_PEDIDO|hora=15:00]' });
   assert.equal(r.rpc.length, 0);
+});
+
+const manualReplyOnly = { ...mode, team_review_control: 'manual_reply' };
+const contextualReplies = { ...manualReplyOnly, reply_mode: 'contextual' };
+
+test('agradecimento com tag repetida mantém versão e deixa o Gemini responder sem repetir o recibo', async () => {
+  const pending = { ...open, metadata: { ...open.metadata, services: ['Escova', 'Corte'], request_version: 2 } };
+  const repeat = 'Anotado! [ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servicos=Corte;Escova|data=2099-09-29|hora=10:00|status=pending_confirmation]';
+  const reply = 'Por nada! Se precisar de mais alguma coisa, é só chamar.';
+  const receipt = 'Recebi o pedido de corte e escova às 10h. A equipe vai confirmar.';
+  const r = await run({ request: contextualReplies, appointments: [pending], texts: ['Muito obrigado'], response: [repeat, reply],
+    history: [{ direction: 'outbound', sender_type: 'assistant', message_text: receipt }] });
+  assert.equal(r.result.ok, true);
+  assert.deepEqual(r.rpc, []);
+  assert.equal(r.sentText, reply);
+  assert.match(r.prompt, /reconhecimento|agradecimento/);
+  assert.ok(r.prompt.includes(receipt));
+});
+
+test('pedido pendente com mudança real continua atualizando e usa o recibo de atualização configurado', async () => {
+  const request = { ...contextualReplies, updated_template: 'Horário solicitado atualizado para {hora}. A equipe ainda vai confirmar.' };
+  const r = await run({ request, appointments: [open], response: 'Ok [ACAO: ATUALIZAR_PEDIDO|hora=11:30]' });
+  assert.equal(r.patched.length, 1);
+  assert.equal(r.patched[0].metadata.requested_time, '11:30');
+  assert.equal(r.patched[0].metadata.request_version, 2);
+  assert.equal(r.sentText, 'Horário solicitado atualizado para 11:30. A equipe ainda vai confirmar.');
+});
+
+test('edição obsoleta não cria pedido após a equipe confirmar', async () => {
+  const original = { ...open, status: 'confirmed' };
+  const reply = 'A equipe vai verificar se é possível ajustar para esse horário.';
+  const r = await run({ request: contextualReplies, appointments: [open], replaceBeforeWrite: [original],
+    response: ['Mudei. [ACAO: ATUALIZAR_PEDIDO|hora=11:30]', reply] });
+  assert.deepEqual(r.patched, []);
+  assert.deepEqual(r.posted, []);
+  assert.equal(r.sentText, reply);
+  assert.ok(r.events.some(e => e.raw_payload?.team_review_requested && !e.handoff));
+});
+
+test('pedido concorrente criado depois da leitura não é sobrescrito', async () => {
+  const reply = 'Já existe um pedido em análise e a equipe vai verificar os horários.';
+  const r = await run({ request: contextualReplies, replaceBeforeWrite: [open], response: [CREATE, reply] });
+  assert.deepEqual(r.posted, []);
+  assert.deepEqual(r.patched, []);
+  assert.deepEqual(r.rpc, []);
+  assert.equal(r.sentText, reply);
+});
+
+test('cancelamento sem pedido aberto reformula sem afirmar sucesso', async () => {
+  const reply = 'Vou pedir à equipe para verificar a situação do agendamento.';
+  const r = await run({ request: contextualReplies, response: ['Cancelei. [ACAO: CANCELAR_PEDIDO]', reply] });
+  assert.deepEqual(r.patched, []);
+  assert.deepEqual(r.rpc, []);
+  assert.equal(r.sentText, reply);
+});
+
+test('cancelamento obsoleto não cancela o pedido substituto nem afirma que cancelou', async () => {
+  const reply = 'Vou pedir à equipe para verificar qual reserva pode ser cancelada.';
+  const r = await run({ request: contextualReplies, appointments: [open],
+    replaceBeforeWrite: [{ ...open, id: 'outro-pedido' }], response: ['Cancelei. [ACAO: CANCELAR_PEDIDO]', reply] });
+  assert.deepEqual(r.patched, []);
+  assert.deepEqual(r.rpc, []);
+  assert.equal(r.sentText, reply);
+});
+
+test('cancelamento pendente só é comunicado após alterar a reserva correta', async () => {
+  const r = await run({ request: contextualReplies, appointments: [open], response: 'Cancelei seu pedido. [ACAO: CANCELAR_PEDIDO]' });
+  assert.equal(r.patched[0].status, 'cancelled');
+  assert.equal(r.sentText, 'Cancelei seu pedido.');
+  assert.ok(r.events.some(e => e.service === 'agendamento_cancelado'));
+});
+
+test('reparo ignora recibo igual ao histórico ou com tag e tenta uma nova redação', async () => {
+  const receipt = 'Seu pedido de corte para 10:00 aguarda confirmação.';
+  const repeat = receipt + ' ' + CREATE.slice(CREATE.indexOf('['));
+  for (const second of [receipt, repeat]) {
+    const reply = 'Por nada!';
+    const r = await run({ request: contextualReplies, appointments: [open], texts: ['Muito obrigado'],
+      history: [{ direction: 'outbound', message_text: receipt }], response: [repeat, second, reply] });
+    assert.equal(r.sentText, reply);
+    assert.equal(r.sent, 1);
+    assert.deepEqual(r.posted, []);
+    assert.deepEqual(r.patched, []);
+  }
+});
+
+test('reabrir o chat do César mantém o agendamento futuro confirmado no contexto', async () => {
+  const prior = { ...open, status: 'confirmed', title: 'Pé e mão tradicional', created_at: '2026-11-06T11:00:00Z',
+    metadata: { ...open.metadata, conversation_session_id: 'initial', services: ['Pé e mão tradicional'] } };
+  const reply = 'Vou verificar com a equipe se dá para incluir a escova no mesmo horário.';
+  const r = await run({ request: contextualReplies, appointments: [prior], boundary: { id: 'reaberta', created_at: '2026-11-06T11:30:00Z' },
+    texts: ['Consigo fazer uma escova nesse mesmo horario?'], response: [reply + ' [ACAO: ATUALIZAR_PEDIDO|servicos=Escova]', reply] });
+  assert.match(r.prompt, /Pé e mão tradicional/);
+  assert.equal(r.sentText, reply);
+  assert.deepEqual(r.posted, []);
+  assert.deepEqual(r.patched, []);
+  assert.ok(r.events.some(e => e.raw_payload?.team_review_requested && !e.handoff));
+});
+
+test('reserva confirmada e pedido pendente no mesmo horário exigem identificação do pedido para editar', async () => {
+  const confirmed = { ...open, id: 'confirmado', status: 'confirmed', title: 'Pé e mão tradicional' };
+  const reply = 'A equipe vai conferir a inclusão no agendamento confirmado.';
+  const ambiguous = await run({ request: contextualReplies, appointments: [open, confirmed],
+    response: ['Anotei [ACAO: ATUALIZAR_PEDIDO|servicos=Escova]', reply] });
+  assert.equal(ambiguous.sentText, reply);
+  assert.deepEqual(ambiguous.patched, []);
+  const explicit = await run({ request: contextualReplies, appointments: [open, confirmed],
+    response: 'Anotei [ACAO: ATUALIZAR_PEDIDO|pedido=a-open|servicos=Escova]' });
+  assert.equal(explicit.patched.length, 1);
+  assert.deepEqual(explicit.patched[0].metadata.services, ['Escova']);
+});
+
+test('reprodução do César: pedido de incluir escova em horário confirmado vai à equipe sem pausar a IA', async () => {
+  const confirmed = { ...open, status: 'confirmed', title: 'Pé e mão tradicional', metadata: { ...open.metadata, services: ['Pé e mão tradicional'] } };
+  const rewritten = 'Vou pedir à equipe para verificar se dá para incluir a escova no mesmo horário.';
+  const r = await run({ request: manualReplyOnly, appointments: [confirmed], texts: ['Consigo fazer uma escova nesse mesmo horário?'],
+    response: ['Acrescentei a escova. [ACAO: ATUALIZAR_PEDIDO|servicos=Escova]', rewritten] });
+  assert.equal(r.result.ok, true);
+  assert.equal(r.sentText, rewritten);
+  assert.deepEqual(r.rpc, []);
+  assert.deepEqual(r.posted, []);
+  const review = r.events.find(e => e.raw_payload?.team_review_requested === true);
+  assert.ok(review);
+  assert.equal(review.handoff, false);
+  assert.ok(!review.ai_error);
+  assert.match(r.prompt, /pedido_pendente/);
+});
+
+test('encaminhamento da IA com revisão sem bloqueio mantém o diálogo e evita escrever um pedido concorrente', async () => {
+  const r = await run({ request: manualReplyOnly, response: 'Vou encaminhar à equipe. [HUMANO_SOLICITADO] ' + CREATE.slice(CREATE.indexOf('[')) });
+  assert.deepEqual(r.rpc, []);
+  assert.equal(r.sentText, 'Vou encaminhar à equipe.');
+  assert.ok(r.events.some(e => e.raw_payload?.team_review_requested === true && e.handoff === false));
+  const next = await run({ request: manualReplyOnly, texts: ['Qual é o endereço?'], response: 'O endereço consta no nosso perfil.' });
+  assert.equal(next.sent, 1);
+});
+
+test('mensagem manual com prova de controle continua impedindo o próximo envio automático', async () => {
+  for (const origin of ['noria', 'whatsapp']) {
+    const r = await run({ request: manualReplyOnly, suppression: { human_control: { kind: 'human_control', event_id: `manual-${origin}` } } });
+    assert.equal(r.sent, 0);
+    assert.ok(!r.calls.some(c => c.url.includes('generateContent')));
+  }
 });
 
 test('CANCELAR_PEDIDO cancela e mantém o texto da IA sem a tag', async () => {

@@ -211,13 +211,13 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
   const CHAIN = [
     'CORE | Serviços | Núbia v2?', 'CORE | Serviços | Executar EXT bootstrap', 'CORE | Serviços | Preparar dispatch',
-    'CORE | Serviços | Turno terminal?', 'CORE | Serviços | Preparar resposta | Fase', 'CORE | Serviços | Preparar resposta',
+    'CORE | Serviços | Turno terminal?', 'CORE | Serviços | Preparar resposta',
     'CORE | Serviços | Turno terminal após prepare?', 'CORE | Serviços | Executar EXT decisão',
-    'CORE | Serviços | Verificar disponibilidade | Fase', 'CORE | Serviços | Verificar disponibilidade',
-    'CORE | Serviços | Executar EXT reavaliação', 'CORE | Serviços | Finalizar resposta | Fase', 'CORE | Serviços | Finalizar resposta',
+    'CORE | Serviços | Verificar disponibilidade',
+    'CORE | Serviços | Executar EXT reavaliação', 'CORE | Serviços | Finalizar resposta',
   ];
   const chain = core.nodes.filter(n => n.name.startsWith('CORE | Serviços | '));
-  assert.deepEqual(chain.map(n => n.name).sort(), [...CHAIN].sort(), 'exatamente os 13 nós da cadeia');
+  assert.deepEqual(chain.map(n => n.name).sort(), [...CHAIN].sort(), 'exatamente os 10 nós da cadeia');
   assert.ok(chain.every(n => n.disabled !== true), 'nenhum nó desativado: a cadeia só é alcançada pela configuração');
   const names = new Set(core.nodes.map(n => n.name));
   for (const [from, entry] of Object.entries(core.connections)) {
@@ -228,7 +228,8 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   const by = name => core.nodes.find(n => n.name === name);
 
   // Seleção: o roteador decide; sem declaração válida e ligada, todo tenant segue o caminho de hoje.
-  assert.deepEqual(branches('CORE - Resolver extensão do tenant'), [['CORE | Serviços | Núbia v2?']]);
+  assert.deepEqual(branches('CORE - Resolver extensão do tenant'), [['CORE | É tenant NORIA?']]);
+  assert.deepEqual(branches('CORE | Executar EXT NORIA'), [['CORE | É I&C Salon?']]);
   assert.deepEqual(branches('CORE | Serviços | Núbia v2?'), [['CORE | Serviços | Executar EXT bootstrap'], ['CORE - É Núbia?']]);
   assert.match(JSON.stringify(by('CORE | Serviços | Núbia v2?').parameters.conditions), /\$json\.noria_pipeline === 'services_v1'/);
   assert.equal(by('CORE - Resolver extensão do tenant').parameters.jsCode, read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n'));
@@ -236,27 +237,22 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   // Sequência: bootstrap -> despacho -> prepare -> decisão -> disponibilidade -> reavaliação -> finalize, com atalhos terminais.
   assert.deepEqual(branches('CORE | Serviços | Executar EXT bootstrap'), [['CORE | Serviços | Preparar dispatch']]);
   assert.deepEqual(branches('CORE | Serviços | Preparar dispatch'), [['CORE | Serviços | Turno terminal?']]);
-  assert.deepEqual(branches('CORE | Serviços | Turno terminal?'), [['CORE | Serviços | Finalizar resposta | Fase'], ['CORE | Serviços | Preparar resposta | Fase']]);
-  assert.deepEqual(branches('CORE | Serviços | Preparar resposta | Fase'), [['CORE | Serviços | Preparar resposta']]);
+  assert.deepEqual(branches('CORE | Serviços | Turno terminal?'), [['CORE | Serviços | Finalizar resposta'], ['CORE | Serviços | Preparar resposta']]);
   assert.deepEqual(branches('CORE | Serviços | Preparar resposta'), [['CORE | Serviços | Turno terminal após prepare?']]);
-  assert.deepEqual(branches('CORE | Serviços | Turno terminal após prepare?'), [['CORE | Serviços | Finalizar resposta | Fase'], ['CORE | Serviços | Executar EXT decisão']]);
-  assert.deepEqual(branches('CORE | Serviços | Executar EXT decisão'), [['CORE | Serviços | Verificar disponibilidade | Fase']]);
-  assert.deepEqual(branches('CORE | Serviços | Verificar disponibilidade | Fase'), [['CORE | Serviços | Verificar disponibilidade']]);
+  assert.deepEqual(branches('CORE | Serviços | Turno terminal após prepare?'), [['CORE | Serviços | Finalizar resposta'], ['CORE | Serviços | Executar EXT decisão']]);
+  assert.deepEqual(branches('CORE | Serviços | Executar EXT decisão'), [['CORE | Serviços | Verificar disponibilidade']]);
   assert.deepEqual(branches('CORE | Serviços | Verificar disponibilidade'), [['CORE | Serviços | Executar EXT reavaliação']]);
-  assert.deepEqual(branches('CORE | Serviços | Executar EXT reavaliação'), [['CORE | Serviços | Finalizar resposta | Fase']]);
-  assert.deepEqual(branches('CORE | Serviços | Finalizar resposta | Fase'), [['CORE | Serviços | Finalizar resposta']]);
+  assert.deepEqual(branches('CORE | Serviços | Executar EXT reavaliação'), [['CORE | Serviços | Finalizar resposta']]);
   for (const gate of ['CORE | Serviços | Turno terminal?', 'CORE | Serviços | Turno terminal após prepare?']) {
     assert.match(JSON.stringify(by(gate).parameters.conditions), /noria_terminal === true \|\| \$json\.skipped === true/, gate);
   }
 
   // O despachante é a fonte genérica; as três fases chamam o MESMO Motor que a Gênesis usa.
   assert.equal(by('CORE | Serviços | Preparar dispatch').parameters.jsCode, read('n8n/sources/noria_turn_dispatch.js').replace(/\r\n/g, '\n'));
-  const engineId = by('CORE | Preparar resposta').parameters.workflowId.value;
   for (const [name, phase] of [['Preparar resposta', 'prepare'], ['Verificar disponibilidade', 'availability'], ['Finalizar resposta', 'finalize']]) {
     const call = by('CORE | Serviços | ' + name);
-    assert.equal(call.type, 'n8n-nodes-base.executeWorkflow', name);
-    assert.equal(call.parameters.workflowId.value, engineId, name + ' chama o Motor');
-    assert.match(by('CORE | Serviços | ' + name + ' | Fase').parameters.jsCode, new RegExp("noria_engine_phase: '" + phase + "'"));
+    assert.equal(call.type, 'n8n-nodes-base.code', name);
+    assert.ok(call.parameters.jsCode.startsWith("const NORIA_NODE_PHASE = '" + phase + "';\n"));
   }
   // As três chamadas à EXT v2 apontam para o mesmo workflow, nunca para a EXT v1 nem para a Gênesis.
   const extIds = new Set(['bootstrap', 'decisão', 'reavaliação'].map(step => {
@@ -271,10 +267,10 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   // Rotas legadas intactas.
   const has = (from, to, branch) => (core.connections[from]?.main?.[branch] || []).some(c => c.node === to);
   assert.ok(has('CORE - É Núbia?', 'CORE | Executar EXT Núbia', 0));
-  assert.ok(has('CORE | Executar EXT Núbia', 'CORE | Motor conversacional único | Fase', 0));
+  assert.ok(has('CORE | Executar EXT Núbia', 'CORE | É I&C Salon?', 0));
   assert.ok(has('CORE | Preparar dispatch Genesis', 'CORE | Turno terminal Genesis?', 0));
-  assert.ok(has('CORE | Executar EXT Genesis por turno', 'CORE | Preparar resposta | Fase', 0));
-  assert.ok(has('CORE | Executar EXT Genesis comercial', 'CORE | Finalizar resposta | Fase', 0));
+  assert.ok(has('CORE | Executar EXT Genesis por turno', 'CORE | Preparar resposta', 0));
+  assert.ok(has('CORE | Executar EXT Genesis comercial', 'CORE | Finalizar resposta', 0));
   assert.ok(has('Recuperar Fila WhatsApp', 'Ler Fila WhatsApp', 0));
   assert.deepEqual(core.nodes.find(n => n.name === 'Recuperar Fila WhatsApp').parameters.rule.interval[0], { field: 'seconds', secondsInterval: 30 });
   const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA EXT _ NB Bronze _ Política de negócio v2.json'], { cwd: root }).toString().trim();
@@ -402,19 +398,10 @@ test('publicação: a comparação com o n8n ignora a ordem das chaves e ainda a
   assert.deepEqual(diffWorkflows(rewired, repo).unexpected, ['connection_differs:A']);
 });
 
-test('publicação: o artefato aponta as três chamadas da cadeia para a EXT v2 resolvida pelo nome; ID divergente é recusado', () => {
+test('publicação: nova arquitetura é recusada para revisão', () => {
   const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
   const core = JSON.parse(read('n8n/workflows/NORIA CORE _ WhatsApp + Comandos + Follow-ups _ Motor compartilhado v2.json'));
-  const configured = core.nodes.find(n => n.name === 'CORE | Serviços | Executar EXT bootstrap').parameters.workflowId.value;
-  const placeholder = JSON.parse(JSON.stringify(core));
-  for (const n of placeholder.nodes.filter(n => /^CORE \| Serviços \| Executar EXT /.test(n.name))) n.parameters.workflowId.value = 'PREENCHER_ID_EXT_NUBIA_V2';
-  const artifact = buildArtifact(placeholder, 'EXT-V2-REAL-ID');
-  const ids = artifact.nodes.filter(n => /^CORE \| Serviços \| Executar EXT /.test(n.name)).map(n => n.parameters.workflowId.value);
-  assert.deepEqual(ids, ['EXT-V2-REAL-ID', 'EXT-V2-REAL-ID', 'EXT-V2-REAL-ID']);
-  assert.ok(!JSON.stringify(artifact).includes('PREENCHER_ID_EXT_NUBIA_V2'));
-  assert.equal(artifact.nodes.filter(n => n.name.startsWith('CORE | Serviços | ')).length, 13);
-  assert.ok(buildArtifact(core, configured), 'o ID já configurado e igual ao resolvido é aceito');
-  assert.throws(() => buildArtifact(core, 'OUTRO-ID'), /UNEXPECTED_EXT_NODE/);
+  assert.throws(() => buildArtifact(core, 'EXT-V2-REAL-ID'), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
 });
 
 test('piloto: só um JID de telefone do ingresso autenticado casa; LID, grupo e configuração com número inválido não', async () => {

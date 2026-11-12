@@ -3,6 +3,7 @@
 ## Desenvolvimento
 
 - [Estado do projeto](status/current_project_state.md)
+- [Design System e estrutura CSS](architecture/design_system_modern_css_uiverse.md)
 - [Ambiente local](operations/local_runbook.md)
 - [Fluxo de versionamento](operations/versioning_workflow.md)
 - [Regras para agentes](../AGENTS.md) e [personas de revisão](../.agents/README.md)

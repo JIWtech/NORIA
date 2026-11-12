@@ -38,7 +38,12 @@ const byName = async name => ((await api('GET', '/workflows?name=' + encodeURICo
 const stripped = workflow => ({ name: workflow.name, nodes: workflow.nodes, connections: workflow.connections, settings: workflow.settings || {} });
 
 // Pure: builds the publishable CORE from the repository one. Throws on any broken invariant.
+function assertLegacyArchitecture(core) {
+  if (core.nodes.some(node => node.name === 'CORE | Executar EXT NORIA')) throw new Error('NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED');
+}
+
 function buildArtifact(core, extId) {
+  assertLegacyArchitecture(core);
   const artifact = JSON.parse(JSON.stringify(core));
   const chain = artifact.nodes.filter(node => node.name.startsWith(CHAIN_PREFIX));
   if (chain.length !== 13) throw new Error('CHAIN_INCOMPLETE: ' + chain.length);
@@ -95,6 +100,7 @@ function writeBackups(out, items) {
 
 async function main() {
   const core = read(CORE_FILE), ext = read(EXT_FILE);
+  if (args.apply) assertLegacyArchitecture(core);
   const out = path.resolve(String(args.out || path.join(root, 'dist/nubia_v2_publication')));
   const authorized = process.env.NORIA_PUBLISH_AUTHORIZED === '1';
   if (args.apply && !authorized) throw new Error('NORIA_PUBLISH_AUTHORIZED=1 é obrigatório para --apply');

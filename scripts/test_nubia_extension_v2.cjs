@@ -51,6 +51,7 @@ const ref = (service_id, role) => ({ service_id, role, evidence_ids: ['m1'] });
 const slots = { unit_id: 'u1', date: '2030-01-15', time: '10:00', customer_name: 'Maria Silva', evidence_ids: ['m1'], name_evidence_ids: ['m1'] };
 const availability = { source: 'magia_appointment_availability', tenant_id: TENANT, remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN,
   unit_id: 'u1', service_id: 'svc_a', date: '2030-01-15', time: '10:00', available_starts: ['10:00'] };
+const bookingProof = { contract: 'current_booking_authorization_v1', identity: { tenant_id: TENANT, instance: 'inst', remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN }, proposal: { service_id: 'svc_a', unit_id: 'u1', date: slots.date, time: slots.time, customer_name: slots.customer_name }, status: 'accepted', evidence_ids: ['m1'] };
 
 test('consulta informativa não gera disponibilidade nem reserva e aponta bloco aprovado', async () => {
   const d = (await run({ semantic: { primary_intent: 'info_inquiry', services: [ref('svc_a', 'asked_about')], info_requests: [{ topic: 'presentation', service_ids: ['svc_a'], evidence_ids: ['m1'] }] } })).commercial_decision;
@@ -70,7 +71,7 @@ test('seleção de serviço não reserva; reserva exige intenção, disponibilid
   assert.equal(d.actions.check_availability.allowed, true);
   assert.equal(d.actions.create_reservation.allowed, false);
   assert.equal(d.actions.create_reservation.reason, 'AVAILABILITY_NOT_VERIFIED');
-  d = (await run({ semantic: booking, extra: { availability } })).commercial_decision;
+  d = (await run({ semantic: booking, extra: { availability, booking_authorization: { contract: 'current_booking_authorization_v1', identity: { tenant_id: TENANT, instance: 'inst', remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN }, proposal: { service_id: 'svc_a', unit_id: 'u1', date: slots.date, time: slots.time, customer_name: slots.customer_name }, status: 'accepted', evidence_ids: ['m1'] } } })).commercial_decision;
   assert.equal(d.actions.create_reservation.allowed, true);
   assert.equal(d.actions.create_reservation.params.operation, 'magia_reserve_session_appointment');
   d = (await run({ semantic: booking, extra: { availability: { ...availability, turn_token: 'outro' } } })).commercial_decision;
@@ -146,7 +147,7 @@ test('nome: vale se provado em mensagem do cliente da mesma sessão; recusado se
   const booking = { primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots: { ...slots, name_evidence_ids: ['h1'], session_id: 'initial' } };
   const turnWithoutName = turnOf({ messages: [{ event_id: 'm1', text: 'quero agendar amanha' }] });
   const hist = (over = {}) => [{ id: 'h1', text: 'meu nome e Maria Silva', direction: 'inbound', sender_type: 'contact', session_id: 'initial', ...over }];
-  const go = session_evidence => run({ semantic: booking, extra: { availability, session_evidence, turn: turnWithoutName } });
+  const go = session_evidence => run({ semantic: booking, extra: { availability, booking_authorization: bookingProof, session_evidence, turn: turnWithoutName } });
   assert.equal((await go(hist())).commercial_decision.actions.create_reservation.allowed, true);
   assert.equal((await go(hist({ session_id: 'outra' }))).commercial_decision.status, 'refused');
   assert.equal((await go(hist({ direction: 'outbound', sender_type: 'ai' }))).commercial_decision.status, 'refused');
@@ -174,7 +175,7 @@ test('identidade do turno: request_id = <último event_id>:<token>, token uuid, 
 
 test('disponibilidade: prova presa a tenant, conversa, sessão, solicitação, turno, serviço, unidade, data e horário', async () => {
   const booking = { primary_intent: 'booking_intent', services: [ref('svc_a', 'booking_target')], slots };
-  const decide = async proof => (await run({ semantic: booking, extra: { availability: proof } })).commercial_decision.actions.create_reservation;
+  const decide = async proof => (await run({ semantic: booking, extra: { availability: proof, booking_authorization: bookingProof } })).commercial_decision.actions.create_reservation;
   const ok = await decide(availability);
   assert.equal(ok.allowed, true);
   assert.equal(ok.idempotency_key, 'whatsapp:m1');
@@ -195,4 +196,55 @@ test('saúde/segurança: sem fonte autorizada a EXT não deixa informar e exige 
   assert.equal(d.actions.handoff.required, true);
   assert.ok(d.reason_codes.includes('NO_AUTHORIZED_SOURCE_FOR_TOPIC'));
   assert.deepEqual(d.approved_blocks, []);
+});
+
+
+test('auditoria de reserva é vinculada ao turno e à proposta', async () => {
+ const booking = { primary_intent:'booking_intent', services:[ref('svc_a','booking_target')], slots };
+ const proposal = { service_id:'svc_a', unit_id:'u1', date:slots.date, time:slots.time, customer_name:slots.customer_name };
+ const identity = { tenant_id:TENANT, instance:'inst', remote_jid:'5500@s.whatsapp.net', session_id:'initial', request_id:'m1:'+TOKEN, turn_token:TOKEN };
+ const proof = { contract:'current_booking_authorization_v1', identity, proposal, status:'accepted', evidence_ids:['m1'] };
+ let d=(await run({semantic:booking})).commercial_decision;
+ assert.deepEqual(d.actions.create_reservation.candidate,proposal);
+ d=(await run({semantic:booking,extra:{availability}})).commercial_decision;
+ assert.equal(d.actions.create_reservation.reason,'BOOKING_AUTHORIZATION_REQUIRED');
+ d=(await run({semantic:booking,extra:{availability,booking_authorization:proof}})).commercial_decision;
+ assert.equal(d.actions.create_reservation.allowed,true);
+ for(const bad of [{...proof,proposal:{...proposal,customer_name:'Outro Nome'}},{...proof,evidence_ids:['outro']},{...proof,status:'unavailable'}]) {
+  d=(await run({semantic:booking,extra:{availability,booking_authorization:bad}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.handoff.required,true);
+ }
+ for(const status of ['blocked_real_name','blocked_audience']) {
+  d=(await run({semantic:booking,extra:{availability,booking_authorization:{...proof,status}}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.create_reservation.reason,status.toUpperCase());
+ }
+});
+
+
+test('dados oficiais de Pix são autorizados apenas quando configurados', async () => {
+ const settings=baseSettings(); settings.payment.pix_key='chave-teste'; settings.payment.pix_holder='Titular Teste'; settings.payment.pix_institution='Banco Teste';
+ const d=(await run({settings,semantic:{primary_intent:'info_inquiry',info_requests:[{topic:'payment_terms',service_ids:[],evidence_ids:['m1']}]}})).commercial_decision;
+ for(const [id,value] of [['payment.pix_key','chave-teste'],['payment.pix_holder','Titular Teste'],['payment.pix_institution','Banco Teste']]) assert.ok(d.facts.some(f=>f.fact_id===id && f.value===value));
+});
+
+
+test('cancelamento ou remarcação e incerteza não autorizam ações incompatíveis', async () => {
+ for (const intent of ['cancellation','reschedule','slot_change']) {
+  const d=(await run({semantic:{primary_intent:intent,secondary_intents:['booking_intent'],services:[ref('svc_a','booking_target')],slots},extra:{availability,booking_authorization:bookingProof}})).commercial_decision;
+  assert.equal(d.actions.create_reservation.allowed,false); assert.equal(d.actions.handoff.required,true);
+ }
+ const d=(await run({semantic:{primary_intent:'payment_report',confidence:'low',payment:{declared:true,evidence_ids:['m1']}},extra:{reservations:[{id:'a',status:'pending_payment'}]}})).commercial_decision;
+ assert.equal(d.actions.forward_payment_declaration.allowed,false);
+});
+
+
+test('política de público e mensagens de bloqueio vêm da configuração do tenant', async () => {
+ const settings=baseSettings(); settings.business_facts.audience={exclusive_to:'female',allow_proxy_booking_for_female:true,policy:'política oficial',invalid_name_message:'Informe nome real',ineligible_booking_message:'Público definido'};
+ const booking={primary_intent:'booking_intent',services:[ref('svc_a','booking_target')],slots};
+ let d=(await run({settings,semantic:booking})).commercial_decision;
+ assert.deepEqual(d.actions.create_reservation.audience_policy,{exclusive_to:'female',allow_proxy_booking_for_female:true,policy:'política oficial'});
+ for(const [status,value] of [['blocked_real_name','Informe nome real'],['blocked_audience','Público definido']]) {
+  d=(await run({settings,semantic:booking,extra:{availability,booking_authorization:{...bookingProof,status}}})).commercial_decision;
+  assert.ok(d.facts.some(f=>f.fact_id==='booking.block_message' && f.value===value));
+ }
 });

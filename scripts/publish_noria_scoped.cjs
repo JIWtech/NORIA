@@ -14,6 +14,14 @@ function stable(value) {
 }
 const equal = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
 const digest = code => crypto.createHash('sha256').update(normalize(code)).digest('hex');
+function nodeConnections(connections, name) {
+  return {
+    outgoing: connections[name] || {},
+    incoming: Object.entries(connections).flatMap(([source, types]) => Object.entries(types)
+      .flatMap(([type, groups]) => groups.flatMap((group, index) => (group || [])
+        .filter(link => link.node === name).map(link => ({ source, type, index, link }))))),
+  };
+}
 const env = Object.fromEntries(fs.readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/)
   .filter(line => /^[A-Z0-9_]+=/.test(line)).map(line => {
     const i = line.indexOf('='); return [line.slice(0, i), line.slice(i + 1).replace(/^["']|["']$/g, '')];
@@ -31,21 +39,34 @@ async function prepare(spec) {
   const head = JSON.parse(execFileSync('git', ['show', 'HEAD:' + spec.file], { cwd: root, encoding: 'utf8', maxBuffer: 8e6 }));
   const before = await api('GET', '/workflows/' + spec.id);
   if (!before.active || before.versionId !== before.activeVersionId || before.versionId !== spec.expectedVersion) throw Error('VERSION_GUARD: ' + spec.id);
-  if (!equal(before.connections, head.connections)) throw Error('LIVE_CONNECTION_DRIFT: ' + spec.id);
+  if (!spec.onlyNodes && !equal(before.connections, head.connections)) throw Error('LIVE_CONNECTION_DRIFT: ' + spec.id);
   const changes = [];
   for (const node of local.nodes) {
     const prior = head.nodes.find(item => item.id === node.id);
-    const live = before.nodes.find(item => item.id === node.id);
-    if (!prior || !live) throw Error('NODE_ID_DRIFT: ' + node.id);
-    if (typeof prior.parameters?.jsCode === 'string' && normalize(live.parameters?.jsCode) !== normalize(prior.parameters.jsCode)) throw Error('LIVE_CODE_DRIFT: ' + node.name);
+    if (!prior) throw Error('NODE_ID_DRIFT: ' + node.id);
+    const codeChanged = normalize(node.parameters?.jsCode) !== normalize(prior.parameters?.jsCode);
     const strip = item => ({ ...item, parameters: { ...item.parameters, jsCode: undefined } });
     if (!equal(strip(node), strip(prior))) throw Error('OUT_OF_SCOPE_LOCAL_CHANGE: ' + node.name);
-    if (normalize(node.parameters?.jsCode) !== normalize(prior.parameters?.jsCode)) {
+    if (spec.onlyNodes && !spec.onlyNodes.includes(node.name)) {
+      if (codeChanged) throw Error('OUT_OF_SCOPE_LOCAL_CODE_CHANGE: ' + node.name);
+      continue;
+    }
+    const live = before.nodes.find(item => item.id === node.id);
+    if (!live || live.name !== prior.name || live.type !== prior.type) throw Error('NODE_ID_DRIFT: ' + node.id);
+    if (spec.onlyNodes && !equal(nodeConnections(before.connections, node.name), nodeConnections(head.connections, node.name))) {
+      throw Error('LIVE_NODE_CONNECTION_DRIFT: ' + node.name);
+    }
+    if (typeof prior.parameters?.jsCode === 'string') {
+      const expectedHash = spec.expectedNodeHashes?.[node.name] || digest(prior.parameters.jsCode);
+      if (digest(live.parameters?.jsCode) !== expectedHash) throw Error('LIVE_CODE_DRIFT: ' + node.name);
+    }
+    if (codeChanged) {
       changes.push({ id: node.id, name: node.name, code: node.parameters.jsCode,
         oldSha256: digest(live.parameters.jsCode), newSha256: digest(node.parameters.jsCode) });
     }
   }
-  if (before.nodes.length !== head.nodes.length || local.nodes.length !== head.nodes.length || !changes.length) throw Error('NODE_COUNT_OR_EMPTY_PATCH: ' + spec.id);
+  if ((!spec.onlyNodes && before.nodes.length !== head.nodes.length) || local.nodes.length !== head.nodes.length
+    || !changes.length || (spec.onlyNodes && changes.length !== spec.onlyNodes.length)) throw Error('NODE_COUNT_OR_EMPTY_PATCH: ' + spec.id);
   const nodes = before.nodes.map(node => {
     const change = changes.find(item => item.id === node.id);
     return change ? { ...node, parameters: { ...node.parameters, jsCode: change.code } } : node;

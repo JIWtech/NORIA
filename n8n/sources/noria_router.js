@@ -15,6 +15,19 @@ const get = endpoint => this.helpers.httpRequest({ method: 'GET', url: base + '/
   headers: { apikey: key, Authorization: 'Bearer ' + key }, json: true, timeout: 7000 });
 const enc = encodeURIComponent;
 
+// A rota dedicada só é selecionada após confirmar a identidade no banco.
+if (tenant_slug === 'noria') {
+  const instance = required(v.instance, 'instance');
+  if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(tenant_id)) throw new Error('NORIA_IDENTIDADE_INCOMPLETA');
+  if (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');
+  const tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenant_id) + '&slug=eq.noria&limit=1');
+  if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== tenant_id || tenants[0].slug !== 'noria' || tenants[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');
+  const channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
+  if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).includes(instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+  return { json: { ...v, noria_extension: 'noria', noria_contract_version: '1.0', noria_router: 'noria_v1', noria_dispatch_phase: 'bootstrap' },
+    ...(typeof $binary !== 'undefined' && $binary ? { binary: $binary } : {}) };
+}
+
 const byTenant = { clinica_nubia_oficial: 'nubia', wesley_automoveis: 'genesis' };
 const contractVersionByTenant = { wesley_automoveis: '2.0' };
 const legacyExtension = byTenant[tenant_slug];

@@ -106,6 +106,14 @@ const RPCS = {
 
 function createWorld(modelDoubles, { mode = 'fixtures', geminiKey = null } = {}) {
   const world = ex.createWorld({ mode, geminiKey, settings: SETTINGS, inventory: [], scenarioResponses: { primary: [], other: modelDoubles } });
+  if (mode === 'fixtures') world.geminiOverride = (body, schema) => {
+    if (!schema?.properties?.real_name_valid || !schema.properties?.scope_key) return undefined;
+    const input = requestInput(body);
+    const report = { ...input.proposed_booking, scope_key: input.scope_key, authorized: true,
+      real_name_valid: true, audience_eligible: true, evidence_ids: input.current_message_ids };
+    if (world.bookingAuditOverride) Object.assign(report, world.bookingAuditOverride(input));
+    return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(report) }] } }] };
+  };
   Object.assign(world.tables, {
     tenants: [{ id: TENANT, slug: SLUG, status: 'active', name: 'NB Bronze (homologação)' }], tenant_settings: [{ tenant_id: TENANT, settings: structuredClone(SETTINGS) }],
     channels: [{ tenant_id: TENANT, type: 'whatsapp', status: 'active', external_id: INSTANCE, config: { instance_name: INSTANCE } }],
@@ -540,14 +548,14 @@ async function main() {
     return null;
   });
 
-  await scenario('F orçamento Gemini por tenant: interpretação, composição e auditoria reservam o orçamento antes de cada chamada', async check => {
+  await scenario('F orçamento Gemini por tenant: interpretação, autorização, composição e auditoria reservam orçamento', async check => {
     const world = createWorld(bookingModel(false)); withName(world);
     const reserves = [];
     world.rpcOverrides = { ...RPCS, magia_gemini_reserve: (w, p) => { reserves.push(p); return { allowed: true, tenant_used: reserves.length, tenant_limit: p.p_daily_limit }; } };
     await runTurn(world, 'Quero agendar o Bronze Comfort dia 15/03/2031 às 10:00');
-    check('uma reserva de orçamento por chamada ao Gemini (3 chamadas)', world.log.gemini.length === 3 && reserves.length === 3, { gemini: world.log.gemini.length, reserves: reserves.length });
+    check('uma reserva de orçamento por chamada ao Gemini (4 chamadas)', world.log.gemini.length === 4 && reserves.length === 4, { gemini: world.log.gemini.length, reserves: reserves.length });
     check('cada reserva é do tenant e usa o limite diário das settings', reserves.every(r => r.p_tenant_id === TENANT && r.p_daily_limit === 500), reserves.map(r => [r.p_tenant_id === TENANT, r.p_daily_limit]));
-    for (const [label, allowedCalls] of [['sem orçamento para nada', 0], ['orçamento esgota antes da auditoria', 2]]) {
+    for (const [label, allowedCalls] of [['sem orçamento para nada', 0], ['sem orçamento para autorizar a reserva', 1], ['orçamento esgota antes da auditoria da resposta', 3]]) {
       const w = createWorld(bookingModel(false)); withName(w);
       let used = 0;
       w.rpcOverrides = { ...RPCS, magia_gemini_reserve: () => (used++ < allowedCalls ? { allowed: true } : { allowed: false, reason: 'tenant_daily_limit' }) };
@@ -555,9 +563,30 @@ async function main() {
       const event = outbound(w).at(-1);
       check(label + ': nenhuma chamada além do orçamento', w.log.gemini.length === allowedCalls, w.log.gemini.length);
       check(label + ': falha fechada (contingência), nunca texto não auditado', event?.ai_provider === 'services_contingency' && event.handoff === true, event?.ai_provider);
-      if (allowedCalls === 2) check(label + ': a reserva já feita fica com o recibo preservado', w.tables.appointments.length === 1 && event?.raw_payload.services_pipeline.execution.reservation.status === 'created' && /AUDIT_UNAVAILABLE/.test(event.raw_payload.services_pipeline.composition_error || ''), event?.raw_payload.services_pipeline);
+      if (allowedCalls === 1) check(label + ': nenhuma reserva sem a autorização', w.counters.reserve_calls === 0 && w.tables.appointments.length === 0);
+      if (allowedCalls === 3) check(label + ': a reserva já feita fica com o recibo preservado', w.tables.appointments.length === 1 && event?.raw_payload.services_pipeline.execution.reservation.status === 'created' && /AUDIT_UNAVAILABLE/.test(event.raw_payload.services_pipeline.composition_error || ''), event?.raw_payload.services_pipeline);
     }
     return { gemini_calls: world.log.gemini.length, reserves: reserves.length };
+  });
+
+  await scenario('F2 auditoria da reserva vincula nome, público e mensagem ao mesmo turno', async check => {
+    for (const [patch, reason] of [
+      [{ real_name_valid: false }, 'BLOCKED_REAL_NAME'],
+      [{ audience_eligible: false }, 'BLOCKED_AUDIENCE'],
+      [{ evidence_ids: ['mensagem-de-outro-turno'] }, 'BOOKING_AUTHORIZATION_UNAVAILABLE'],
+    ]) {
+      const world = createWorld(bookingModel(false)); withName(world);
+      world.tables.tenant_settings[0].settings.business_facts = {
+        ...world.tables.tenant_settings[0].settings.business_facts,
+        audience: { exclusive_to: 'female', allow_proxy_booking_for_female: true, policy: 'Atendimento para mulheres.' },
+      };
+      world.bookingAuditOverride = () => patch;
+      const out = await runTurn(world, 'Quero agendar o Bronze Comfort dia 15/03/2031 às 10:00');
+      const action = actionsOf(out).create_reservation;
+      check(reason + ': proposta recusada', action?.allowed === false && action.reason === reason, action);
+      check(reason + ': nenhuma reserva', world.counters.reserve_calls === 0 && world.tables.appointments.length === 0);
+    }
+    return null;
   });
 
   await scenario('C5 re-claim com mensagem nova que pede OUTRA reserva: o recibo original é mantido, nada novo é reservado, humano decide', async check => {

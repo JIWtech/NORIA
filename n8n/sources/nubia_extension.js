@@ -142,6 +142,10 @@ const depositPercentage = [payment.deposit_percentage, settings.deposit_percenta
 
 const facts = isObj(settings.business_facts) ? settings.business_facts : {};
 const guidance = isObj(facts.service_guidance) ? facts.service_guidance : {};
+const audience = isObj(facts.audience) ? facts.audience : {};
+const audiencePolicy = typeof audience.exclusive_to === 'string' && audience.exclusive_to.trim()
+  ? { exclusive_to: audience.exclusive_to.trim(), allow_proxy_booking_for_female: audience.allow_proxy_booking_for_female === true,
+    policy: typeof audience.policy === 'string' ? audience.policy : '' } : null;
 const guidanceGroupsFor = serviceId => Object.entries(guidance)
   .filter(([, group]) => isObj(group) && Array.isArray(group.services) && group.services.includes(serviceId))
   .map(([groupId, group]) => ({ groupId, group }));
@@ -374,6 +378,7 @@ const decision = {
     policy: { enabled: Boolean(followUpPolicy), step_keys: followUpPolicy ? asStrings((followUpPolicy.steps || []).map(s => s?.key)) : [], source: 'follow_up_policies' } },
 };
 const A = decision.actions;
+A.create_reservation.audience_policy = audiencePolicy;
 const addFact = (fact_id, value, source) => { if (!decision.facts.some(f => f.fact_id === fact_id)) decision.facts.push({ fact_id, value: String(value), source }); };
 const finish = status => {
   decision.status = status;
@@ -434,6 +439,10 @@ if (informational && !lowConfidence) {
       for (const row of Array.isArray(facts.locations) ? facts.locations : []) if (row?.verified === true && row.address) addFact('location.' + row.id + '.address', row.address, 'business_facts.locations');
     } else if (request.topic === 'payment_terms') {
       if (paymentEnabled && depositPercentage !== null) addFact('payment.deposit_percentage', depositPercentage, 'settings.payment');
+      if (paymentEnabled && payment.pix_key && payment.pix_holder) {
+        for (const field of ['pix_key', 'pix_holder', 'pix_institution']) if (typeof payment[field] === 'string' && payment[field].trim()) addFact('payment.' + field, payment[field].trim(), 'settings.payment');
+        if (paymentTrigger) addFact('payment.signal_trigger', paymentTrigger, 'settings.appointment_payment_trigger');
+      }
       if (Array.isArray(payment.accepted_payment_methods)) addFact('payment.accepted_methods', payment.accepted_payment_methods.join(','), 'settings.payment');
       for (const [feeKey, fee] of Object.entries(isObj(facts.fees) ? facts.fees : {})) if (Number.isFinite(Number(fee))) addFact('fee.' + feeKey, Number(fee).toFixed(2), 'business_facts.fees');
       (Array.isArray(facts.policies) ? facts.policies : []).forEach((text, index) => typeof text === 'string' && addFact('policy.' + index, text, 'business_facts.policies'));
@@ -456,7 +465,8 @@ decision.reservation_state = reservations.map(r => ({ appointment_id: String(r.i
   state: PENDING_PAYMENT_STATES.includes(r.status) ? 'pending_payment' : r.status === 'payment_reported' ? 'awaiting_verification' : r.status === 'confirmed' ? 'confirmed' : 'other' }));
 
 // Agendamento: o serviço-alvo precisa ter papel acionável com evidência do turno atual.
-const wantsAvailability = v.intents.includes('availability_request') || v.intents.includes('booking_intent');
+const changeRequested = v.intents.some(intent => ['cancellation', 'reschedule', 'slot_change'].includes(intent));
+const wantsAvailability = !changeRequested && (v.intents.includes('availability_request') || v.intents.includes('booking_intent'));
 const wantsBooking = v.intents.includes('booking_intent');
 const targets = uniq(v.services.filter(r => ['selected', 'booking_target'].includes(r.role) && r.evidence_ids.some(id => currentIds.has(id))).map(r => r.service_id));
 if (wantsAvailability) {
@@ -486,6 +496,7 @@ if (wantsAvailability) {
           if (!v.slots.time) create.missing.push('time');
           const nameParts = v.slots.customer_name.split(/\s+/).filter(part => part.length >= 2);
           if (nameParts.length < 2) create.missing.push('full_name');
+          if (!create.missing.length) create.candidate = { service_id: targets[0], unit_id: unitId, date: v.slots.date, time: v.slots.time, customer_name: v.slots.customer_name };
           const av = isObj(input.availability) ? input.availability : null;
           // A prova de disponibilidade é a saída da RPC executada pelo CORE NESTE turno e presa a todos os eixos da solicitação.
           const availabilityBound = av && av.source === 'magia_appointment_availability' && av.tenant_id === identity.tenant_id
@@ -498,14 +509,29 @@ if (wantsAvailability) {
           else if (reservations.some(r => r.service_id === targets[0] && r.requested_date === v.slots.date && r.requested_time === v.slots.time)) {
             create.reason = 'DUPLICATE_RESERVATION_CANDIDATE'; A.handoff = { required: true, reason: 'DUPLICATE_RESERVATION_CANDIDATE' };
           } else {
-            create.allowed = true; create.reason = 'AUTHORIZED';
-            create.params = { operation: lifecycleSessions ? 'magia_reserve_session_appointment' : 'magia_reserve_appointment', unit_id: unitId,
-              service_id: targets[0], date: v.slots.date, time: v.slots.time, customer_name: v.slots.customer_name, session_id: identity.session_id };
-            create.expected_initial_state = 'pending_payment';
-            // A EXT só autoriza a tentativa. Concorrência e capacidade são da RPC; "reservado" só pode ser dito com o recibo dela.
-            create.idempotency_key = 'whatsapp:' + lastEventId;
-            create.completion_claim_allowed = false;
-            create.completion_requires = 'rpc_receipt_with_appointment_id';
+            const auth = isObj(input.booking_authorization) ? input.booking_authorization : null;
+            const scoped = auth && auth.contract === 'current_booking_authorization_v1' && isObj(auth.identity) && isObj(auth.proposal)
+              && ['tenant_id', 'instance', 'remote_jid', 'session_id', 'request_id', 'turn_token'].every(k => auth.identity[k] === identity[k])
+              && Object.keys(create.candidate).every(k => auth.proposal[k] === create.candidate[k])
+              && Array.isArray(auth.evidence_ids) && auth.evidence_ids.length > 0 && auth.evidence_ids.every(id => currentIds.has(id));
+            if (!auth) create.reason = 'BOOKING_AUTHORIZATION_REQUIRED';
+            else if (!scoped || !['accepted', 'blocked_real_name', 'blocked_audience'].includes(auth.status)) {
+              create.reason = 'BOOKING_AUTHORIZATION_UNAVAILABLE'; A.handoff = { required: true, reason: create.reason };
+            } else if (auth.status !== 'accepted') {
+              create.reason = auth.status.toUpperCase();
+              const message = auth.status === 'blocked_real_name' ? audience.invalid_name_message : audience.ineligible_booking_message;
+              if (typeof message === 'string' && message.trim()) addFact('booking.block_message', message.trim(), 'settings.business_facts.audience');
+            }
+            else {
+              create.allowed = true; create.reason = 'AUTHORIZED';
+              create.params = { operation: lifecycleSessions ? 'magia_reserve_session_appointment' : 'magia_reserve_appointment', unit_id: unitId,
+                service_id: targets[0], date: v.slots.date, time: v.slots.time, customer_name: v.slots.customer_name, session_id: identity.session_id };
+              create.expected_initial_state = 'pending_payment';
+              // A EXT só autoriza a tentativa. Concorrência e capacidade são da RPC; "reservado" só pode ser dito com o recibo dela.
+              create.idempotency_key = 'whatsapp:' + lastEventId;
+              create.completion_claim_allowed = false;
+              create.completion_requires = 'rpc_receipt_with_appointment_id';
+            }
           }
         }
       }
@@ -515,7 +541,7 @@ if (wantsAvailability) {
 
 // Pagamento: a EXT autoriza apenas o ENCAMINHAMENTO da declaração; confirmar é sempre humano.
 const commandMatched = commandMessages.length > 0;
-if (paymentEnabled && (v.payment_declared || commandMatched)) {
+if (paymentEnabled && (v.payment_declared || commandMatched) && (!lowConfidence || commandMatched)) {
   decision.evidence_used.push(...v.payment_evidence_ids, ...commandMessages.map(m => m.id));
   const pending = decision.reservation_state.filter(r => r.state === 'pending_payment');
   const forward = A.forward_payment_declaration;
@@ -530,7 +556,7 @@ if (paymentEnabled && (v.payment_declared || commandMatched)) {
 // Handoff: só operações sem execução automática disponível ou pedido explícito com evidência do turno atual.
 if (!A.handoff.required) {
   const reason = v.human_requested ? 'HUMAN_REQUESTED' : v.intents.includes('complaint') ? 'COMPLAINT'
-    : v.intents.includes('cancellation') ? 'NO_AUTOMATED_OPERATION_CANCELLATION' : v.intents.includes('reschedule') ? 'NO_AUTOMATED_OPERATION_RESCHEDULE' : null;
+    : v.intents.includes('cancellation') ? 'NO_AUTOMATED_OPERATION_CANCELLATION' : v.intents.some(i => ['reschedule', 'slot_change'].includes(i)) ? 'NO_AUTOMATED_OPERATION_RESCHEDULE' : null;
   if (reason) { A.handoff = { required: true, reason }; decision.evidence_used.push(...v.human_evidence_ids, ...v.evidence_ids); }
 }
 if (Array.isArray(settings.handoff_rules) && settings.handoff_rules.length) addFact('config.handoff_rules.configured', true, 'settings.handoff_rules');

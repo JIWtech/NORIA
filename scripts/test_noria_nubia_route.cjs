@@ -21,7 +21,7 @@ test('o desvio da Núbia chama a EXT Núbia v1 e segue para o motor em fase úni
   assert.equal(node.parameters.workflowId.value, NUBIA_EXT_ID);
   assert.equal(node.parameters.mode, 'each');
   assert.equal(node.parameters.options.waitForSubWorkflow, true);
-  assert.deepEqual(branches(execute), [['CORE | Motor conversacional único | Fase']]);
+  assert.deepEqual(branches(execute), [['CORE | É I&C Salon?']]);
 });
 
 test('nenhum turno de fila termina em "evento ignorado"; só eventos de webhook descartados chegam lá', () => {
