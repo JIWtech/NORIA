@@ -85,8 +85,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_12',
-  built_at: '2026-11-12T19:47:15.160Z',
-  core_sha256: '71b9aa706c6f57120aa753f6932e54279a3a21321269664097cdd20ae399fd27',
+  built_at: '2026-11-12T19:54:40.863Z',
+  core_sha256: 'bc0b879b3448073eb06fa4cff8845caf63f313b8533d7e88a87b806b3300656b',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5737,7 +5737,21 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   let { composed, audit } = await composeChecked('');
   // Independent pass over the prose itself (see servicesSemanticAudit); skipped only when there is no prose, just literal blocks.
   if (composed.value.reply.trim()) {
-    const auditProse = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness, customerMessages: turn.messages.map(item => item.text).filter(Boolean) });
+    // Salvaguarda técnica contra falso negativo do auditor (IA-04): comparação de texto, não de significado. Se as duas primeiras
+    // palavras da resposta repetem as de uma das últimas mensagens da empresa, é abertura repetida.
+    const openingWords = value => String(value || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter(Boolean).slice(0, 2).join(' ');
+    const repeatsRecentOpening = reply => {
+      const current = openingWords(reply);
+      return Boolean(current) && (history || []).filter(row => row.direction === 'outbound' && row.message_text).slice(-4).some(row => openingWords(row.message_text) === current);
+    };
+    const auditProseOnce = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness, customerMessages: turn.messages.map(item => item.text).filter(Boolean) });
+    const auditProse = async () => {
+      const result = await auditProseOnce();
+      if (result.status === 'approved' && hasRecentBusiness && repeatsRecentOpening(composed.value.reply)) {
+        return { ...result, status: 'rejected', failures: ['AUDIT_REPEATED_OPENING'] };
+      }
+      return result;
+    };
     let semanticAudit = await auditProse();
     if (semanticAudit.failures?.includes('AUDIT_REPEATED_OPENING')) {
       ({ composed, audit } = await composeChecked('REVISAO OBRIGATORIA: esta conversa ja recebeu uma resposta da equipe (opening=false). Comece diretamente pelo assunto da ultima mensagem da cliente, sem saudacao nem vocativo de abertura.'));
@@ -5746,8 +5760,21 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
         semanticAudit = { ...semanticAudit, status: 'approved', failures: [], tolerated_failures: ['AUDIT_REPEATED_OPENING'] };
       }
     }
+    // Afirmação sem sustentação, fora do fato citado ou pedido sem resposta: uma nova redação guiada pelos fatos
+    // costuma resolver, em vez de mandar a cliente direto para a equipe. Só uma tentativa extra por turno.
+    const recomposable = code => /^(AUDIT_UNSUPPORTED_ASSERTION|AUDIT_ASSERTION_NOT_GROUNDED|AUDIT_SUPPORT_NOT_FOUND|AUDIT_QUOTE_MISMATCH|AUDIT_ASSERTED_AMOUNT|AUDIT_ASSERTED_TIME|AUDIT_REQUEST_NOT_COVERED)/.test(code);
+    const rejectedCandidates = [];
+    if (semanticAudit.status !== 'approved' && semanticAudit.failures?.length && semanticAudit.failures.every(recomposable)) {
+      rejectedCandidates.push({ reply: composed.value.reply, failures: semanticAudit.failures });
+      ({ composed, audit } = await composeChecked('REVISAO OBRIGATORIA: a auditoria reprovou a resposta anterior (' + semanticAudit.failures.join(',') + '). Reescreva usando somente decision.facts, approved_blocks e o que o cliente disse; nao afirme nada que esses dados nao sustentem e responda a todos os itens de customer_messages.'));
+      semanticAudit = await auditProse();
+    }
     audit = { ...audit, semantic: semanticAudit, status: semanticAudit.status };
-    if (semanticAudit.status !== 'approved') throw new Error('SERVICES_AUDIT_REJECTED:' + semanticAudit.failures.join(','));
+    if (semanticAudit.status !== 'approved') {
+      const rejection = new Error('SERVICES_AUDIT_REJECTED:' + semanticAudit.failures.join(','));
+      rejection.rejected_candidates = [...rejectedCandidates, { reply: composed.value.reply, failures: semanticAudit.failures }];
+      throw rejection;
+    }
   }
   return { composed, audit };
 }

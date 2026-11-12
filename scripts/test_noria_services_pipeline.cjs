@@ -563,7 +563,9 @@ function composedFlow({ compositions, semanticReports }) {
   const decision = { services: [{ service_id: 's1' }], facts: [], approved_blocks: [{ key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }, { key: 'other', purpose: 'preparation', applies_to_service_ids: ['s9'] }] };
   const run = () => core.servicesComposeAudited({}, { decision, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
     blocks: [{ key: 'prep', text: 't' }, { key: 'other', text: 't' }], proof: null, history: [outboundRow] });
-  return { run, calls };
+  const runWithHistory = history => core.servicesComposeAudited({}, { decision, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+    blocks: [{ key: 'prep', text: 't' }, { key: 'other', text: 't' }], proof: null, history });
+  return { run, runWithHistory, calls };
 }
 const reply = (text, claims = [], block_keys = []) => ({ reply: text, block_keys, claims });
 const prepClaim = block_key => ({ kind: 'preparation', fact_id: '', value: '', date: '', time: '', status: '', block_key });
@@ -601,5 +603,33 @@ test('composição: abertura repetida recompõe sem abertura; se só ela restar,
   await assert.rejects(flow.run, /AUDIT_UNSUPPORTED_ASSERTION:reservation/);
   flow = composedFlow({ compositions: [reply('Segue.')], semanticReports: [{ status: 'rejected', failures: ['AUDIT_UNSUPPORTED_ASSERTION:price'], assertions: 1 }] });
   await assert.rejects(flow.run, /AUDIT_UNSUPPORTED_ASSERTION:price/);
-  assert.equal(flow.calls.compose.length, 1);
+  assert.equal(flow.calls.compose.length, 2, "afirmação sem sustentação recompõe uma vez (IA-05)");
+});
+
+// IA-05: afirmação sem sustentação recompõe UMA vez em vez de ir direto para a equipe; a candidata rejeitada é preservada.
+test('composição: afirmação sem sustentação recompõe uma vez; segunda reprovação preserva as candidatas rejeitadas', async () => {
+  const unsupported = { status: 'rejected', failures: ['AUDIT_UNSUPPORTED_ASSERTION:conditions'], assertions: 1 };
+  let flow = composedFlow({ compositions: [reply('Todas as meninas atendem.'), reply('Atendemos com a equipe do salão.')], semanticReports: [unsupported, okReport] });
+  const result = await flow.run();
+  assert.equal(result.audit.status, 'approved');
+  assert.equal(flow.calls.compose.length, 2);
+  assert.ok(flow.calls.compose[1].includes('AUDIT_UNSUPPORTED_ASSERTION:conditions'));
+  assert.equal(result.composed.value.reply, 'Atendemos com a equipe do salão.');
+  flow = composedFlow({ compositions: [reply('Texto A.'), reply('Texto B.')], semanticReports: [unsupported, unsupported] });
+  await assert.rejects(flow.run, error => {
+    assert.match(error.message, /SERVICES_AUDIT_REJECTED:AUDIT_UNSUPPORTED_ASSERTION:conditions/);
+    assert.deepEqual(error.rejected_candidates.map(item => item.reply), ['Texto A.', 'Texto B.']);
+    return true;
+  });
+  assert.equal(flow.calls.compose.length, 2, 'uma única recomposição');
+});
+
+// IA-04: o auditor aprovou a abertura repetida ("Oie, maravilhosa" duas vezes na sessão); a comparação técnica não deixa passar.
+test('composição: abertura igual à de uma resposta recente da empresa é tratada como repetida mesmo se o auditor aprovar', async () => {
+  const flow = composedFlow({ compositions: [reply('Oie, maravilhosa! Tudo certo.'), reply('Tudo certo com o seu horário.')], semanticReports: [okReport] });
+  const history = [{ direction: 'outbound', message_text: 'Oie, maravilhosa! Posso ajudar?' }];
+  // o harness usa outboundRow fixo: injeta o histórico da sessão no run
+  const result = await flow.runWithHistory(history);
+  assert.equal(flow.calls.compose.length, 2, 'recompõe sem a abertura');
+  assert.equal(result.composed.value.reply, 'Tudo certo com o seu horário.');
 });
