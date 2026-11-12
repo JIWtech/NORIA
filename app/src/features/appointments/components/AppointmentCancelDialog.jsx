@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Ban, Send, X } from 'lucide-react';
+import { useModalDialog } from '../../../utils/useModalDialog.js';
 import { cancelAppointment } from '../../../services/appointments/outcomeActions.js';
 import { sendN8nCommand } from '../../../services/integration.js';
 import { canNotifyCancellation, cancelAndNotify, noticeState, reconcileNotice } from './cancellationFlow.js';
@@ -61,9 +62,11 @@ export function AppointmentCancelDialog({ appointment, tenantSlug, onClose, onDo
     setError('Registrado como não entregue. Você pode pedir o envio da IA de novo.');
   }
 
+  const { dialogProps } = useModalDialog({ onClose: close, busy: Boolean(busy) });
+
   return createPortal(
     <div className="modal-backdrop" onClick={close} role="presentation">
-      <div className="modal-panel confirm-modal-panel no-show-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-appointment-title" onClick={(event) => event.stopPropagation()}>
+      <div {...dialogProps} className="modal-panel confirm-modal-panel no-show-dialog" role="dialog" aria-modal="true" aria-labelledby="cancel-appointment-title" onClick={(event) => event.stopPropagation()}>
         <div className="confirm-modal-header">
           <div className="confirm-modal-title-row"><div className="confirm-danger-icon" aria-hidden="true"><Ban size={20} /></div><h3 id="cancel-appointment-title" className="modal-title">{alreadyCancelled ? 'Conferir aviso de cancelamento' : 'Cancelar agendamento'}</h3></div>
           <button className="icon-button modal-close-btn" type="button" onClick={close} disabled={Boolean(busy)} aria-label="Fechar"><X size={18} /></button>

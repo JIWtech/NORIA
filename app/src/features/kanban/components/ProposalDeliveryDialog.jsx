@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useModalDialog } from '../../../utils/useModalDialog.js';
 import './suggestedSlotDialog.css';
 
 export function ProposalDeliveryDialog({ busy, onClose, onSubmit, knownMessageId = '' }) {
   const [messageId, setMessageId] = useState('');
+  const { dialogProps } = useModalDialog({ onClose, busy });
 
   return createPortal(
     <div className="modal-backdrop" role="presentation" onClick={() => { if (!busy) onClose(); }}>
-      <div className="modal-panel confirm-modal-panel proposal-delivery-dialog" role="dialog" aria-modal="true" aria-labelledby="proposal-delivery-title" onClick={(event) => event.stopPropagation()}>
+      <div {...dialogProps} className="modal-panel confirm-modal-panel proposal-delivery-dialog" role="dialog" aria-modal="true" aria-labelledby="proposal-delivery-title" onClick={(event) => event.stopPropagation()}>
         <div className="confirm-modal-header">
           <h3 id="proposal-delivery-title" className="modal-title">Conferir proposta de horário</h3>
           <button type="button" className="icon-button modal-close-btn" aria-label="Fechar" onClick={onClose} disabled={busy}><X size={18} /></button>
