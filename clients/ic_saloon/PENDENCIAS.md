@@ -3,6 +3,8 @@
 Atualizado em 05/11/2026. Fonte: `questionario-ic-salon-cesar-medeiros-2026-11-03.json`, revisado pelo Cesar.
 Tenant `ic_salon` · instância Evolution `ic_saloon` · número `5521994037748`.
 
+Registro da revisão de 05/11. A [proposta de 09/11](REVISAO_CATALOGO_ENDERECO_2026-11-09.md) traz os novos dados de corte, mechas e endereço, pendentes de aprovação.
+
 ## 1. Valores de serviços que faltam
 
 O questionário **não traz o valor** destes 13 serviços (o campo de valor veio vazio). O Cesar confirmou que **todos são "a partir de"**.
