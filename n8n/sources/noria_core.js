@@ -472,7 +472,7 @@ function removeMidConversationGreeting(text, hasHistory) {
 
 function detectActions(text) {
   const value = String(text || '');
-  const actionPrefix = String.raw`\[(?:A??O|ACAO)\s*:\s*`;
+  const actionPrefix = String.raw`\[A[CÇ][AÃ]O\s*:\s*`;
   return {
     humanRequested: new RegExp(String.raw`\[HUMANO_SOLICITADO\]`, 'i').test(value),
     complaint: new RegExp(actionPrefix + String.raw`RECLAMACAO\]`, 'i').test(value) || new RegExp(String.raw`\[RECLAMACAO\]`, 'i').test(value),
