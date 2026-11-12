@@ -69,6 +69,8 @@ function createPriceGuard(tenantId) {
     'Datas, horários, endereços e porcentagens sem preço monetário são non_price. Jamais classifique uma cifra como non_price.',
     'O nome do serviço pode estar implícito: use o diálogo recente para resolver pronomes, apelidos, abreviações, erros de digitação e referências naturais, sem exigir o nome do catálogo na mesma frase do preço.',
     'Nesse caso marque contextual_match=true somente se o serviço for inequívoco no diálogo; se houver ambiguidade, use reject. O diálogo serve somente para identificar o serviço, nunca como fonte de preço, desconto, condição ou disponibilidade.',
+    'Se a mensagem contém preço ou a tag [CATALOGO_COMPLETO_COM_PRECOS], julgue separadamente se current_customer_message pede preço, valor ou orçamento pelo significado. Interesse em fazer ou marcar um serviço não é pedido de preço. Não use perguntas antigas nem falas da atendente como autorização.',
+    'Use price_requested=true somente se houver esse pedido na mensagem atual; copie em price_request_quote o trecho literal da mensagem atual que expressa o pedido. Caso contrário, use false e quote vazia. Não confunda avaliação gratuita com preço do serviço.',
     'Em caso de dúvida, use reject. Responda só o JSON solicitado.'
   ].join(' ');
   return { officialServices, authorizeText, auditPrompt };

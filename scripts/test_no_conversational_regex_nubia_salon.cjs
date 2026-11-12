@@ -284,13 +284,16 @@ test('[salon] catálogo completo: a tag [CATALOGO_COMPLETO] do Gemini aciona a l
   assert.equal(viaTag.generations, 1);
   assert.match(viaTag.sentText, /Separei tudo para você/);
   assert.match(viaTag.sentText, /Corte/);
-  assert.match(viaTag.sentText, /R\$\s*50/);
+  assert.doesNotMatch(viaTag.sentText, /R\$\s*50/, 'pedido de lista sem preço não divulga valores');
   assert.match(viaTag.sentText, /Escova/);
   assert.doesNotMatch(viaTag.sentText, /CATALOGO_COMPLETO/);
   assert.ok(viaTag.events.some(e => e.ai_provider === 'catalog_db_direct'));
   const noTag = await runTurn(SOURCES.salon, { text: 'quais são todos os serviços?', responses: 'Temos vários serviços, qual te interessa?' });
   assert.equal(noTag.generations, 1, 'sem a palavra-gatilho no código, o Gemini é consultado');
   assert.equal(noTag.sentText, 'Temos vários serviços, qual te interessa?');
+  const withPrices = await runTurn(SOURCES.salon, { text: 'me mostra o catálogo completo com os preços', responses: 'Separei tudo para você: [CATALOGO_COMPLETO_COM_PRECOS]' });
+  assert.match(withPrices.sentText, /R\$\s*50/, 'pedido explícito de valores inclui os preços oficiais');
+  assert.doesNotMatch(withPrices.sentText, /CATALOGO_COMPLETO_COM_PRECOS/);
 });
 
 test('[salon] código vivo sem as listas de palavras removidas', () => {

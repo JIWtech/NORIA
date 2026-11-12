@@ -450,7 +450,8 @@ function detectActions(text) {
     complaint: new RegExp(actionPrefix + String.raw`RECLAMACAO\]`, 'i').test(value) || new RegExp(String.raw`\[RECLAMACAO\]`, 'i').test(value),
     readyToSchedule: new RegExp(actionPrefix + String.raw`PRONTO_PARA_AGENDAR\]`, 'i').test(value) || new RegExp(String.raw`\[PRONTO_PARA_AGENDAR\]`, 'i').test(value),
     createAppointment: new RegExp(actionPrefix + String.raw`(?:CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)`, 'i').test(value),
-    catalogRequested: /\[CATALOGO_COMPLETO\]/i.test(value),
+    catalogRequested: /\[CATALOGO_COMPLETO(?:_COM_PRECOS)?\]/i.test(value),
+    catalogPricesRequested: /\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(value),
   };
 }
 
@@ -462,6 +463,7 @@ function cleanReplyText(text) {
     .replace(/\[PRONTO_PARA_AGENDAR\]/gi, '')
     .replace(/\[RECLAMACAO\]/gi, '')
     .replace(/\[CATALOGO_COMPLETO\]/gi, '')
+    .replace(/\[CATALOGO_COMPLETO_COM_PRECOS\]/gi, '')
 
     // Desescapa Markdown que alguns modelos devolvem como "\*\*" / "\-"
     .replace(/\\([*_`~>#\-\[\]()])/g, '$1')
@@ -2305,7 +2307,7 @@ function validateFullCatalogRows(rows = []) {
   };
 }
 
-function buildFullCatalogReplyFromRows(rows = [], intro = '') {
+function buildFullCatalogReplyFromRows(rows = [], intro = '', includePrices = false) {
   const activeRows = Array.isArray(rows)
     ? rows.filter((item) => item && item.active !== false)
     : [];
@@ -2328,14 +2330,14 @@ function buildFullCatalogReplyFromRows(rows = [], intro = '') {
 
   const blocks = categories.map((category) => {
     const lines = (grouped.get(category) || []).map(
-      (item) => `• ${item.name || 'Serviço'} — ${formatCatalogPrice(item)}`
+      (item) => `• ${item.name || 'Serviço'}${includePrices ? ' — ' + formatCatalogPrice(item) : ''}`
     );
 
     return `${category}:\n${lines.join('\n')}`;
   });
 
   // A abertura é a prosa do Gemini (sem vocativo por palavra); sem prosa, uma frase neutra.
-  return `${intro || 'Separei tudo para você — olha só os nossos serviços e valores:'}\n\n${blocks.join('\n\n')}`;
+  return `${intro || (includePrices ? 'Separei nossos serviços e valores para você:' : 'Separei nossos serviços para você:')}\n\n${blocks.join('\n\n')}`;
 }
 
 function catalogTokens(value) {
@@ -2723,14 +2725,15 @@ REGRAS OPERACIONAIS CURTAS
 - Se a conversa já possui histórico, não abra a resposta com saudação, cumprimento ou vocativo de abertura; vá direto ao assunto.
 - Se a mensagem for frustração apenas com a resposta da IA (por exemplo, dizer que não entendeu ou que a resposta não ajudou), corrija a resposta com humildade e não use [RECLAMACAO] nem [HUMANO_SOLICITADO]. Use [RECLAMACAO] somente para reclamação real do atendimento, do serviço ou de cobrança.
 - Público, idade e menores: interprete pela conversa inteira e siga o system_prompt; não presuma nada por palavras isoladas.
-- Se a pessoa pedir a lista completa de serviços, o catálogo ou tudo o que o negócio oferece, escreva só uma frase curta de abertura e termine com a tag [CATALOGO_COMPLETO]; o sistema anexa a lista oficial com os valores. Não liste serviços nem valores você mesmo nesse caso.
+- Se a pessoa pedir a lista completa de serviços, o catálogo ou tudo o que o negócio oferece, escreva só uma frase curta de abertura e termine com [CATALOGO_COMPLETO]. Se pedir explicitamente a lista completa COM preços ou valores na mensagem atual, use [CATALOGO_COMPLETO_COM_PRECOS]. O sistema anexa a lista oficial; não liste serviços nem valores você mesmo nesse caso.
 - Exemplos de abertura que podem significar saudação/conversa casual: "coé", "coe", "fala tu", "salve", "qual a boa", "e aí", "opa", "oieee", "fala comigo". Responda naturalmente de acordo com o contexto, sem corrigir a pessoa.
 ${settings.conversation_style_instructions || settings.tone || ""}
 - IMPORTANTE: animação muda apenas a forma de falar. Nunca invente benefício, resultado, garantia, efeito, duração, tecnologia, conforto ou vantagem não presente no catálogo.
 - Se o catálogo disser apenas "hidratação da pele", NÃO transforme isso em "hidratação profunda", "pele super macia" ou outras promessas.
 - Se o catálogo disser apenas "máquina dupla", NÃO invente "tecnologia avançada", "tom mais intenso" ou benefício adicional.
 - Quando houver match fuzzy do catálogo, entenda que o cliente provavelmente quis dizer o serviço recuperado. Não corrija a ortografia do cliente e não peça para ele repetir o nome se o match estiver claro.
-- Se o catálogo recuperado trouxer descrição, preço ou observação do serviço perguntado, responda usando esses dados; não diga que precisa confirmar com a equipe.
+- Se o catálogo recuperado trouxer descrição ou observação do serviço perguntado, responda usando esses dados. Só informe o preço oficial quando a pessoa pedir valor ou orçamento; interesse em fazer ou marcar o serviço não é pedido de preço.
+- Quando a pessoa disser que quer fazer um serviço, conduza ao próximo dado do pedido ou à avaliação necessária com uma pergunta curta. Não divulgue preço nem duração sem pedido.
 - Mesmo em perguntas objetivas, evite respostas secas como "O serviço custa X". Prefira uma construção curta com personalidade, mas use somente características realmente presentes no catálogo.
 - Durante agendamento, conduza a conversa ate registrar o agendamento no sistema, sem chamar humano apenas para conferir agenda.
 - Para criar agendamento, colete no minimo: nome da pessoa atendida, servico, data especifica e horario especifico.
@@ -14865,7 +14868,7 @@ async function runTurn() {
   const actions = detectActions(responseText);
   // O Gemini decide que o cliente quer o catálogo completo e sinaliza com a tag; a lista oficial vem do banco (nunca da prosa).
   if (actions.catalogRequested && catalog.isComplete) {
-    responseText = buildFullCatalogReplyFromRows(catalog.matches, cleanReplyText(responseText));
+    responseText = buildFullCatalogReplyFromRows(catalog.matches, cleanReplyText(responseText), actions.catalogPricesRequested);
     event.ai_provider = 'catalog_db_direct';
   }
   const tag = parseAppointmentCreationTag(responseText);

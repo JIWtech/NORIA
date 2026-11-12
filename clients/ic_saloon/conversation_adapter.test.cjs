@@ -16,6 +16,7 @@ const tpl = {
 const priceFallback = 'A equipe pode confirmar o valor certinho para você.';
 const tag = '[ACAO: CRIAR_AGENDAMENTO|nome=' + name + '|servico=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]';
 const repairText = 'Qual horário você prefere para o corte?';
+const priceQuestion = { currentText: 'Quanto custa o corte?', priceRequestQuote: 'Quanto custa o corte?' };
 const core = [
   'const NORIA_NODE_PHASE = $json.noria_engine_phase;',
   'const helpers = this.helpers;',
@@ -60,7 +61,7 @@ const budgetCore = core.replace('const helpers = this.helpers;', [
 const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
-  claims_registration: false, claims_availability: false };
+  claims_registration: false, claims_availability: false, price_unrequested: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -79,7 +80,7 @@ const past = (id, status, startsAt, extra = {}) => ({ id, status, title: 'Corte 
   created_at: startsAt, metadata: { services: ['Corte'] }, ...extra });
 
 async function run({ draft = tag, evidence = true, verdict = withEvidence, priceReport, currentText, scope = input,
-  finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail, withBudget = false, budgetAllowed = true } = {}) {
+  priceRequestQuote = '', finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail, withBudget = false, budgetAllowed = true } = {}) {
   const rpcCalls = [];
   const requests = [];
   const reviews = [];
@@ -139,7 +140,8 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
       if (auditFail === 'truncated') return reply('{"complete":', 'MAX_TOKENS');
       if (auditFail === 'invalid_json') return reply('isto não é JSON');
       const segments = typeof priceReport === 'function' ? priceReport(message) : priceReport;
-      return reply(JSON.stringify({ complete: true, segments: segments || [{ kind: 'non_price', text: message }] }));
+      return reply(JSON.stringify({ complete: true, segments: segments || [{ kind: 'non_price', text: message }],
+        price_requested: Boolean(priceRequestQuote), price_request_quote: priceRequestQuote }));
     }
     if (system.startsWith('Valide a resposta do salão')) {
       const body = JSON.parse(options.body.contents[0].parts[0].text);
@@ -368,33 +370,33 @@ test('resposta informativa passa, e a guarda de preço usa só o preço oficial 
 
   const priceText = 'O corte custa R$ 140,00.';
   const priceSegment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
-  const official = await run({ draft: priceText, verdict: okVerdict, priceReport: [priceSegment] });
+  const official = await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, priceReport: [priceSegment] });
   assert.equal(official.text, priceText);
   assert.equal(official.diagnostics.adapter_outcome, 'passed');
   const catalogRequest = official.requests.find(item => item.url.includes('tenant_service_catalog'));
   assert.ok(catalogRequest.url.startsWith(base + '/rest/v1/tenant_service_catalog?tenant_id=eq.' + tenant));
 
   // Preço sem respaldo do catálogo, ou diferente do oficial, é substituído pelo texto configurado.
-  const invalid = await run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration });
+  const invalid = await run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration });
   assert.equal(invalid.text, priceFallback);
   assert.equal(invalid.diagnostics.adapter_outcome, 'price_fallback');
   assert.equal(invalid.diagnostics.adapter_message_source, 'template_fallback');
   assert.deepEqual(invalid.diagnostics.adapter_trail, ['price_rejected', 'repair_finish', 'repair_finish']);
   // O Gemini reescreve só a afirmação de preço; o texto reparado passa de novo pelo auditor e o preço errado não chega ao cliente.
   const rewritten = 'Esse valor eu prefiro que a equipe confirme certinho para você.';
-  const composedPrice = await run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: [rewritten] });
+  const composedPrice = await run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: [rewritten] });
   assert.equal(composedPrice.text, rewritten);
   assert.equal(composedPrice.diagnostics.adapter_outcome, 'price_repaired');
   assert.equal(composedPrice.diagnostics.adapter_message_source, 'gemini');
   assert.equal(composedPrice.audits.at(-1), rewritten);
-  const wrongAmount = await run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration,
+  const wrongAmount = await run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration,
     priceReport: [{ ...priceSegment, text: 'O corte custa R$ 50,00.', amount_cents: 5000 }] });
   assert.equal(wrongAmount.text, priceFallback);
-  assert.equal((await run({ draft: priceText, verdict: okVerdict, catalogPrice: 90, priceReport: [priceSegment], repairs: noGeneration })).text, priceFallback);
+  assert.equal((await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, catalogPrice: 90, priceReport: [priceSegment], repairs: noGeneration })).text, priceFallback);
   // Sem texto configurado para a rejeição de preço o adaptador falha em vez de inventar uma resposta.
-  await assert.rejects(run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, settings: {}, repairs: noGeneration }), /IC_SALON_PRICE_REPLY_UNAVAILABLE/);
+  await assert.rejects(run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, settings: {}, repairs: noGeneration }), /IC_SALON_PRICE_REPLY_UNAVAILABLE/);
   // Preço sem respaldo dentro do reparo também é barrado.
-  const repairedPrice = await run({ draft: 'Já anotei seu pedido.', verdict: claimAware, repairs: ['O corte custa R$ 50,00.'] });
+  const repairedPrice = await run({ ...priceQuestion, draft: 'Já anotei seu pedido.', verdict: claimAware, repairs: ['O corte custa R$ 50,00.'] });
   assert.equal(repairedPrice.text, tpl.review + handoff);
   assert.deepEqual(repairedPrice.diagnostics.adapter_trail, ['claims_booking', 'repair_price_rejected', 'repair_price_rejected']);
 });
@@ -406,26 +408,26 @@ test('preço reprovado: o reparo corrige só a afirmação de preço e preserva 
     ? [{ kind: 'catalog_price', text: 'O Corte custa R$ 140,00.', service_id: 'corte', amount_cents: 14000, price_type: 'fixed' },
       { kind: 'non_price', text: ' Amanhã atendemos até as 18h.' }]
     : [{ kind: 'reject', text: 'O corte custa R$ 50,00.' }, { kind: 'non_price', text: ' Amanhã atendemos até as 18h.' }]);
-  const repaired = await run({ draft, verdict: okVerdict, priceReport: report, repairs: [fixed] });
+  const repaired = await run({ ...priceQuestion, draft, verdict: okVerdict, priceReport: report, repairs: [fixed] });
   assert.equal(repaired.text, fixed, 'o resto da resposta (horário de atendimento) é preservado');
   assert.equal(repaired.diagnostics.adapter_outcome, 'price_repaired');
   assert.deepEqual(repaired.diagnostics.adapter_trail, ['price_rejected']);
   assert.deepEqual(repaired.audits, [draft, fixed], 'o texto reparado passa de novo pelo auditor');
   const instruction = repaired.generations.at(-1).at(-1).text;
   assert.ok(instruction.includes('Amanhã atendemos até as 18h.'), 'o rascunho vai ao reparo para preservar o resto');
-  assert.match(instruction, /nome exato do serviço/);
+  assert.match(instruction, /valor oficial do serviço exato se a pessoa pediu preço/);
   // Diagnóstico: motivo, trecho do rascunho da IA e segmentos reprovados.
   const audit = repaired.diagnostics.adapter_price_audit;
   assert.equal(audit.kind, 'rejected');
   assert.equal(audit.draft_excerpt, draft);
   assert.deepEqual(audit.rejected_segments, [{ kind: 'reject', service_id: null, text: 'O corte custa R$ 50,00.' }]);
   // Reparo que mantém o preço errado: nunca vai ao cliente; o template é o último recurso.
-  const stubborn = await run({ draft, verdict: okVerdict, priceReport: report, repairs: [draft] });
+  const stubborn = await run({ ...priceQuestion, draft, verdict: okVerdict, priceReport: report, repairs: [draft] });
   assert.equal(stubborn.text, priceFallback);
   assert.equal(stubborn.diagnostics.adapter_outcome, 'price_fallback');
   assert.deepEqual(stubborn.diagnostics.adapter_trail, ['price_rejected', 'repair_price_rejected', 'repair_price_rejected']);
-  // A geração é orientada a citar o nome exato do serviço do catálogo.
-  assert.match(repaired.generations[0][0].text, /nome exato do serviço como está no catálogo/);
+  // A geração só informa o preço quando a mensagem atual pede o valor.
+  assert.match(repaired.generations[0][0].text, /Informe preço somente se a pessoa pedir valor ou orçamento na mensagem atual/);
 
   // Auditor indisponível (429, timeout, resposta truncada, JSON inválido) não é preço reprovado.
   const cases = [['http429', 'error_429'], ['timeout', 'timeout'], ['truncated', 'finish_MAX_TOKENS'], ['invalid_json', 'invalid_json']];
@@ -449,11 +451,11 @@ test('remove_suffix só corta o convite indevido; o pedido explícito de agendam
   const withFollowup = priceText + '\n\n' + question;
   const priceSegment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
   const filtered = await run({ draft: withFollowup, currentText: 'Quanto custa o corte?',
-    verdict: { ...okVerdict, remove_suffix: question }, priceReport: [priceSegment] });
+    priceRequestQuote: 'Quanto custa o corte?', verdict: { ...okVerdict, remove_suffix: question }, priceReport: [priceSegment] });
   assert.equal(filtered.text, priceText);
   assert.equal(filtered.diagnostics.adapter_outcome, 'suffix_removed');
   const requested = await run({ draft: withFollowup, currentText: 'Quanto custa o corte? Quero marcar para amanhã.',
-    verdict: okVerdict, priceReport: [priceSegment, { kind: 'non_price', text: '\n\n' + question }] });
+    priceRequestQuote: 'Quanto custa o corte?', verdict: okVerdict, priceReport: [priceSegment, { kind: 'non_price', text: '\n\n' + question }] });
   assert.equal(requested.text, withFollowup);
   assert.equal(requested.diagnostics.adapter_outcome, 'passed');
   assert.equal(requested.reviews[0].current, 'Quanto custa o corte? Quero marcar para amanhã.');
@@ -680,11 +682,44 @@ test('preço citado sem a pessoa pedir volta para o reparo sem valor; preço ped
   const guidance = unrequested.generations[1].map(part => part.text).join(' ');
   assert.match(guidance, /Não cite preço, valor nem duração/);
   assert.match(guidance, /no máximo três frases curtas/);
-  const asked = await run({ draft: priceText, verdict: { ...okVerdict, price_unrequested: false }, priceReport: [priceSegment] });
+  const asked = await run({ ...priceQuestion, draft: priceText, verdict: { ...okVerdict, price_unrequested: false }, priceReport: [priceSegment] });
   assert.equal(asked.text, priceText);
   assert.equal(asked.diagnostics.adapter_outcome, 'passed');
   // o schema do revisor exige o campo
   const review = unrequested.requests.find(item => item.body && item.body.generationConfig && item.body.generationConfig.responseSchema
     && item.body.generationConfig.responseSchema.required && item.body.generationConfig.responseSchema.required.includes('claims_availability'));
   assert.ok(review.body.generationConfig.responseSchema.required.includes('price_unrequested'));
+});
+
+test('preço oficial sem pedido não passa quando o revisor erra a intenção', async () => {
+  const text = 'O corte custa R$ 140,00.';
+  const segment = { kind: 'catalog_price', text, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
+  const result = await run({ currentText: 'Quero fazer corte e unhas da mão.', draft: text,
+    verdict: { ...okVerdict, price_unrequested: false }, priceReport: [segment] });
+  assert.doesNotMatch(result.text, /R\$\s*140,00/);
+});
+
+test('reparo não pode devolver preço que a pessoa não pediu', async () => {
+  const text = 'O corte custa R$ 140,00.';
+  const segment = { kind: 'catalog_price', text, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
+  const result = await run({ currentText: 'Quero fazer corte e unhas da mão.', draft: text,
+    verdict: { ...okVerdict, price_unrequested: true }, priceReport: [segment], repairs: [text, text] });
+  assert.doesNotMatch(result.text, /R\$\s*140,00/);
+});
+
+test('pedido de preço precisa ter trecho literal na mensagem atual', async () => {
+  const text = 'O corte custa R$ 140,00.';
+  const segment = { kind: 'catalog_price', text, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' };
+  const result = await run({ currentText: 'Quero fazer o corte.', priceRequestQuote: 'Quanto custa o corte?',
+    draft: text, verdict: { ...okVerdict, price_unrequested: false }, priceReport: [segment] });
+  assert.doesNotMatch(result.text, /R\$\s*140,00/);
+});
+
+test('catálogo com valores exige pedido explícito na mensagem atual', async () => {
+  const tag = 'Separei tudo para você: [CATALOGO_COMPLETO_COM_PRECOS]';
+  const unrequested = await run({ currentText: 'Me mostra todos os serviços.', draft: tag, verdict: okVerdict });
+  assert.doesNotMatch(unrequested.text, /CATALOGO_COMPLETO_COM_PRECOS/);
+  const requested = await run({ currentText: 'Me mostra o catálogo completo com preços.',
+    priceRequestQuote: 'com preços', draft: tag, verdict: okVerdict });
+  assert.equal(requested.text, tag);
 });

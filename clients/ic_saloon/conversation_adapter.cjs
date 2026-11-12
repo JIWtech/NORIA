@@ -191,7 +191,7 @@ function createSalonHelpers(helpers, input, env) {
           'ou oferece um horário, turno ou parte do dia como livre. A IA não vê a agenda; só a equipe confirma o encaixe. Perguntar qual dia e',
           'horário a pessoa prefere, repetir o que ela mesma pediu sem dizer que está livre, ou dizer que a equipe confirma não afirmam',
           'disponibilidade. Sem rascunho, use false.',
-          'Em price_unrequested informe, pelo significado, se o rascunho informa preço ou valor de serviço (inclusive "a partir de") e a mensagem atual do cliente e o contexto recente NÃO pedem preço, valor, quanto custa ou orçamento. Dizer que o orçamento é definido na avaliação, sem número, não é preço. Se a pessoa perguntou o valor, use false. Sem rascunho, use false.',
+          'Em price_unrequested informe, pelo significado, se o rascunho informa preço ou valor de serviço (inclusive "a partir de") e a mensagem atual do cliente NÃO pede preço, valor, quanto custa ou orçamento. Um pedido antigo no contexto não autoriza repetir preço agora. Dizer que o orçamento é definido na avaliação, sem número, não é preço. Se a pessoa perguntou o valor nesta mensagem, use false. Sem rascunho, use false.',
           'Em remove_prefix, se recent_context mostra que a conversa já está em andamento e o rascunho abre repetindo saudação, cumprimento',
           'ou vocativo de abertura, copie exatamente esse trecho inicial, sem incluir o conteúdo útil que o segue. Sem repetição, use texto vazio.',
         ].join(' ') }] },
@@ -225,6 +225,11 @@ function createSalonHelpers(helpers, input, env) {
       }))
       .filter(item => item.text.trim());
   }
+  function currentCustomerMessage(options) {
+    const last = Array.isArray(options.body?.contents) ? options.body.contents.at(-1) : null;
+    return last?.role === 'user' && Array.isArray(last.parts)
+      ? last.parts.map(part => String(part?.text || '')).join('').slice(0, 1200) : '';
+  }
 
   // Código técnico curto e sem conteúdo da conversa para falhas do auditor (timeout, 429, rede).
   function failureCode(error) {
@@ -257,9 +262,10 @@ function createSalonHelpers(helpers, input, env) {
           contents: [{ role: 'user', parts: [{ text: JSON.stringify({
             message: draft, services: [...priceCatalog.values()],
             conversation_context: priceConversationContext(options),
+            current_customer_message: currentCustomerMessage(options),
           }) }] }],
           generationConfig: { temperature: 0, maxOutputTokens: 6000, responseMimeType: 'application/json', responseSchema: {
-            type: 'OBJECT', required: ['complete', 'segments'], properties: {
+            type: 'OBJECT', required: ['complete', 'segments', 'price_requested', 'price_request_quote'], properties: {
               complete: { type: 'BOOLEAN' }, segments: { type: 'ARRAY', items: {
                 type: 'OBJECT', required: ['text', 'kind'], properties: {
                   text: { type: 'STRING' }, kind: { type: 'STRING', enum: ['non_price', 'catalog_price', 'reject'] },
@@ -267,6 +273,7 @@ function createSalonHelpers(helpers, input, env) {
                   contextual_match: { type: 'BOOLEAN' },
                 },
               } },
+              price_requested: { type: 'BOOLEAN' }, price_request_quote: { type: 'STRING' },
             },
           } },
         },
@@ -282,6 +289,12 @@ function createSalonHelpers(helpers, input, env) {
     if (report?.complete !== true || !Array.isArray(report.segments) || !report.segments.length
         || report.segments.some(segment => typeof segment?.text !== 'string') || report.segments.map(segment => segment.text).join('') !== draft) {
       return unavailable('invalid_report');
+    }
+    if (report.segments.some(segment => segment.kind !== 'non_price') || /\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(draft)) {
+      const quote = typeof report.price_request_quote === 'string' ? report.price_request_quote.trim() : '';
+      if (report.price_requested !== true || !quote || !currentCustomerMessage(options).includes(quote)) {
+        return { ok: false, kind: 'rejected', reason: 'price_not_requested' };
+      }
     }
     if (authorizeText(draft, priceCatalog, report, priceConversationContext(options))) return { ok: true };
     return { ok: false, kind: 'rejected', reason: 'not_authorized', segments: report.segments.filter(segment => segment.kind !== 'non_price').slice(0, 6)
@@ -340,7 +353,7 @@ function createSalonHelpers(helpers, input, env) {
       ...(repair ? [] : ['Se a mensagem atual pedir o registro ou completar um pedido recente em coleta, e todos os dados forem comprováveis, devolva somente a tag de registro.']),
       'Você não vê a agenda: nunca diga nem sugira que existe horário, vaga ou disponibilidade, e não ofereça horários, turnos ou partes do dia como livres.',
       'Pergunte qual dia e horário a pessoa prefere; só a equipe confirma o encaixe.',
-      'Ao informar preço, cite o nome exato do serviço como está no catálogo e o valor oficial dele, mesmo que a pessoa tenha dito só parte do nome.',
+      'Informe preço somente se a pessoa pedir valor ou orçamento na mensagem atual. Nesse caso, cite o nome exato do serviço e o valor oficial do catálogo.',
       'Se o que ela disse combina com mais de um serviço do catálogo, pergunte qual deles ou diga que a equipe confirma o valor; não escolha por ela.',
       'A pessoa atendida pode ser homem ou mulher: trate-a de forma neutra, sem flexão de gênero, até ela se identificar. Quem escreve é a atendente.',
       'Uma faixa de horários é uma preferência, não um horário escolhido. Pergunte qual horário exato a pessoa prefere.',
@@ -397,6 +410,7 @@ function createSalonHelpers(helpers, input, env) {
     const visibleText = text => text.replace(/\[[^\]\r\n]*\]/gu, '').trim();
     const withHandoff = text => messageResponse(response, { ...candidate, finishReason: 'STOP' }, text + ' [HUMANO_SOLICITADO]');
     const plainReply = text => messageResponse(response, { ...candidate, finishReason: 'STOP' }, text);
+    const noUnrequestedPrice = 'O rascunho anterior citava preço ou valor que a pessoa não pediu. Não cite preço, valor nem duração. Responda só ao que a pessoa disse ou comentou, em no máximo três frases curtas. Se ela quer fazer o serviço, conduza ao próximo dado do pedido ou à avaliação necessária com uma pergunta curta. Não cite o nome do salão.';
     // Último recurso técnico: texto visível do tenant (ou padrão do código) e revisão da equipe. Nunca a tag sozinha.
     const processingError = () => finish('processing_error', withHandoff(renderTemplate('processing_error_template')));
     // A marca de sinal é do sistema: a vinda do modelo é sempre removida e só volta quando o histórico exige.
@@ -448,10 +462,16 @@ function createSalonHelpers(helpers, input, env) {
           technicalOnly = false;
           continue;
         }
+        if (verdict.price_unrequested !== false) {
+          note('repair_price_unrequested');
+          technicalOnly = false;
+          continue;
+        }
         const audit = await priceAudit(options, text);
         lastPriceAuditKind = audit.ok ? '' : audit.kind;
         if (!audit.ok) {
-          note(audit.kind === 'unavailable' ? 'repair_price_audit_unavailable' : 'repair_price_rejected');
+          note(audit.kind === 'unavailable' ? 'repair_price_audit_unavailable'
+            : audit.reason === 'price_not_requested' ? 'repair_price_unrequested' : 'repair_price_rejected');
           if (audit.kind !== 'unavailable') technicalOnly = false;
           continue;
         }
@@ -563,9 +583,7 @@ function createSalonHelpers(helpers, input, env) {
       return fallback('claims_availability', 'O rascunho anterior afirmava ou sugeria horário livre ou disponibilidade. Você não vê a agenda: não diga que há vaga ou horário nem sugira horários ou turnos como livres. Se ajudar, pergunte qual dia e horário a pessoa prefere e diga que a equipe confirma o encaixe.');
     }
     // Preço citado sem a pessoa pedir é leitura do Gemini (price_unrequested); o reparo reescreve a mensagem sem o valor.
-    if (verdict.price_unrequested === true) {
-      return fallback('price_unrequested', 'O rascunho anterior citava preço ou valor que a pessoa não pediu. Não cite preço, valor nem duração. Responda só ao que a pessoa disse ou comentou, em no máximo três frases curtas, sem precisar terminar com pergunta. Só convide para o próximo passo (como marcar a avaliação presencial gratuita) se fizer sentido. Não cite o nome do salão.');
-    }
+    if (verdict.price_unrequested !== false) return fallback('price_unrequested', noUnrequestedPrice);
     // Saudação repetida e convite indevido são apontados pelo revisor; o adaptador só corta o trecho literal.
     const prefix = typeof verdict.remove_prefix === 'string' ? verdict.remove_prefix.trim() : '';
     const opening = /\p{L}{2}/u.test(prefix) && draft.startsWith(prefix) ? draft.slice(prefix.length).trimStart() : '';
@@ -579,13 +597,14 @@ function createSalonHelpers(helpers, input, env) {
       const outcome = cut === draft ? 'passed' : cut.length < headless.length ? 'suffix_removed' : 'prefix_removed';
       return finish(outcome, final === draft ? response : messageResponse(response, candidate, final));
     }
+    if (audit.reason === 'price_not_requested') return fallback('price_unrequested', noUnrequestedPrice);
     // Auditor sem resposta utilizável (timeout, 429, JSON inválido) é diferente de preço reprovado; os dois guardam um trecho para diagnóstico.
     note(audit.kind === 'unavailable' ? 'price_audit_unavailable' : 'price_rejected');
     priceDiagnostic = { kind: audit.kind, reason: audit.reason, draft_excerpt: cut.slice(0, 300), ...(audit.segments ? { rejected_segments: audit.segments } : {}) };
     const priceTemplate = typeof priceFallback === 'string' ? priceFallback.trim() : '';
     // Reparo que corrige só a afirmação de preço e preserva o resto; passa de novo pelo guarda. O template é o último recurso técnico.
     const priceReply = await compose(
-      'O rascunho anterior (rascunho_anterior) tinha uma afirmação de preço que o sistema não conseguiu confirmar no catálogo oficial. Reescreva-o preservando todo o conteúdo que não for preço, inclusive a resposta a outras perguntas. Na afirmação de preço, cite o nome exato do serviço como está no catálogo e o valor oficial dele; se não tiver certeza de qual serviço a pessoa quer ou de qual é o valor, retire o valor e diga com naturalidade que a equipe confirma o valor certinho.',
+      'O rascunho anterior (rascunho_anterior) tinha uma afirmação de preço que o sistema não conseguiu confirmar no catálogo oficial. Reescreva-o preservando todo o conteúdo que não for preço, inclusive a resposta a outras perguntas. Só informe o valor oficial do serviço exato se a pessoa pediu preço na mensagem atual; caso contrário, retire o preço e conduza ao próximo passo do atendimento. Se o valor pedido não tiver fonte segura, diga com naturalidade que a equipe o confirma.',
       // Auditor sem resposta (falha técnica) não é preço errado: o texto final pede, com simpatia, que a pessoa repita.
       () => {
         const retryTemplate = typeof priceRetryFallback === 'string' ? priceRetryFallback.trim() : '';
