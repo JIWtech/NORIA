@@ -67,7 +67,7 @@ export function inboxNotification(item, replyStatus) {
   return {
     id: `inbox:${item.id}`, remote: item, title: presentation.title, description: presentation.description,
     category: 'attention', kind: presentation.kind, pending: !item.resolved_at && replyStatus !== 'answered',
-    overdue: Boolean(presentation.overdue), unread: item.unread, chatId: item.chat_id, channel: item.channel_type,
+    overdue: Boolean(presentation.overdue), attention: presentation.attention, unread: item.unread, chatId: item.chat_id, channel: item.channel_type,
     createdAt: item.updated_at || item.created_at, resolved: Boolean(item.resolved_at) || replyStatus === 'answered',
     resolutionLabel: replyStatus === 'answered' && !item.resolved_at ? 'Respondida' : 'Resolvida',
   };

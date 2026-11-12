@@ -23,7 +23,15 @@ export function findNotificationConversation(item, conversations) {
     && normalizeExternalConversationId(channel, entry.externalConversationId) === id) || null;
 }
 
+// Avisos informativos do sistema (conversa encerrada, IA retomou, resolvido, etapa movida) aparecem na lista, mas não tocam som.
+const SILENT_KINDS = new Set(['closed', 'answered', 'resumed', 'followup', 'payment-confirmed', 'stage']);
+export function notificationMakesSound(item) {
+  if (item?.kind === 'message') return true;
+  return item?.attention !== false && !SILENT_KINDS.has(item?.kind);
+}
+
 export function shouldPlayOperatorNotification(item, tenantSlug, visibleConversationKey) {
+  if (!notificationMakesSound(item)) return false;
   if (item.kind !== 'message' || !item.chatId || !visibleConversationKey) return true;
   return canonicalConversationKey(item.channel, item.chatId, '', tenantSlug) !== visibleConversationKey;
 }

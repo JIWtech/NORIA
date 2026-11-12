@@ -6,6 +6,7 @@ import {
   Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
 import { findNotificationConversation } from './operatorEvents.js';
+import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
 import { isUsefulContactName } from '../../services/contacts/contactNames.js';
 import './notifications.css';
 
@@ -208,9 +209,16 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
                       const action = actionFor?.(item, conversation);
                       const readDisabled = Boolean(item.remote && (inbox.syncing || inbox.error));
                       return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : ''}`}>
-                        <span className="notification-entry-icon" data-tone={tone}>
-                          <Icon size={20} strokeWidth={2.1} aria-hidden="true" />
-                        </span>
+                        {conversation || contact
+                          ? <span className="notification-entry-avatar" data-tone={tone}>
+                            <ContactAvatar name={contact || conversation?.contact} avatarUrl={conversation?.avatarUrl} />
+                            <span className="notification-entry-badge" aria-hidden="true">
+                              <Icon size={11} strokeWidth={2.4} />
+                            </span>
+                          </span>
+                          : <span className="notification-entry-icon" data-tone={tone}>
+                            <Icon size={20} strokeWidth={2.1} aria-hidden="true" />
+                          </span>}
                         <div className="notification-entry-body">
                           <div className="notification-entry-line">
                             <h4>{item.title}</h4>

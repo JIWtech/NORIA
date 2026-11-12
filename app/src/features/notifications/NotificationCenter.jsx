@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from './useNotifications.js';
 import { humanReplyStatus } from './notificationService.js';
-import { findNotificationConversation, notificationScope } from './operatorEvents.js';
+import { findNotificationConversation, notificationMakesSound, notificationScope } from './operatorEvents.js';
 import { canOperateNotifications, inboxNotification, pendingNotifications, waitingConversationNotifications } from './notificationPending.js';
 import { useOperatorNotifications } from './useOperatorNotifications.js';
 import { useNotificationSound } from './useNotificationSound.js';
@@ -35,10 +35,12 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
   useEffect(() => {
     if (inbox.loading || inbox.error || inbox.isOlderPage) return;
     const next = new Map(inbox.items.map(item => [item.id, item.revision]));
+    // Só avisos que pedem ação tocam som; encerramentos e respostas já dadas aparecem sem som.
     if (remoteSeen.current && inbox.items.some(item => item.unread && (remoteSeen.current.get(item.id) || 0) < item.revision
-      && Date.parse(item.updated_at || item.created_at) >= mountedAt.current)) sound.play();
+      && Date.parse(item.updated_at || item.created_at) >= mountedAt.current
+      && notificationMakesSound(inboxNotification(item, humanReplyStatus(item, inbox.replies, tenantId, inbox.checkedAt))))) sound.play();
     remoteSeen.current = next;
-  }, [inbox.items, inbox.loading, inbox.error, inbox.isOlderPage, sound.play]);
+  }, [inbox.items, inbox.loading, inbox.error, inbox.isOlderPage, inbox.replies, inbox.checkedAt, tenantId, sound.play]);
 
   const items = useMemo(() => {
     const scope = { tenantId, userId, role, settings, kanbanColumns, appointments, now };

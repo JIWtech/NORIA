@@ -125,7 +125,7 @@ test('som continua disponível para outro chat, aba oculta e avisos operacionais
     assert.equal(shouldPlayOperatorNotification(message, scope.tenantSlug, key), true);
   }
   assert.equal(shouldPlayOperatorNotification({ ...message, chatId: '' }, scope.tenantSlug, visibleKey), true);
-  assert.equal(shouldPlayOperatorNotification({ ...message, kind: 'attachment' }, scope.tenantSlug, visibleKey), true);
+  assert.equal(shouldPlayOperatorNotification({ ...message, kind: 'attachment', attention: true }, scope.tenantSlug, visibleKey), true);
 });
 
 test('notification tone requires an unlocked context and uses a short two-note envelope', () => {
