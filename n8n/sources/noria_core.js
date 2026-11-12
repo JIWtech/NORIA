@@ -5518,6 +5518,19 @@ const SERVICES_SUPPORT_RULES = {
   conditions: ['fact', 'block'], health_safety: ['fact', 'block'], result_promise: ['fact', 'block'], conversational: SERVICES_SUPPORT_KINDS,
 };
 
+// Verdadeiro quando a afirmação tem poucos termos relevantes (não dá para julgar) ou compartilha ao menos um termo com a autoridade.
+function servicesAssertionSharesAuthorityTerms(assertionText, authorityText, norm) {
+  const stopwords = new Set(['para', 'com', 'sem', 'por', 'uma', 'umas', 'uns', 'que', 'mais', 'tambem', 'voce', 'voces', 'seu', 'sua', 'seus', 'suas', 'nosso', 'nossa',
+  'esse', 'essa', 'isso', 'este', 'esta', 'isto', 'como', 'onde', 'quando', 'sobre', 'entre', 'todo', 'toda', 'todos', 'todas', 'ser', 'esta', 'tem', 'temos', 'fica', 'ficam', 'pode', 'podem',
+  'ainda', 'apenas', 'serem', 'esta', 'estao', 'valor', 'preco', 'servico', 'servicos', 'diferenca', 'difere', 'diferem', 'diferente', 'diferentes']);
+  const terms = text => [...new Set(String(norm(text)).split(/[^a-z0-9]+/).filter(term => term.length >= 4 && !stopwords.has(term)))];
+  const claimed = terms(assertionText);
+  if (claimed.length < 3) return true;
+  const authority = String(authorityText || '');
+  const stem = term => term.slice(0, Math.max(4, term.length - 2));
+  return claimed.some(term => authority.includes(stem(term)));
+}
+
 function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false }) {
   const failures = [];
   if (!report || typeof report !== 'object' || !Array.isArray(report.assertions) || report.assertions.length > 80) return { status: 'rejected', failures: ['AUDIT_REPORT_INVALID'], assertions: 0 };
@@ -5565,6 +5578,12 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     const quote = norm(item.quote);
     if (item.support === 'fact' && quote !== norm(factValue.get(ref))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
     if (item.support === 'block' && (quote.length < 8 || !blockText.get(ref)?.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:block');
+    // Citar a autoridade literalmente não basta: o que a resposta afirma precisa tratar do que a autoridade diz.
+    // Afirmação com vários termos relevantes e nenhum em comum com o fato/bloco citado é tratada como contradição ou invenção.
+    if ((item.support === 'fact' || item.support === 'block') && item.category !== 'conversational') {
+      const authorityText = item.support === 'fact' ? norm(factValue.get(ref)) : (blockText.get(ref) || '');
+      if (!servicesAssertionSharesAuthorityTerms(item.text, authorityText, norm)) failures.push('AUDIT_ASSERTION_NOT_GROUNDED:' + item.category);
+    }
     const blockAmounts = item.support === 'block' ? new Set(amountsIn(blocks.find(block => block.key === ref)?.text || '')) : new Set();
     if (amountsIn(item.text).some(amount => !knownAmounts.has(amount) && !blockAmounts.has(amount))) failures.push('AUDIT_ASSERTED_AMOUNT_NOT_IN_AUTHORITY');
     for (const match of String(item.text).matchAll(/\b([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)(?!\d)/g)) {
@@ -5604,6 +5623,7 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
       'A lista nunca fica vazia: se a resposta não tiver afirmação factual, devolva um item conversational com o texto dela.',
       'reservation é SOMENTE a afirmação de que uma reserva foi criada, confirmada ou garantida (exige reservation_receipt). Pedido encaminhado à equipe, "a equipe conclui/confirma a reserva", orientação de como agendar e promessa de retorno NÃO são reservation: são handoff (support handoff_execution) ou, se explicam uma regra do negócio, service/conditions sustentados por fact ou block. Se a resposta disser que a reserva ainda NÃO foi feita, use reservation com polarity denies.',
       'polarity é denies quando o item nega algo (por exemplo, um horário indisponível) e affirms nos demais casos. Um trecho que nega um horário e oferece outro vira dois itens.',
+      'O text de cada item é o que a resposta afirma. Só use support fact ou block se o fato ou trecho citado realmente diz o que o text afirma. Se o text diz outra coisa, contradiz a autoridade ou acrescenta uma característica que ela não menciona (por exemplo, "produtos extras" quando o fato fala de sala individual), use support none.',
     ], { persona: false, thinkingBudget: 256, maxOutputTokens: 3072 });
   } catch (error) { return { status: 'rejected', failures: ['AUDIT_UNAVAILABLE'], assertions: 0, error: String(error?.message || error).slice(0, 120) }; }
   return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness }), model: generated.model };

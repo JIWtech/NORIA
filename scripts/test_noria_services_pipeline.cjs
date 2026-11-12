@@ -298,7 +298,7 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
 });
 
 test('auditoria semântica: cada afirmação precisa de uma autoridade existente e do tipo permitido; sem cobertura ou sem fonte, rejeita', () => {
-  const verify = loadCore(['servicesVerifySemanticReport'], {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
     SERVICES_ASSERTION_CATEGORIES: ['price', 'service', 'schedule', 'availability', 'reservation', 'payment', 'handoff', 'preparation', 'conditions', 'health_safety', 'result_promise', 'conversational'],
     SERVICES_SUPPORT_KINDS: ['fact', 'block', 'availability', 'reservation_receipt', 'payment_forward', 'handoff_execution', 'customer_provided', 'none'],
     SERVICES_SUPPORT_RULES: (() => { const kinds = ['fact', 'block', 'availability', 'reservation_receipt', 'payment_forward', 'handoff_execution', 'customer_provided', 'none'];
@@ -314,6 +314,11 @@ test('auditoria semântica: cada afirmação precisa de uma autoridade existente
   assert.equal(verify({ assertions: opening, covers_entire_reply: true, opening_repeated: false }, { ...base, hasRecentBusiness: true }).status, 'approved');
   assert.equal(report([item('price', 'fact', 'f1', '10.00'), item('conversational', 'none'), item('availability', 'availability', '10:00'), item('service', 'customer_provided', 'customer_name')]).status, 'approved');
   // existence is not support: the quote must be literal and the asserted figures must be the authority's
+  // IA-01: citar o fato literalmente não sustenta uma afirmação que não trata dele
+  const premium = { ...base, decision: { facts: [{ fact_id: 'f2', value: 'sala individual e máquina dupla' }], approved_blocks: [] } };
+  const premiumReport = text => verify({ assertions: [item('service', 'fact', 'f2', 'sala individual e máquina dupla', text)], covers_entire_reply: true }, premium);
+  assert.ok(premiumReport('O Premium difere do Clássico por produtos e cuidados extras no atendimento').failures.includes('AUDIT_ASSERTION_NOT_GROUNDED:service'), 'afirmação sem relação com o fato citado');
+  assert.equal(premiumReport('No Premium você tem sala individual e máquina dupla para o bronze').status, 'approved', 'afirmação fiel ao fato');
   assert.ok(report([item('price', 'fact', 'f1', '99.00')]).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'fato existe mas o valor citado não é o dele');
   assert.ok(report([item('preparation', 'block', 'b1', 'basta chegar de biquíni')]).failures.includes('AUDIT_QUOTE_MISMATCH:block'), 'trecho que não está no bloco');
   assert.ok(report([item('preparation', 'block', 'b1', 'pele limpa e sem hidratante')]).status === 'approved', 'trecho literal do bloco');
