@@ -502,9 +502,15 @@ export function eventsToKanban(
   for (const column of columns) {
     for (const card of column.cards) {
       const own = card.appointmentStatus === 'pending_confirmation' ? card.appointmentMetadata?.slot_proposal : null;
-      const proposal = own?.status === 'accepted'
+      let proposal = own?.status === 'accepted'
         ? own
         : proposalsByConversation.get(canonicalConversationKey(card.channelType, card.externalConversationId, card.id));
+      // Pedido pendente registrado depois da proposta (a pessoa recusou e pediu outro horário): o selo antigo não descreve este pedido.
+      if (proposal && proposal !== own && card.appointmentStatus === 'pending_confirmation') {
+        const requestedAt = Date.parse(card.appointmentMetadata?.request_updated_at || '');
+        const proposalAt = Date.parse(proposal.resolved_at || proposal.sent_at || '');
+        if (Number.isFinite(requestedAt) && Number.isFinite(proposalAt) && requestedAt > proposalAt) proposal = null;
+      }
       if (proposal) card.slotProposal = { id: proposal.id, status: proposal.status, date: proposal.date, time: proposal.time, sent_at: proposal.sent_at, resolved_at: proposal.resolved_at };
     }
   }

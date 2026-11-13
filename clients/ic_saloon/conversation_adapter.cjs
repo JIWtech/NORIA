@@ -61,7 +61,8 @@ function createSalonHelpers(helpers, input, env) {
   };
   const judged = (options, timeout) => {
     if (!judgeModel) return { ...options, timeout };
-    return { ...options, timeout: Math.max(timeout, 12000),
+    // O revisor (Flash) pensa antes de responder: medido entre 5 e 15 s. Com 12 s, estourava e o turno virava erro técnico.
+    return { ...options, timeout: Math.max(timeout, 25000),
       url: String(options.url || '').replace(/\/models\/[^:/?]+:generateContent/, '/models/' + judgeModel + ':generateContent') };
   };
   let priceRetryFallback;
@@ -683,7 +684,10 @@ function createSalonHelpers(helpers, input, env) {
       const nameInCurrent = matched.length > 0 && Boolean(name) && normalize(String(current || '')).includes(normalize(name));
       if (!completingName && !nameInCurrent && (verdict.allowed !== true || !candidates.some(row => row.id === verdict.evidence_id))) {
         if (!matched.length && slotReady) return askName('previous_name_unconfirmed');
-        return fallback(verdict.allowed !== true ? 'review_rejected' : 'evidence_mismatch', matched.length ? '' : confirmName);
+        // Nome já dito pela pessoa nesta conversa: sem essa orientação, a reescrita pedia o nome completo de novo.
+        const knownName = 'A pessoa já informou o nome ' + name + ' nesta conversa: não peça o nome de novo. Nada foi registrado ainda: não diga que está combinado, anotado nem que a equipe confirma. '
+          + 'Em uma mensagem curta, repita o serviço, o dia e o horário entendidos e pergunte se pode registrar o pedido no nome ' + name + ', ou pergunte só o dado que estiver faltando.';
+        return fallback(verdict.allowed !== true ? 'review_rejected' : 'evidence_mismatch', matched.length ? knownName : confirmName);
       }
       // Completar o nome do próprio pedido pendente não é atendimento a mais: só outras reservas exigem a confirmação da pessoa.
       const others = existing.filter(row => !(row.status === 'pending_confirmation' && row.startsAt === proposedStart
@@ -754,7 +758,7 @@ function createSalonHelpers(helpers, input, env) {
     // que acabava reprovada de novo e mandava a pessoa para a equipe só com "vou pedir para conferir".
     // Afirmação de cancelamento tem tratamento próprio logo abaixo (nova tentativa com a tag); não vira "pedido combinado".
     if (verdict.claims_registration !== false && verdict.claims_cancellation === false) {
-      return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome). Se todos os dados já foram dados, pergunte se pode seguir.');
+      return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome, só se ainda não foi dito na conversa). Se todos os dados já foram dados, pergunte se pode seguir.');
     }
     // A IA nunca informa chave Pix, CNPJ, conta, telefone ou contato: esses dados quem envia é a equipe.
     if (verdict.shares_payment_or_contact !== false) {

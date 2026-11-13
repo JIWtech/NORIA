@@ -187,6 +187,10 @@ test('ação de registro só é liberada com evidência do cliente e sem pendên
   assert.equal(rejected.text, repairText);
   assert.deepEqual(rejected.diagnostics.adapter_trail, ['review_rejected']);
   assert.match(rejected.generations.at(-1).at(-1).text, /^Nenhum pedido foi gravado neste turno\./);
+  // Nome já dito pela pessoa (evidência literal): a reescrita não pode pedir o nome de novo.
+  const repairOrder = JSON.stringify(rejected.generations.at(-1));
+  assert.match(repairOrder, /não peça o nome de novo/);
+  assert.ok(repairOrder.includes('no nome ' + name));
 
   // Reprovação de conteúdo em todos os reparos: texto de revisão da equipe com transferência, nunca a tag.
   const noRepair = await run({ verdict: { ...okVerdict, allowed: false, evidence_id: 'invented' }, repairs: ['Já anotei seu pedido.'] });
@@ -916,7 +920,7 @@ test('review_model do salão: o revisor usa o modelo configurado; resposta, repa
     model: /\/models\/([^:/?]+):/.exec(r.url)[1], kind: JSON.stringify(r.body?.system_instruction || '').slice(0, 40), timeout: r.timeout }));
   const reviewer = models.filter(m => m.kind.includes('Valide a resposta'));
   const auditor = models.filter(m => m.kind.includes('Você é um auditor'));
-  assert.ok(reviewer.length && reviewer.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 9000), JSON.stringify(models));
+  assert.ok(reviewer.length && reviewer.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 25000), JSON.stringify(models));
   // O auditor de preço fica no modelo do atendimento (no Flash juntava valores e reprovava preço oficial).
   assert.ok(auditor.length && auditor.every(m => m.model === 'gemini-test'), JSON.stringify(models));
   // Sem configuração: tudo no modelo do atendimento, como antes.

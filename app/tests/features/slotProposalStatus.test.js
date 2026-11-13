@@ -56,6 +56,18 @@ test('a proposta de outra conversa não aparece neste cartão', () => {
   assert.equal(cardOf(eventsToKanban([inbound], 'ic_salon', [other], config)).slotProposal, undefined);
 });
 
+test('pedido novo depois da recusa: o selo da proposta antiga sai do cartão', () => {
+  const rejected = cancelled({ id: 'p', status: 'rejected', date: '2026-11-14', time: '14:00', sent_at: hoursAgo(3), resolved_at: hoursAgo(2) });
+  const pending = (createdAt) => mapAppointment({
+    id: 'ap-new', title: 'Corte - Ana', starts_at: '2026-11-17T16:00:00Z', status: 'pending_confirmation', contact_name: 'Ana', channel_type: 'whatsapp',
+    external_conversation_id: CHAT, created_at: createdAt, updated_at: createdAt, metadata: { services: ['Corte'], request_version: 1, request_updated_at: createdAt },
+  });
+  // A pessoa recusou e pediu outro horário: o pedido novo é posterior à recusa.
+  assert.equal(cardOf(eventsToKanban([inbound], 'ic_salon', [rejected, pending(hoursAgo(1))], config)).slotProposal, undefined);
+  // Pedido pendente anterior à proposta (outro pedido da mesma conversa): a recusa continua informativa.
+  assert.equal(cardOf(eventsToKanban([inbound], 'ic_salon', [rejected, pending(hoursAgo(4))], config)).slotProposal.status, 'rejected');
+});
+
 test('pedido reaberto por aceite indica que veio de proposta', () => {
   const reopened = mapAppointment({
     id: 'ap-open', title: 'Corte - Ana', starts_at: '2026-11-21T13:00:00Z', status: 'pending_confirmation', contact_name: 'Ana', channel_type: 'whatsapp',
