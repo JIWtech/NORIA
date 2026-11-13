@@ -1890,6 +1890,8 @@ function parseAppointmentRequestAction(text) {
     firstVisit: normalizeFirstVisit(details.primeira_vez),
     status: normalizeText(details.status || '') || (kind === 'create' ? 'pending_confirmation' : ''), requestId: details.pedido || '',
     depositRequired: normalizeText(details.sinal_exigido || '') === 'sim',
+    // Avaliação presencial antes do serviço (ex.: mechas): registra como avaliação, sem a duração do serviço completo.
+    evaluation: normalizeText(details.avaliacao || '') === 'sim',
   };
 }
 
@@ -2182,9 +2184,10 @@ async function saveAppointmentRequest(context, action, open, openRequests = open
   // A duração vem do catálogo. Sem ela para algum serviço, o fim fica em aberto e o card avisa.
   const hours = services.map(item => Number(item.estimated_hours));
   const knownDuration = services.every(item => item.estimated_hours !== null && item.estimated_hours !== undefined) && hours.every(value => value > 0);
-  const durationMinutes = knownDuration ? Math.round(hours.reduce((sum, value) => sum + value, 0) * 60) : null;
+  const evaluation = action.evaluation === true || (action.kind === 'update' && base.evaluation_visit === true);
+  const durationMinutes = knownDuration && !evaluation ? Math.round(hours.reduce((sum, value) => sum + value, 0) * 60) : null;
   const names = services.map(item => item.name);
-  const title = names.join(' + ') + ' - ' + customerName;
+  const title = (evaluation ? 'Avaliação: ' : '') + names.join(' + ') + ' - ' + customerName;
   const endsAt = durationMinutes ? new Date(Date.parse(startsAt) + durationMinutes * 60000).toISOString() : null;
   const details = { tenant_slug: tenantSlug, services: names, customer_name: customerName, requested_date: date, requested_time: time,
     professional: action.professional || base.professional || null,
@@ -2192,7 +2195,8 @@ async function saveAppointmentRequest(context, action, open, openRequests = open
     first_visit: action.firstVisit || normalizeFirstVisit(base.first_visit) || null,
     recipient_key: appointmentRecipientKey(customerName),
     duration_minutes: durationMinutes, conversation_session_id: turn?.boundary_id || null,
-    ...(action.depositRequired === true ? { deposit_required: true } : {}) };
+    ...(action.depositRequired === true ? { deposit_required: true } : {}),
+    ...(evaluation ? { evaluation_visit: true } : {}) };
   if (contextual) {
     const written = await writeContextualAppointmentRequest(context, action.kind === 'update' ? open : null, { title, contact_name: customerName, starts_at: startsAt, ends_at: endsAt }, details, requestKey);
     // Sinaliza ao turno que foi só o nome completado: a resposta usa o texto de pedido atualizado, sem repetir o recibo.
@@ -2698,7 +2702,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
   const bookingRules = appointmentRequestConfig(context)?.valid === true ? [
     '- O agendamento deste tenant é por pedido: a equipe confirma o horário. Você não confirma e não reserva horário.',
     // Formato único da tag: o prompt do tenant diz quando registrar; o protocolo (campos e formato) fica só aqui.
-    '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato, sem texto de resumo: [ACAO: CRIAR_AGENDAMENTO|nome=NOME COMPLETO|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:MM|profissional=NOME|primeira_vez=sim|status=pending_confirmation]. profissional e primeira_vez são opcionais (omita o campo quando não houver); status é sempre pending_confirmation. O sistema escreve a confirmação de recebimento.',
+    '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato, sem texto de resumo: [ACAO: CRIAR_AGENDAMENTO|nome=NOME COMPLETO|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:MM|profissional=NOME|primeira_vez=sim|status=pending_confirmation]. profissional e primeira_vez são opcionais (omita o campo quando não houver); status é sempre pending_confirmation. Quando o que está sendo marcado é a avaliação presencial antes do serviço (e não o serviço em si), use o serviço pretendido e inclua avaliacao=sim. O sistema escreve a confirmação de recebimento.',
     '- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:MM, em 24 horas.',
     ...bookingServiceNamesRule(catalog),
     ...(contextualBooking ? [
@@ -2990,8 +2994,14 @@ ${bookingRules}
     }
   }
 
+  // Gemini sem texto: uma nova tentativa; se vier vazio de novo, a pessoa recebe a mensagem de reserva do salão e a equipe
+  // assume (antes o turno falhava e ninguém respondia).
   if (!generated.text) {
-    throw new Error('Gemini sem texto de resposta');
+    generated = await generate(maxOutputTokens, '\n\nA tentativa anterior veio vazia. Responda à mensagem atual com uma mensagem curta ao cliente.');
+  }
+  if (!generated.text) {
+    const configured = String(settingsFor(context).fallback_message || '').trim();
+    return { text: (configured || salonLiteralTemplate(context, 'processing_error_template')) + ' [HUMANO_SOLICITADO]', model, usage: {} };
   }
 
   return {

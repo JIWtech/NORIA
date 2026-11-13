@@ -124,3 +124,10 @@ test('tempo real: IA reassumindo conversa com agendamento confirmado futuro leva
   const loaded = cardsOfChat(eventsToKanban([event(), handoff, resume], tenant, [appointment()], config))[0].columnKey;
   assert.equal(cardsOfChat(applyIncomingEventToKanban(board, resume, tenant))[0].columnKey, loaded);
 });
+
+test('pedido de avaliação presencial aparece como "Avaliação: serviço" no card', () => {
+  const details = kanbanAppointmentDetails({ id: 'card-1', appointmentId: 'a1', appointmentStatus: 'pending_confirmation',
+    appointmentMetadata: { services: ['Mechas loiras'], evaluation_visit: true } });
+  assert.equal(details.services, 'Avaliação: Mechas loiras');
+  assert.equal(details.durationUnknown, true);
+});

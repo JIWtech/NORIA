@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -1029,4 +1029,44 @@ test('"retirei" sem tag com reprovação geral do revisor: a nova tentativa com 
   const repairs = parts => (parts.some(p => /CANCELAMENTO OBRIGATÓRIO/.test(p.text || '')) ? withTag : 'De qual pedido você quer desistir?');
   const result = await run({ draft: claim, currentText: 'Não quero mais marcar pra minha mãe', verdict, repairs });
   assert.equal(result.diagnostics.adapter_outcome, 'cancel_tag_recovered');
+});
+
+test('nome que não é nome de pessoa (instrução no lugar do nome) não vira pedido: a IA pede o nome real (regressão Gemini real)', async () => {
+  const result = await run({ verdict: { ...withEvidence, name_implausible: true }, repairs: ['Pode me dizer o seu nome completo, por favor?'] });
+  assert.notEqual(result.diagnostics.adapter_outcome, 'creation_allowed');
+  assert.equal(result.diagnostics.adapter_trail[0], 'name_implausible');
+  const review = result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'));
+  assert.ok(review.body.generationConfig.responseSchema.required.includes('name_implausible'));
+});
+
+test('preço pedido e reprovado: a reescrita recebe o valor oficial do serviço citado (regressão Gemini real: mechas sem valor)', async () => {
+  const draft = 'O corte começa em R$ 50,00.';
+  const fixed = 'O corte custa R$ 140,00.';
+  const report = message => (message === fixed
+    ? [{ kind: 'catalog_price', text: fixed, service_id: 'corte', amount_cents: 14000, price_type: 'fixed' }]
+    : [{ kind: 'reject', text: draft, service_id: 'corte' }]);
+  const result = await run({ ...priceQuestion, draft, verdict: okVerdict, priceReport: report, repairs: [fixed] });
+  assert.equal(result.text, fixed);
+  const instruction = result.generations.at(-1).map(p => p.text).join(' ');
+  assert.match(instruction, /valores_oficiais/);
+  assert.match(instruction, /Corte/);
+  assert.match(instruction, /140,00/);
+  const { auditPrompt } = require('./price_guard.cjs').createPriceGuard('tenant-x');
+  assert.match(auditPrompt, /cada valor monetário em um trecho próprio/i);
+  assert.match(auditPrompt, /começa em/);
+});
+
+test('revisor confere data, dia da semana, horário de funcionamento e cumprimento com um calendário pronto (regressão: "sábado, 15/11")', async () => {
+  const settings = { appointment_request: {}, price_rejection_template: priceFallback,
+    business_hours: { schedule: { terca: { start: '09:00', end: '18:00' }, segunda: { closed: true } } } };
+  const wrong = 'Perfeito, seu corte fica para sábado, 15/11, às 15h. Qual é o seu nome completo?';
+  const fixed = 'Perfeito, corte no sábado, 14 de novembro, às 15h. Qual é o seu nome completo?';
+  const verdict = body => ({ ...okVerdict, fact_mismatch: body.draft === wrong });
+  const result = await run({ draft: wrong, currentText: 'sábado às 15', verdict, repairs: [fixed], settings });
+  assert.equal(result.text, fixed);
+  assert.equal(result.diagnostics.adapter_trail[0], 'fact_mismatch');
+  const calendar = result.reviews[0].calendar;
+  assert.equal(calendar.proximos_dias.length, 14);
+  assert.match(calendar.proximos_dias[0], /^\d{2}\/\d{2} \(/);
+  assert.ok(calendar.hora_local && calendar.funcionamento.terca);
 });

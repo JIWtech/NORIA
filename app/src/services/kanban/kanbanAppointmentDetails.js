@@ -24,8 +24,10 @@ export function kanbanAppointmentDetails(card, { timeZone } = {}) {
     .map((service) => String(service || '').trim())
     .filter(Boolean);
   const isAppointmentCard = String(card.id || '').startsWith('appointment-');
+  // Pedido de avaliação presencial (antes do serviço, ex.: mechas): o card deixa claro que não é o serviço marcado.
+  const serviceLabel = services.length ? services.join(' + ') : String(card.appointmentTitle || '').trim();
   return {
-    services: services.length ? services.join(' + ') : String(card.appointmentTitle || '').trim(),
+    services: metadata.evaluation_visit === true && services.length ? `Avaliação: ${serviceLabel}` : serviceLabel,
     when: isAppointmentCard ? '' : formatAppointmentWhen(card.appointmentStartsAt, timeZone),
     professional: String(metadata.professional || '').trim(),
     firstVisit: metadata.first_visit ? String(metadata.first_visit) : '',

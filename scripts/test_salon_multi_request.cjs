@@ -310,3 +310,29 @@ test('catálogo completo: se o modelo escreveu a própria lista antes da tag, s�
   const short = await run({ request: contextual, texts: ['Quais serviços?'], response: 'Claro, olha só tudo o que fazemos! [CATALOGO_COMPLETO]' });
   assert.match(short.sentText, /^Claro, olha só tudo o que fazemos!/);
 });
+
+test('Gemini sem texto: tenta de novo e, se vier vazio outra vez, envia a mensagem de reserva do salão e passa à equipe (regressão Gemini real)', async () => {
+  const fallback = 'Recebi sua mensagem! Já vou pedir para a equipe do salão continuar seu atendimento por aqui.';
+  const retried = await run({ request: contextual, extra: { fallback_message: fallback }, texts: ['Tenho 15 anos, posso ir sozinha?'],
+    response: ['', 'Menores de idade são atendidos com o pai ou a mãe junto.'] });
+  assert.equal(retried.sentText, 'Menores de idade são atendidos com o pai ou a mãe junto.');
+  const empty = await run({ request: contextual, extra: { fallback_message: fallback }, texts: ['Tenho 15 anos, posso ir sozinha?'], response: ['', ''] });
+  assert.equal(empty.sent, 1, 'a pessoa recebe uma mensagem');
+  assert.equal(empty.sentText, fallback);
+  assert.ok(empty.events.some(e => e.handoff === true));
+});
+
+test('avaliação presencial: tag com avaliacao=sim registra "Avaliação: serviço" sem a duração do serviço completo', async () => {
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servicos=Corte|data=2099-09-30|hora=10:00|avaliacao=sim|status=pending_confirmation]';
+  const r = await run({ request: contextual, response: tag, texts: ['Quero marcar a avaliação, Maria Silva'] });
+  assert.equal(r.posted.length, 1);
+  assert.equal(r.posted[0].title, 'Avaliação: Corte - Maria Silva');
+  assert.equal(r.posted[0].metadata.evaluation_visit, true);
+  assert.equal(r.posted[0].metadata.duration_minutes, null);
+  assert.equal(r.posted[0].ends_at, null);
+  // Sem o campo, segue como serviço normal.
+  const normal = await run({ request: contextual, response: tag.replace('|avaliacao=sim', ''), texts: ['Maria Silva'] });
+  assert.equal(normal.posted[0].title, 'Corte - Maria Silva');
+  assert.equal(normal.posted[0].metadata.evaluation_visit, undefined);
+  assert.match(r.prompt, /avaliacao=sim/);
+});
