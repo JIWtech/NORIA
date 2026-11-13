@@ -898,3 +898,11 @@ test('nome completado do pedido pendente segue ao motor, não vira "pedido repet
   const same = await run({ appointments: [{ ...partial, contact_name: name }] });
   assert.notEqual(same.diagnostics.adapter_outcome, 'creation_allowed');
 });
+
+test('corte do convite nunca deixa a frase pela metade (regressão Gemini real: "Não fazemos unha de gel, mas")', async () => {
+  const draft = 'Não fazemos unha de gel, mas temos a mão tradicional. Quer marcar?';
+  const half = await run({ draft, currentText: 'vocês fazem unha de gel?', verdict: { ...okVerdict, remove_suffix: 'temos a mão tradicional. Quer marcar?' } });
+  assert.equal(half.text, draft, 'o que sobraria não termina como frase: mantém a resposta inteira');
+  const whole = await run({ draft, currentText: 'vocês fazem unha de gel?', verdict: { ...okVerdict, remove_suffix: 'Quer marcar?' } });
+  assert.equal(whole.text, 'Não fazemos unha de gel, mas temos a mão tradicional.');
+});

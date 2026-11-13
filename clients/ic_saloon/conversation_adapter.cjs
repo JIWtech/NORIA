@@ -672,7 +672,9 @@ function createSalonHelpers(helpers, input, env) {
     const headless = /\p{L}{2}/u.test(opening) ? opening.charAt(0).toLocaleUpperCase('pt-BR') + opening.slice(1) : draft;
     // Com agendamento em andamento (leitura do revisor), a pergunta para seguir é o próximo passo e nunca é cortada.
     const suffix = verdict.booking_in_progress !== true && typeof verdict.remove_suffix === 'string' ? verdict.remove_suffix.trim() : '';
-    const cut = /\p{L}{2}/u.test(suffix) && headless.endsWith(suffix) ? headless.slice(0, -suffix.length).trimEnd() : headless;
+    const shortened = /\p{L}{2}/u.test(suffix) && headless.endsWith(suffix) ? headless.slice(0, -suffix.length).trimEnd() : headless;
+    // O corte só vale se o que sobra termina como frase (pontuação final ou emoji); senão a mensagem ficaria pela metade.
+    const cut = shortened === headless || /[.!?…)\]\p{Extended_Pictographic}]\s*$/u.test(shortened) ? shortened : headless;
     const audit = cut ? await priceAudit(options, cut, verdict.price_request_quote) : { ok: false, kind: 'rejected', reason: 'empty_reply' };
     lastPriceAuditKind = audit.ok ? '' : audit.kind;
     if (audit.ok) {
