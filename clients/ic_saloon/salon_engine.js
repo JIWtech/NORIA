@@ -15042,7 +15042,8 @@ async function runTurn() {
         // Uma segunda tentativa antes do texto de erro (o primeiro reparo às vezes volta com tag ou vazio).
         // A reescrita que já desistiu (texto de erro do tenant) também não serve: segue para o recurso próprio do caso.
         const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim())
-          && cleanReplyText(text).trim() !== salonLiteralTemplate(context, 'processing_error_template');
+          && ![salonLiteralTemplate(context, 'processing_error_template'), salonLiteralTemplate(context, 'review_handoff_template')]
+            .includes(cleanReplyText(text).trim());
         const second = usable(revised.text) ? revised : await callGemini(context, '', history, catalog, appointments,
           '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar e nada foi cancelado. Responda em uma frase curta, sem tag, sem dizer que retirou ou cancelou algo, e pergunte se pode ajudar em mais alguma coisa.');
         responseText = usable(second.text) ? second.text
@@ -15071,7 +15072,8 @@ async function runTurn() {
         const instruction = '\n\nCORREÇÃO OPERACIONAL: nada foi registrado: ' + reason + ' Não diga que registrou e não emita tag de agendamento.';
         // A reescrita que já desistiu (texto de erro do tenant) também não serve: segue para o recurso próprio do caso.
         const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim())
-          && cleanReplyText(text).trim() !== salonLiteralTemplate(context, 'processing_error_template');
+          && ![salonLiteralTemplate(context, 'processing_error_template'), salonLiteralTemplate(context, 'review_handoff_template')]
+            .includes(cleanReplyText(text).trim());
         let revised = await callGemini(context, '', history, catalog, appointments, instruction);
         if (!usable(revised.text)) revised = await callGemini(context, '', history, catalog, appointments, instruction + ' A tentativa anterior não pôde ser usada: escreva só uma mensagem curta, sem tag.');
         if (usable(revised.text)) responseText = revised.text;

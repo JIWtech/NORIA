@@ -410,3 +410,14 @@ test('último recurso por caso: dia fechado e desistência sem pedido usam texto
   assert.equal(none.sentText, noneText);
   assert.deepEqual(none.patched, []);
 });
+
+test('reescrita que terminou no texto de passar à equipe também não serve: dia fechado usa o texto próprio', async () => {
+  const hours = { schedule: { segunda: { closed: true }, terca: { start: '09:00', end: '18:00' }, quarta: { start: '09:00', end: '18:00' },
+    quinta: { start: '09:00', end: '18:00' }, sexta: { start: '09:00', end: '18:00' }, sabado: { start: '09:00', end: '18:00' }, domingo: { closed: true } }, holidays: ['11-20'] };
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Paulo Mendes|servicos=Corte|data=2099-11-20|hora=10:00|status=pending_confirmation]';
+  const handoff = 'Vou chamar alguém da equipe para continuar com você por aqui, tá bem?';
+  const closedText = 'Nesse dia o salão não abre. Qual outro dia fica bom para você?';
+  const r = await run({ request: { ...contextual, closed_day_template: closedText, review_handoff_template: handoff }, extra: { business_hours: hours },
+    texts: ['Dia 20 às 10, Paulo Mendes'], response: [tag, handoff + ' [HUMANO_SOLICITADO]', handoff + ' [HUMANO_SOLICITADO]'] });
+  assert.equal(r.sentText, closedText);
+});
