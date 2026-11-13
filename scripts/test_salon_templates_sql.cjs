@@ -23,7 +23,7 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   await pg.exec(`create table public.tenants (id uuid primary key, slug text);
     create table public.tenant_settings (tenant_id uuid primary key, settings jsonb, updated_at timestamptz);
     insert into public.tenants values ('${TENANT}', 'ic_salon');`);
-  await pg.query('insert into public.tenant_settings values ($1, $2, now())', [TENANT, JSON.stringify({ appointment_request: { ...OLD, mode: 'operator_confirmation' } })]);
+  await pg.query('insert into public.tenant_settings values ($1, $2, now())', [TENANT, JSON.stringify({ appointment_request: { ...OLD, mode: 'operator_confirmation' }, business_hours: { schedule: { segunda: { closed: true } } } })]);
   await pg.exec(apply);
   const after = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.appointment_request;
   assert.doesNotMatch(after.received_template, /menores/);
@@ -31,6 +31,8 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   for (const key of ['received_template', 'confirmation_template']) assert.match(after[key].trim(), /[.?!]$/, key);
   assert.match(after.received_template, /\{servicos\}.*\{data\}.*\{hora\}/);
   assert.equal(after.mode, 'operator_confirmation');
+  const hoursAfter = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.business_hours;
+  assert.ok(hoursAfter.holidays.includes('11-20') && hoursAfter.schedule.segunda.closed === true);
   assert.doesNotMatch(after.review_handoff_template, /esse ponto/);
   assert.equal(after.updated_template, OLD.updated_template);
   // Rodar de novo não sobrescreve a cópia guardada.
@@ -42,4 +44,7 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   assert.equal(back.confirmation_template, OLD.confirmation_template);
   assert.equal(back.review_handoff_template, OLD.review_handoff_template);
   assert.equal(back.templates_backup_v1, undefined);
+  const hoursBack = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.business_hours;
+  assert.equal(hoursBack.holidays, undefined);
+  assert.equal(hoursBack.schedule.segunda.closed, true);
 });

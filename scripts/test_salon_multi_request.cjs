@@ -348,3 +348,23 @@ test('regras do motor: nome do registro é o da pessoa atendida e duas pessoas n
   assert.match(r.prompt, /não peça o nome de quem escreve/);
   assert.match(r.prompt, /registre uma pessoa por vez/);
 });
+
+test('feriado cadastrado (business_hours.holidays, MM-DD) é tratado como dia fechado: nada é gravado', async () => {
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Paulo Mendes|servicos=Corte|data=2099-11-20|hora=10:00|status=pending_confirmation]';
+  const hours = { schedule: { segunda: { closed: true }, terca: { start: '09:00', end: '18:00' }, quarta: { start: '09:00', end: '18:00' },
+    quinta: { start: '09:00', end: '18:00' }, sexta: { start: '09:00', end: '18:00' }, sabado: { start: '09:00', end: '18:00' }, domingo: { closed: true } } };
+  const closed = await run({ request: contextual, extra: { business_hours: { ...hours, holidays: ['11-20'] } }, texts: ['Dia 20 de novembro às 10, Paulo Mendes'],
+    response: [tag, 'Nesse dia é feriado e o salão fica fechado. Qual outro dia fica bom?'] });
+  assert.deepEqual(closed.posted, []);
+  assert.match(closed.sentText, /feriado/);
+  const open = await run({ request: contextual, extra: { business_hours: hours }, texts: ['Dia 20 de novembro às 10, Paulo Mendes'], response: tag });
+  assert.equal(open.posted.length, 1);
+});
+
+test('desistência de pedido que não existe: se a primeira reescrita vier com tag, tenta de novo antes do texto de erro', async () => {
+  const reply = 'Não encontrei pedido pendente dela por aqui. Posso ajudar com mais alguma coisa?';
+  const r = await run({ request: contextual, appointments: [second], texts: ['Desisto da minha esposa'],
+    response: ['Retirei. [ACAO: CANCELAR_PEDIDO|pedido=x|nome=Fernanda Alves Costa]', 'Ok [ACAO: CANCELAR_PEDIDO|pedido=x]', reply] });
+  assert.equal(r.sentText, reply);
+  assert.deepEqual(r.patched, []);
+});

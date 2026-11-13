@@ -666,7 +666,10 @@ function createSalonHelpers(helpers, input, env) {
       // aprovação geral do revisor, que lia como novo pedido sem autorização. A prova literal do nome continua exigida.
       const completingName = matched.length > 0 && existing.some(row => row.status === 'pending_confirmation'
         && row.startsAt === proposedStart && sameServices(row) && nameCompletes(row.nome, name));
-      if (!completingName && (verdict.allowed !== true || !candidates.some(row => row.id === verdict.evidence_id))) {
+      // Nome completo da pessoa atendida escrito na mensagem atual, junto com o pedido: prova literal suficiente; a aprovação
+      // geral do revisor oscilava entre rodadas para a mesma mensagem. As checagens específicas acima continuam valendo.
+      const nameInCurrent = matched.length > 0 && Boolean(name) && normalize(String(current || '')).includes(normalize(name));
+      if (!completingName && !nameInCurrent && (verdict.allowed !== true || !candidates.some(row => row.id === verdict.evidence_id))) {
         if (!matched.length && slotReady) return askName('previous_name_unconfirmed');
         return fallback(verdict.allowed !== true ? 'review_rejected' : 'evidence_mismatch', matched.length ? '' : confirmName);
       }

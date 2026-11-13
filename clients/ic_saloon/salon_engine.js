@@ -431,6 +431,12 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
 // Pedido para dia fechado ou horário fora do funcionamento configurado do tenant não é gravado. Sem configuração ou sem
 // regra conhecida para o dia, não bloqueia (a equipe confirma o pedido pendente).
 function appointmentOutsideBusinessHours(context, startsAt) {
+  // Feriados do cadastro (business_hours.holidays, no formato MM-DD) contam como dia fechado.
+  const holidays = settingsFor(context).business_hours?.holidays;
+  if (Array.isArray(holidays) && holidays.length) {
+    const monthDay = new Intl.DateTimeFormat('en-CA', { timeZone: tenantTimeZone(context), month: '2-digit', day: '2-digit' }).format(new Date(startsAt));
+    if (holidays.map(String).includes(monthDay)) return true;
+  }
   const status = tenantBusinessHoursStatus(context, new Date(startsAt));
   const day = status?.configured ? status.day_hours : null;
   if (!day || day.is_24h) return false;
@@ -15025,9 +15031,12 @@ async function runTurn() {
         // Não há pedido pendente dessa pessoa: nada a retirar e nada para a equipe; o modelo explica sem afirmar cancelamento.
         const revised = await callGemini(context, '', history, catalog, appointments,
           '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar, e nenhum pedido foi cancelado neste turno. Os pedidos de outras pessoas continuam como estão. Diga isso com naturalidade, sem afirmar que retirou, cancelou ou removeu algo, e pergunte se pode ajudar em mais alguma coisa. Não emita tag de agendamento.');
-        responseText = parseAppointmentRequestAction(revised.text) || !cleanReplyText(revised.text).trim()
-          ? salonLiteralTemplate(context, 'processing_error_template') : revised.text;
-        preserveLiteralReply = responseText !== revised.text;
+        // Uma segunda tentativa antes do texto de erro (o primeiro reparo às vezes volta com tag ou vazio).
+        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim());
+        const second = usable(revised.text) ? revised : await callGemini(context, '', history, catalog, appointments,
+          '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar e nada foi cancelado. Responda em uma frase curta, sem tag, sem dizer que retirou ou cancelou algo, e pergunte se pode ajudar em mais alguma coisa.');
+        responseText = usable(second.text) ? second.text : salonLiteralTemplate(context, 'processing_error_template');
+        preserveLiteralReply = !usable(second.text);
       } else if (contextualBooking && /APPOINTMENT_REQUEST_(?:CHANGED|NOT_OPEN|BUSY)/.test(code)) {
         const current = appointmentState((await loadAppointments(context.tenant.id, false, true)).rows);
         await refreshOpenAppointmentRequests(context, current);
@@ -15043,7 +15052,7 @@ async function runTurn() {
       } else if (/outside_business_hours/.test(code)) {
         // Nada foi gravado: o modelo explica que o dia/horário está fora do funcionamento e pede outro, sem tag de agendamento.
         const revised = await callGemini(context, '', history, catalog, appointments,
-          '\n\nCORREÇÃO OPERACIONAL: o dia ou horário proposto está fora do horário de funcionamento configurado e nada foi registrado. Explique com naturalidade e peça outro dia ou horário dentro do funcionamento. Não diga que registrou e não emita tag de agendamento.');
+          '\n\nCORREÇÃO OPERACIONAL: o dia ou horário proposto está fora do horário de funcionamento configurado (o que inclui feriados em que o salão fecha) e nada foi registrado. Explique com naturalidade e peça outro dia ou horário dentro do funcionamento. Não diga que registrou e não emita tag de agendamento.');
         responseText = revised.text;
       } else if (retryText) {
         responseText = retryText; preserveLiteralReply = true;

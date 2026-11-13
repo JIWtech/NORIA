@@ -81,7 +81,7 @@ const past = (id, status, startsAt, extra = {}) => ({ id, status, title: 'Corte 
   created_at: startsAt, metadata: { services: ['Corte'] }, ...extra });
 
 async function run({ draft = tag, evidence = true, verdict = withEvidence, priceReport, currentText, scope = input,
-  priceRequestQuote = '', finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail, withBudget = false, budgetAllowed = true } = {}) {
+  priceRequestQuote = '', finishReason = 'STOP', repairs = [repairText], appointments = [], appointmentsFail = false, settings, catalogPrice, auditFail, withBudget = false, budgetAllowed = true, nameInContents = false } = {}) {
   const rpcCalls = [];
   const requests = [];
   const reviews = [];
@@ -152,7 +152,7 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
     }
     // Geração: 2 partes é o rascunho (instrução + nomes do atendimento); 3 ou mais é o reparo.
     generations.push(options.body.system_instruction.parts);
-    assert.equal(JSON.stringify(options.body.contents).includes(name), false);
+    if (!nameInContents) assert.equal(JSON.stringify(options.body.contents).includes(name), false);
     if (options.body.system_instruction.parts.length === 2) {
       assert.equal(options.body.system_instruction.parts[1].text.includes(name), evidence);
       return reply(draft, finishReason);
@@ -1075,4 +1075,15 @@ test('revisor de estilo também barra palavras grudadas e erros de digitação (
   const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict });
   const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
   assert.match(system, /palavras grudadas ou erro de digitação/);
+});
+
+test('nome completo da pessoa atendida na mensagem atual: registro não depende da aprovação geral do revisor (oscilava com Flash)', async () => {
+  const result = await run({ nameInContents: true, currentText: 'Quero corte pra minha mãe ' + name + ' amanhã às 10', verdict: { ...withEvidence, allowed: false, evidence_id: '' } });
+  assert.equal(result.diagnostics.adapter_outcome, 'creation_allowed', JSON.stringify(result.diagnostics.adapter_trail));
+  // Nome só em mensagem antiga, revisor reprovando: continua barrado.
+  const old = await run({ currentText: 'pode marcar', verdict: { ...withEvidence, allowed: false, evidence_id: '' }, repairs: ['Qual é o nome completo?'] });
+  assert.notEqual(old.diagnostics.adapter_outcome, 'creation_allowed');
+  // Checagens específicas continuam valendo.
+  const implausible = await run({ nameInContents: true, currentText: 'Quero corte pra ' + name, verdict: { ...withEvidence, name_implausible: true }, repairs: ['Qual é o nome completo?'] });
+  assert.notEqual(implausible.diagnostics.adapter_outcome, 'creation_allowed');
 });
