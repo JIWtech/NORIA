@@ -1927,7 +1927,8 @@ function renderAppointmentRequest(template, appointment, context) {
   const start = new Date(appointment.starts_at);
   const values = {
     nome: appointment.contact_name || '',
-    servicos: (appointment.metadata?.services || []).join(' e '),
+    // Pedido de avaliação presencial: o recibo deixa claro que é a avaliação, não o serviço.
+    servicos: (appointment.metadata?.evaluation_visit === true ? 'Avaliação de ' : '') + (appointment.metadata?.services || []).join(' e '),
     data: new Intl.DateTimeFormat('pt-BR', { timeZone, weekday: 'long', day: 'numeric', month: 'long' }).format(start),
     hora: new Intl.DateTimeFormat('pt-BR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(start),
   };

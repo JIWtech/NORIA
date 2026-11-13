@@ -336,3 +336,9 @@ test('avaliação presencial: tag com avaliacao=sim registra "Avaliação: servi
   assert.equal(normal.posted[0].metadata.evaluation_visit, undefined);
   assert.match(r.prompt, /avaliacao=sim/);
 });
+
+test('recibo de avaliação presencial diz que é avaliação (regressão Gemini real: "Mechas loiras para sábado")', async () => {
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Maria Silva|servicos=Corte|data=2099-09-30|hora=10:00|avaliacao=sim|status=pending_confirmation]';
+  const r = await run({ request: contextual, response: tag, texts: ['Quero marcar a avaliação, Maria Silva'] });
+  assert.match(r.sentText, /^Anotei, Maria Silva: Avaliação de Corte,/);
+});
