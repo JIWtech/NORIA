@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -905,4 +905,37 @@ test('corte do convite nunca deixa a frase pela metade (regressão Gemini real: 
   assert.equal(half.text, draft, 'o que sobraria não termina como frase: mantém a resposta inteira');
   const whole = await run({ draft, currentText: 'vocês fazem unha de gel?', verdict: { ...okVerdict, remove_suffix: 'Quer marcar?' } });
   assert.equal(whole.text, 'Não fazemos unha de gel, mas temos a mão tradicional.');
+});
+
+test('review_model do salão: revisor e auditor de preço usam o modelo configurado; a resposta e os reparos seguem no modelo do atendimento', async () => {
+  const base = { appointment_request: {}, price_rejection_template: priceFallback };
+  const priceText = 'O corte custa R$ 140,00.';
+  const segment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed', contextual_match: true };
+  const judged = await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, priceReport: [segment], settings: { ...base, review_model: 'gemini-flash-latest' } });
+  const models = judged.requests.filter(r => String(r.url).includes('generativelanguage')).map(r => ({
+    model: /\/models\/([^:/?]+):/.exec(r.url)[1], kind: JSON.stringify(r.body?.system_instruction || '').slice(0, 40), timeout: r.timeout }));
+  const reviewer = models.filter(m => m.kind.includes('Valide a resposta'));
+  const auditor = models.filter(m => m.kind.includes('Você é um auditor'));
+  assert.ok(reviewer.length && reviewer.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 9000), JSON.stringify(models));
+  assert.ok(auditor.length && auditor.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 9000), JSON.stringify(models));
+  // Sem configuração: tudo no modelo do atendimento, como antes.
+  const plain = await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, priceReport: [segment], settings: base });
+  assert.ok(plain.requests.filter(r => String(r.url).includes('generativelanguage')).every(r => r.url.includes('/models/gemini-test:')));
+  // Valor inválido é ignorado (nunca vira parte da URL).
+  const bad = await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, priceReport: [segment], settings: { ...base, review_model: '../x?key=1' } });
+  assert.ok(bad.requests.filter(r => String(r.url).includes('generativelanguage')).every(r => r.url.includes('/models/gemini-test:')));
+});
+
+test('boas-vindas ou nome do salão na resposta são reescritos (regressão Gemini real: "Seja muito bem-vinda ao I&C Salon!")', async () => {
+  const welcome = 'Oi! Seja muito bem-vinda ao I&C Salon! Como posso ajudar você hoje? ✨';
+  const fixed = 'Oi! Acabei de chegar na equipe. Como posso ajudar você hoje? ✨';
+  const verdict = body => ({ ...okVerdict, style_violation: body.draft === welcome });
+  const settings = { appointment_request: {}, price_rejection_template: priceFallback, business_facts: { name: 'I&C Salon' } };
+  const result = await run({ draft: welcome, currentText: 'oi', verdict, repairs: [fixed], settings });
+  assert.equal(result.text, fixed);
+  assert.equal(result.diagnostics.adapter_trail[0], 'style_violation');
+  assert.equal(result.reviews[0].business_name, 'I&C Salon', 'o revisor recebe o nome do salão do cadastro');
+  // Reparo que insiste nas boas-vindas também é reprovado.
+  const stubborn = await run({ draft: welcome, currentText: 'oi', verdict, repairs: [welcome], settings });
+  assert.notEqual(stubborn.text, welcome);
 });
