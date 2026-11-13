@@ -281,6 +281,8 @@ function createSalonHelpers(helpers, input, env) {
     const unavailable = reason => ({ ok: false, kind: 'unavailable', reason });
     // Texto sem nenhum algarismo não traz valor nem duração a conferir: o auditor não é chamado (falha técnica dele
     // transformava saudações e perguntas simples em "manda de novo"). A tag de catálogo com preços continua auditada.
+    // Tags internas de ação ([ACAO: ...]) não são texto ao cliente; o id do pedido nelas não pode acionar o auditor.
+    draft = String(draft || '').replace(/\[A[CÇ][AÃ]O:[^\]\r\n]*\]/giu, '').trim();
     if (!/\d/.test(draft) && !/\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(draft)) return { ok: true };
     try {
       if (!priceCatalog) {
@@ -297,7 +299,8 @@ function createSalonHelpers(helpers, input, env) {
     let response;
     try {
       response = await geminiExtra({
-        ...judged(options, 5500),
+        // O auditor fica no modelo do atendimento: no Flash ele juntava dois valores num trecho e reprovava preço oficial.
+        ...options, timeout: 5500,
         body: {
           system_instruction: { parts: [{ text: auditPrompt }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify({
@@ -639,7 +642,11 @@ function createSalonHelpers(helpers, input, env) {
       if (verdict.recipient_assumed !== false || verdict.wrong_contact_name !== false) {
         return fallback('recipient_unconfirmed', 'O pedido atual não autoriza usar o nome de beneficiária anterior como destinatária ou como nome de quem escreve. Se não estiver claro para quem é o novo serviço, pergunte se é para a pessoa do pedido anterior ou outra pessoa. Não registre nem altere o pedido anterior.');
       }
-      if (verdict.allowed !== true || !candidates.some(row => row.id === verdict.evidence_id)) {
+      // Sobrenome do próprio pedido pendente (mesmo serviço, dia e hora), dito literalmente pela pessoa: não depende da
+      // aprovação geral do revisor, que lia como novo pedido sem autorização. A prova literal do nome continua exigida.
+      const completingName = matched.length > 0 && existing.some(row => row.status === 'pending_confirmation'
+        && row.startsAt === proposedStart && sameServices(row) && nameCompletes(row.nome, name));
+      if (!completingName && (verdict.allowed !== true || !candidates.some(row => row.id === verdict.evidence_id))) {
         if (!matched.length && slotReady) return askName('previous_name_unconfirmed');
         return fallback(verdict.allowed !== true ? 'review_rejected' : 'evidence_mismatch', matched.length ? '' : confirmName);
       }
@@ -656,23 +663,17 @@ function createSalonHelpers(helpers, input, env) {
       return finish('creation_allowed', messageResponse(response, candidate, sanitizeTags(creation[0], verdict.first_visit_stated === true)));
     }
 
-    if (tags.length > 1 || tags.some(tag => /^(CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)$/i.test(tag[1]))) return fallback('unexpected_tag');
+    // Várias tags (ex.: cancelar e criar ao mesmo tempo numa mudança de horário) ou confirmação: a reescrita sabe o caminho.
+    if (tags.length > 1 || tags.some(tag => /^(CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)$/i.test(tag[1]))) {
+      return fallback('unexpected_tag', 'Nenhuma alteração foi feita neste turno. Se a pessoa quer mudar dia, horário ou serviço de um pedido já feito, diga em uma frase curta que um responsável vai ajustar com ela por aqui e termine com [HUMANO_SOLICITADO], sem dizer que mudou nada. Caso contrário, responda à mensagem atual normalmente.');
+    }
     // Transferência sem texto: o motor enviaria só a frase genérica. Gera resposta contextual antes.
     if (/\[HUMANO_SOLICITADO\]/iu.test(draft) && !visibleText(draft)) return fallback('empty_handoff');
     const verdict = await review(options, draft, null, current, [], identityContext);
     // Com uma única tag de cancelar, quem confere o pedido é o motor (id e pessoa; se falhar, reescreve sem afirmar nada).
     // A reprovação geral do revisor não bloqueia; as checagens específicas abaixo (Pix, estilo, horário, preço) continuam.
-    const cancelAction = tags.length === 1 && /^CANCELAR_PEDIDO$/i.test(tags[0][1]);
-    if (!verdict || (verdict.allowed !== true && !cancelAction)) return fallback(verdict ? 'review_rejected' : 'review_unavailable');
-    // Afirmação de registro sem ação é leitura do Gemini (claims_registration); campo ausente ou fora do contrato falha fechado.
-    // O rascunho deu o pedido por combinado, marcado ou encaminhado sem a ação de registro. O reparo recebe o caminho certo
-    // (agradecer o dia e o horário, dizer que a equipe confirma e pedir o próximo dado que falta) em vez de uma tentativa às cegas,
-    // que acabava reprovada de novo e mandava a pessoa para a equipe só com "vou pedir para conferir".
-    if (verdict.claims_registration !== false) {
-      return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome). Se todos os dados já foram dados, pergunte se pode seguir.');
-    }
     // Cancelamento afirmado sem a ação de cancelar (o motor só cancela com a tag); com a tag, quem confere o pedido é o motor.
-    if (verdict.claims_cancellation !== false && !tags.some(tag => /^CANCELAR_PEDIDO$/i.test(tag[1]))) {
+    if (verdict && verdict.claims_cancellation !== false && !tags.some(tag => /^CANCELAR_PEDIDO$/i.test(tag[1]))) {
       // O modelo principal escreveu que retirou sem a tag (nada seria cancelado). Uma nova tentativa do mesmo modelo, com a
       // instrução explícita; só vale se vier com a tag de cancelar e passar pelo revisor. O motor confere id e pessoa.
       const retried = await geminiExtra({ ...augmented, body: { ...augmented.body, system_instruction: { parts: [
@@ -691,6 +692,16 @@ function createSalonHelpers(helpers, input, env) {
         }
       }
       return fallback('claims_cancellation', 'O rascunho anterior dizia que um pedido foi cancelado ou retirado, mas nada foi cancelado neste turno. Não diga que cancelou, retirou ou removeu nada. Se a pessoa quer desistir de um pedido pendente, pergunte em uma frase curta de qual pessoa é o pedido que ela quer retirar.');
+    }
+    const cancelAction = tags.length === 1 && /^CANCELAR_PEDIDO$/i.test(tags[0][1]);
+    if (!verdict || (verdict.allowed !== true && !cancelAction)) return fallback(verdict ? 'review_rejected' : 'review_unavailable');
+    // Afirmação de registro sem ação é leitura do Gemini (claims_registration); campo ausente ou fora do contrato falha fechado.
+    // O rascunho deu o pedido por combinado, marcado ou encaminhado sem a ação de registro. O reparo recebe o caminho certo
+    // (agradecer o dia e o horário, dizer que a equipe confirma e pedir o próximo dado que falta) em vez de uma tentativa às cegas,
+    // que acabava reprovada de novo e mandava a pessoa para a equipe só com "vou pedir para conferir".
+    // Afirmação de cancelamento tem tratamento próprio logo abaixo (nova tentativa com a tag); não vira "pedido combinado".
+    if (verdict.claims_registration !== false && verdict.claims_cancellation === false) {
+      return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome). Se todos os dados já foram dados, pergunte se pode seguir.');
     }
     // A IA nunca informa chave Pix, CNPJ, conta, telefone ou contato: esses dados quem envia é a equipe.
     if (verdict.shares_payment_or_contact !== false) {

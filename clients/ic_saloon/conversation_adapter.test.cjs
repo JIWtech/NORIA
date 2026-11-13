@@ -907,7 +907,7 @@ test('corte do convite nunca deixa a frase pela metade (regressão Gemini real: 
   assert.equal(whole.text, 'Não fazemos unha de gel, mas temos a mão tradicional.');
 });
 
-test('review_model do salão: revisor e auditor de preço usam o modelo configurado; a resposta e os reparos seguem no modelo do atendimento', async () => {
+test('review_model do salão: o revisor usa o modelo configurado; resposta, reparos e auditor de preço seguem no modelo do atendimento', async () => {
   const base = { appointment_request: {}, price_rejection_template: priceFallback };
   const priceText = 'O corte custa R$ 140,00.';
   const segment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed', contextual_match: true };
@@ -917,7 +917,8 @@ test('review_model do salão: revisor e auditor de preço usam o modelo configur
   const reviewer = models.filter(m => m.kind.includes('Valide a resposta'));
   const auditor = models.filter(m => m.kind.includes('Você é um auditor'));
   assert.ok(reviewer.length && reviewer.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 9000), JSON.stringify(models));
-  assert.ok(auditor.length && auditor.every(m => m.model === 'gemini-flash-latest' && m.timeout >= 9000), JSON.stringify(models));
+  // O auditor de preço fica no modelo do atendimento (no Flash juntava valores e reprovava preço oficial).
+  assert.ok(auditor.length && auditor.every(m => m.model === 'gemini-test'), JSON.stringify(models));
   // Sem configuração: tudo no modelo do atendimento, como antes.
   const plain = await run({ ...priceQuestion, draft: priceText, verdict: okVerdict, priceReport: [segment], settings: base });
   assert.ok(plain.requests.filter(r => String(r.url).includes('generativelanguage')).every(r => r.url.includes('/models/gemini-test:')));
@@ -986,4 +987,46 @@ test('revisor de estilo: profissional não pedido e data em formato técnico tam
   const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
   assert.match(system, /cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido/);
   assert.match(system, /data em formato técnico/);
+});
+
+test('sobrenome do pedido pendente passa mesmo com o revisor reprovando no geral (regressão Gemini real com Flash)', async () => {
+  const partial = { id: 'p-joao', status: 'pending_confirmation', title: 'Corte - João Victor', contact_name: 'João Victor', starts_at: '2099-09-29T13:00:00Z',
+    created_at: '2026-11-01T10:00:00Z', metadata: { services: ['Corte'] } };
+  const result = await run({ appointments: [partial], verdict: { ...okVerdict, allowed: false, evidence_id: '' } });
+  assert.equal(result.diagnostics.adapter_outcome, 'creation_allowed', JSON.stringify(result.diagnostics.adapter_trail));
+  // Sem a prova literal do nome na fala da pessoa, continua barrado.
+  const unproven = await run({ appointments: [partial], evidence: false, verdict: { ...okVerdict, allowed: false } , repairs: ['Qual é o seu nome completo?'] });
+  assert.notEqual(unproven.diagnostics.adapter_outcome, 'creation_allowed');
+});
+
+test('afirmação de cancelamento sem tag vai para a nova tentativa com a tag, mesmo se o revisor também marcar registro', async () => {
+  const claim = 'Retirei o pedido da Ana Julia e o da Louzania continua.';
+  const withTag = claim + ' [ACAO: CANCELAR_PEDIDO|pedido=p2|nome=Ana Julia Souza]';
+  const verdict = body => ({ ...okVerdict, claims_cancellation: /Retirei/.test(body.draft || ''), claims_registration: /Retirei/.test(body.draft || '') });
+  const repairs = parts => (parts.some(p => /CANCELAMENTO OBRIGATÓRIO/.test(p.text || '')) ? withTag : 'De qual pedido você quer desistir?');
+  const result = await run({ draft: claim, currentText: 'Desisto do da Ana Julia', verdict, repairs });
+  assert.equal(result.diagnostics.adapter_outcome, 'cancel_tag_recovered');
+});
+
+test('duas tags numa mudança de horário: a reescrita é orientada a passar a mudança para a equipe', async () => {
+  const draft = 'Ok [ACAO: CANCELAR_PEDIDO|pedido=p1|nome=Marta Souza] [ACAO: CRIAR_AGENDAMENTO|nome=Marta Souza|servicos=Corte|data=2099-09-29|hora=15:00|status=pending_confirmation]';
+  const result = await run({ draft, currentText: 'na verdade quero às 15', verdict: okVerdict, repairs: ['Um responsável vai ajustar com você por aqui. [HUMANO_SOLICITADO]'] });
+  const guidance = result.generations.at(-1).map(p => p.text).join(' ');
+  assert.match(guidance, /um responsável vai ajustar com ela por aqui/);
+});
+
+test('id do pedido dentro da tag não aciona o auditor de preço (regressão Gemini real: cancelamento virou "manda de novo")', async () => {
+  const draft = 'Retirei o pedido da Ana Julia. [ACAO: CANCELAR_PEDIDO|pedido=5a0e84a7-9ce0-4350|nome=Ana Julia Souza]';
+  const result = await run({ draft, currentText: 'Desisto do da Ana Julia', verdict: okVerdict, auditFail: 'invalid_json' });
+  assert.equal(result.text, draft);
+  assert.deepEqual(result.audits, []);
+});
+
+test('"retirei" sem tag com reprovação geral do revisor: a nova tentativa com a tag vem antes da reprovação', async () => {
+  const claim = 'Retirei o pedido da sua mãe.';
+  const withTag = claim + ' [ACAO: CANCELAR_PEDIDO|pedido=p1|nome=Louzania Santos]';
+  const verdict = body => ({ ...okVerdict, allowed: !/^Retirei o pedido da sua mãe\.$/.test(body.draft || ''), claims_cancellation: /Retirei/.test(body.draft || '') });
+  const repairs = parts => (parts.some(p => /CANCELAMENTO OBRIGATÓRIO/.test(p.text || '')) ? withTag : 'De qual pedido você quer desistir?');
+  const result = await run({ draft: claim, currentText: 'Não quero mais marcar pra minha mãe', verdict, repairs });
+  assert.equal(result.diagnostics.adapter_outcome, 'cancel_tag_recovered');
 });
