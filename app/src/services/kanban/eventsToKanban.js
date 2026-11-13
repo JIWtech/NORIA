@@ -373,6 +373,7 @@ export function eventsToKanban(
   }
 
   const latestAppointmentsByConversation = new Map();
+  const extraPendingRequests = [];
   for (const appointment of appointments) {
     if (['cancelled', 'canceled'].includes(appointment.status)) continue;
     const key = canonicalConversationKey(
@@ -385,12 +386,13 @@ export function eventsToKanban(
     const currentPriority = appointmentKanbanPriority(current?.status);
     const replaces = !current || priority > currentPriority
       || (priority === currentPriority && isMoreRecentRecord(appointment, current));
+    // Vários pedidos pendentes na mesma conversa (pessoas diferentes): cada um precisa do seu card para a equipe confirmar.
+    const displaced = replaces ? current : appointment;
+    if (displaced?.status === 'pending_confirmation') extraPendingRequests.push(displaced);
     if (replaces) latestAppointmentsByConversation.set(key, appointment);
   }
 
-  const appointmentCards = [...latestAppointmentsByConversation.values()]
-    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
-    .map((appointment) => ({
+  const toAppointmentCard = (appointment) => ({
       id: `appointment-${appointment.id}`,
       appointmentId: appointment.id,
       appointmentTitle: appointment.title || '',
@@ -417,7 +419,10 @@ export function eventsToKanban(
       aiReason: isAppointmentPaymentReported(appointment.status)
         ? 'Sinal informado. Aguardando verificação humana.'
         : '',
-    }));
+    });
+  const appointmentCards = [...latestAppointmentsByConversation.values()]
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
+    .map(toAppointmentCard);
 
   for (const appointmentCard of appointmentCards) {
     const key = canonicalConversationKey(
@@ -465,6 +470,18 @@ export function eventsToKanban(
     if (targetColumn) {
       targetColumn.cards.push({ ...appointmentCard, targetColumnId: targetColumn.automationKey || targetColumn.id });
     }
+  }
+
+  // Pedidos pendentes extras da mesma conversa ficam sozinhos na coluna de confirmação, com o contato da conversa no título.
+  for (const appointment of extraPendingRequests) {
+    const appointmentCard = toAppointmentCard(appointment);
+    const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
+    if (!targetColumn) continue;
+    const key = canonicalConversationKey(appointmentCard.channelType, appointmentCard.externalConversationId, appointmentCard.id);
+    const conversationCard = eventCardsByConversation.get(key)?.card;
+    targetColumn.cards.push(conversationCard
+      ? detachedAppointmentCard(appointmentCard, conversationCard, targetColumn)
+      : { ...appointmentCard, targetColumnId: targetColumn.automationKey || targetColumn.id });
   }
 
   if (appointmentCards.some((card) => card.targetColumnId === 'agendamentos') && !kanbanConfig?.columns?.length && !findKanbanColumn(columns, 'agendamentos')) {

@@ -198,6 +198,7 @@ function createSalonHelpers(helpers, input, env) {
           'appointment_recipients são beneficiários de pedidos anteriores, não o nome comprovado de quem escreve. Um nome dado após a pergunta pelo nome de um terceiro pertence a esse terceiro, não ao interlocutor.',
           'Em wrong_contact_name use true quando a resposta chama quem escreve pelo nome de outra pessoa, inclusive como vocativo. Citar o nome da beneficiária ao perguntar se o serviço é para ela não é vocativo errado.',
           'Em recipient_assumed use true quando a resposta ou tag presume que o serviço atual é para beneficiária de pedido anterior sem confirmação do cliente. Se o destinatário não está claro, pergunte se é para a mesma pessoa ou outra. Uma correção explícita do destinatário prevalece sobre pedidos antigos.',
+          'Em first_visit_stated use true somente quando booking.first_visit existe e, pelo significado, o cliente disse explicitamente em recent_context se a pessoa atendida neste pedido (booking.name) é a primeira vez no salão. Valor deduzido pelo modelo, resposta sobre outra pessoa, pergunta ainda sem resposta ou ausência de booking.first_visit é false.',
         ].join(' ') }] },
         contents: [{ role: 'user', parts: [{ text: JSON.stringify({
           draft, booking, current, name_evidence: rows, ...identity,
@@ -207,12 +208,12 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' },
-            wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' },
+            wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -436,8 +437,10 @@ function createSalonHelpers(helpers, input, env) {
     // Último recurso técnico: texto visível do tenant (ou padrão do código) e revisão da equipe. Nunca a tag sozinha.
     const processingError = () => finish('processing_error', withHandoff(renderTemplate('processing_error_template')));
     // A marca de sinal é do sistema: a vinda do modelo é sempre removida e só volta quando o histórico exige.
-    const sanitizeTags = value => value.replace(/\[A[CÇ][AÃ]O:\s*([A-Z_]+)[^\]\r\n]*\]/giu, (tag, kind) => {
-      const clean = tag.replace(/\s*\|\s*sinal_exigido\s*=[^|\]]*/giu, '');
+    // primeira_vez só passa quando o revisor confirmou que o cliente informou (firstVisitStated); senão o campo é removido.
+    const sanitizeTags = (value, firstVisitStated = false) => value.replace(/\[A[CÇ][AÃ]O:\s*([A-Z_]+)[^\]\r\n]*\]/giu, (tag, kind) => {
+      const unmarked = tag.replace(/\s*\|\s*sinal_exigido\s*=[^|\]]*/giu, '');
+      const clean = firstVisitStated ? unmarked : unmarked.replace(/\s*\|\s*primeira_vez\s*=[^|\]]*/giu, '');
       return depositRequired && /^(CRIAR_AGENDAMENTO|ATUALIZAR_PEDIDO)$/i.test(kind) ? clean.replace(/\]$/u, '|sinal_exigido=sim]') : clean;
     });
     // Geração de uma mensagem ao cliente fora do caminho do registro. Passa pelo mesmo revisor e pela guarda de preço do rascunho.
@@ -576,6 +579,7 @@ function createSalonHelpers(helpers, input, env) {
       const verdict = await review(options, null, {
         name, service: field('servicos') || field('servico'), date: field('data'), time: field('hora'), local_date: localDate,
         name_source: matched.length ? 'fala_do_cliente' : 'reserva_anterior',
+        ...(field('primeira_vez') ? { first_visit: field('primeira_vez') } : {}),
         existing_appointments: existingFacts, deposit_required: depositRequired,
       }, current, candidates, identityContext);
       if (!verdict) return fallback('review_unavailable');
@@ -593,7 +597,7 @@ function createSalonHelpers(helpers, input, env) {
         return fallback('deposit_not_acknowledged', 'O último atendimento registrado deste contato terminou em falta. Antes de registrar, avise que o novo agendamento exige sinal de 50% via Pix, conforme a regra do salão, e pergunte se a pessoa concorda. Não registre ainda.');
       }
       // Only the internal action reaches the CORE. Its existing write path owns the visible receipt.
-      return finish('creation_allowed', messageResponse(response, candidate, sanitizeTags(creation[0])));
+      return finish('creation_allowed', messageResponse(response, candidate, sanitizeTags(creation[0], verdict.first_visit_stated === true)));
     }
 
     if (tags.length > 1 || tags.some(tag => /^(CRIAR_AGENDAMENTO|AGENDAMENTO_CONFIRMADO)$/i.test(tag[1]))) return fallback('unexpected_tag');

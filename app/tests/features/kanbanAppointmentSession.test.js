@@ -56,3 +56,12 @@ test('mensagem nova em tempo real atualiza o card da conversa, não o card do pe
   assert.ok(conversationCard);
   assert.equal(conversationCard.lastActivityAt, incoming.created_at);
 });
+
+test('dois pedidos pendentes na mesma conversa (pessoas diferentes): os dois aparecem para a equipe confirmar', () => {
+  const second = mapAppointment({ id: 'appt-2', title: 'Pé e mão tradicional', status: 'pending_confirmation', starts_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+    created_at: iso(15), updated_at: iso(15), channel_type: 'whatsapp', external_conversation_id: chat, contact_name: 'Ana Julia Souza', metadata: { services: ['Pé e mão tradicional'] } });
+  const columns = eventsToKanban([event('e1', 0), event('e2', 16, { direction: 'outbound', sender_type: 'assistant' })], tenant, [appointment(), second], config);
+  assert.equal(columnOf(columns, (card) => card.appointmentId === 'appt-1'), 'confirmar_agendamento');
+  assert.equal(columnOf(columns, (card) => card.appointmentId === 'appt-2'), 'confirmar_agendamento');
+  assert.equal(cardsOf(columns).length, 2);
+});

@@ -761,3 +761,33 @@ test('correção para namorada não chama João pelo nome da mãe nem altera ped
   assert.equal(result.diagnostics.adapter_outcome, 'repaired');
   assert.equal(result.reviews[0].current, 'Não quero marcar pra minha mãe não! Agora quero pra minha namorada linda');
 });
+
+// Regressão João/Louzania (2026-11-12): primeira_vez=sim foi gravado sem a pessoa ter respondido.
+// A leitura de que o cliente informou é do revisor (first_visit_stated); sem ela o campo sai da tag.
+test('primeira_vez só segue na tag quando o revisor confirma que o cliente informou sobre a pessoa atendida', async () => {
+  const withVisit = tag.replace('|status=', '|primeira_vez=sim|status=');
+  const stripped = tag;
+  const unstated = await run({ draft: withVisit, verdict: { ...withEvidence, first_visit_stated: false } });
+  assert.equal(unstated.text, stripped);
+  assert.equal(unstated.diagnostics.adapter_outcome, 'creation_allowed');
+  assert.equal(unstated.reviews[0].booking.first_visit, 'sim');
+  const reviewRequest = unstated.requests.find(item => item.body?.generationConfig?.responseSchema?.required?.includes('claims_availability'));
+  assert.ok(reviewRequest.body.generationConfig.responseSchema.required.includes('first_visit_stated'));
+
+  // Campo ausente na resposta do revisor falha fechado: o dado não é gravado.
+  const missing = await run({ draft: withVisit, verdict: withEvidence });
+  assert.equal(missing.text, stripped);
+
+  const stated = await run({ draft: withVisit, verdict: { ...withEvidence, first_visit_stated: true } });
+  assert.equal(stated.text, withVisit);
+
+  // Sem o campo na tag nada muda e o contexto do revisor não ganha chave extra.
+  const none = await run({ draft: tag, verdict: withEvidence });
+  assert.equal(none.text, tag);
+  assert.equal('first_visit' in none.reviews[0].booking, false);
+
+  // Atualização de pedido também não carrega primeira_vez sem confirmação.
+  const update = await run({ draft: 'Pronto, ajustei. [ACAO: ATUALIZAR_PEDIDO|pedido=apt-p|hora=11:00|primeira_vez=sim]', verdict: okVerdict });
+  assert.doesNotMatch(update.text, /primeira_vez/);
+  assert.match(update.text, /ATUALIZAR_PEDIDO/);
+});

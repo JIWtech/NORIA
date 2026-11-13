@@ -1886,7 +1886,7 @@ function parseAppointmentRequestAction(text) {
   return {
     kind, services, customerName: details.nome || details.cliente || '', date: details.data || details.date || '',
     time: details.hora || details.horario || details.time || '', professional: details.profissional || '',
-    firstVisit: details.primeira_vez || '', status: normalizeText(details.status || ''), requestId: details.pedido || '',
+    firstVisit: normalizeFirstVisit(details.primeira_vez), status: normalizeText(details.status || ''), requestId: details.pedido || '',
     depositRequired: normalizeText(details.sinal_exigido || '') === 'sim',
   };
 }
@@ -1932,11 +1932,49 @@ function renderAppointmentRequest(template, appointment, context) {
   return text.trim();
 }
 
-async function loadOpenAppointmentRequest(context) {
+// Pedidos pendentes da conversa, do mais antigo ao mais novo: há um por pessoa atendida (metadata.recipient_key).
+async function loadOpenAppointmentRequests(context) {
   const rows = await supabaseGet('/rest/v1/appointments?select=*&tenant_id=eq.' + encodeFilter(context.tenant.id)
-    + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId) + '&status=eq.pending_confirmation&limit=1');
+    + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId) + '&status=eq.pending_confirmation&order=created_at.asc&limit=20');
   if (!Array.isArray(rows)) throw new Error('Appointments unavailable');
-  return rows[0] || null;
+  return rows;
+}
+
+// Guarda a lista completa e mantém openRequest como o pedido mais recente (usado no estágio do card e no contexto de um único pedido).
+async function refreshOpenAppointmentRequests(context, state) {
+  state.openRequests = await loadOpenAppointmentRequests(context);
+  state.openRequest = state.openRequests.at(-1) || null;
+  return state;
+}
+
+function appointmentRecipientKey(name) {
+  return normalizeText(name || '').replace(/\s+/g, ' ').trim();
+}
+
+// Pedido que a tag de alterar ou cancelar alcança. Com mais de um pendente, só o id da tag (pedido=) decide; uma pessoa
+// atendida com nome idêntico também serve. Ambiguidade devolve null e o turno cai na revisão da equipe.
+function selectOpenAppointmentRequest(requests, action) {
+  const list = Array.isArray(requests) ? requests : [];
+  if (action?.requestId) {
+    const byId = list.find(item => item.id === action.requestId);
+    if (byId) return byId;
+    if (list.length !== 1) return null;
+  }
+  if (list.length <= 1) return list[0] || null;
+  const key = appointmentRecipientKey(action?.customerName);
+  const byName = key ? list.filter(item => appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key) : [];
+  return byName.length === 1 ? byName[0] : null;
+}
+
+function findAppointmentRequestForRecipient(requests, name) {
+  const key = appointmentRecipientKey(name);
+  return key ? (requests || []).find(item => appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key) || null : null;
+}
+
+// Só o contrato fechado da tag: sim ou não. Qualquer outro valor é descartado, nunca inferido.
+function normalizeFirstVisit(value) {
+  const key = normalizeText(value || '');
+  return key === 'sim' ? 'sim' : key === 'nao' ? 'não' : '';
 }
 
 // A interpretação é semântica; estas verificações vinculam a saída do modelo a fatos do turno.
@@ -2090,11 +2128,17 @@ async function cancelContextualAppointmentRequest(context, open) {
   return { cancelled: true, appointment: rows[0] };
 }
 
-async function saveAppointmentRequest(context, action, open) {
+async function saveAppointmentRequest(context, action, open, openRequests = open ? [open] : []) {
   if (action.kind === 'forbidden' || (action.kind === 'create' && action.status !== 'pending_confirmation')) throw new Error('APPOINTMENT_REQUEST_STATUS_INVALID');
   if (action.kind === 'update' && !open) throw new Error('APPOINTMENT_REQUEST_NOT_OPEN');
   const contextual = appointmentRequestConfig(context)?.reply_mode === 'contextual';
-  if (contextual && action.kind === 'create' && open) throw new Error('APPOINTMENT_REQUEST_CHANGED');
+  const requestKey = 'turn:' + (turn?.messages?.at(-1)?.event_id || turn?.token || '');
+  if (contextual && action.kind === 'create') {
+    // Repetição do mesmo turno devolve o pedido já gravado. Pedido para outra pessoa é novo registro; para a mesma pessoa é alteração.
+    const replay = openRequests.find(item => item.metadata?.request_key === requestKey);
+    if (replay) return replay;
+    if (findAppointmentRequestForRecipient(openRequests, action.customerName)) throw new Error('APPOINTMENT_REQUEST_CHANGED');
+  }
   const base = action.kind === 'update' ? open.metadata || {} : {};
   const customerName = action.customerName || base.customer_name || '';
   const wanted = action.services.length ? action.services : base.services || [];
@@ -2121,12 +2165,14 @@ async function saveAppointmentRequest(context, action, open) {
   const title = names.join(' + ') + ' - ' + customerName;
   const endsAt = durationMinutes ? new Date(Date.parse(startsAt) + durationMinutes * 60000).toISOString() : null;
   const details = { tenant_slug: tenantSlug, services: names, customer_name: customerName, requested_date: date, requested_time: time,
-    professional: action.professional || base.professional || null, first_visit: action.firstVisit || base.first_visit || null,
+    professional: action.professional || base.professional || null,
+    // Só o que o cliente informou (sim ou não), por pessoa atendida: nunca inferido nem herdado de outro pedido.
+    first_visit: action.firstVisit || normalizeFirstVisit(base.first_visit) || null,
+    recipient_key: appointmentRecipientKey(customerName),
     duration_minutes: durationMinutes, conversation_session_id: turn?.boundary_id || null,
     ...(action.depositRequired === true ? { deposit_required: true } : {}) };
-  const requestKey = 'turn:' + (turn?.messages?.at(-1)?.event_id || turn?.token || '');
   if (contextual) {
-    return writeContextualAppointmentRequest(context, open, { title, contact_name: customerName, starts_at: startsAt, ends_at: endsAt }, details, requestKey);
+    return writeContextualAppointmentRequest(context, action.kind === 'update' ? open : null, { title, contact_name: customerName, starts_at: startsAt, ends_at: endsAt }, details, requestKey);
   }
   const result = await supabasePost('/rest/v1/rpc/magia_upsert_appointment_request', {
     p_tenant: context.tenant.id, p_channel: 'whatsapp', p_chat: String(chatId), p_contact: customerName,
@@ -2635,6 +2681,11 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
       ...(appointments.openRequest && appointments.futureConfirmed ? [
         '- Há um pedido pendente e uma reserva confirmada. Para editar ou cancelar somente o pedido pendente, inclua pedido=ID_DO_PEDIDO_PENDENTE na tag. Em caso de ambiguidade ou de mudança na reserva confirmada, peça revisão da equipe.',
       ] : []),
+      '- Cada pessoa atendida tem o seu próprio pedido. Um serviço para outra pessoa (outro nome) é um novo CRIAR_AGENDAMENTO com o nome completo dela e não altera os pedidos pendentes das demais; ATUALIZAR_PEDIDO e CANCELAR_PEDIDO valem só para a mesma pessoa.',
+      ...(appointments.openRequests?.length > 1 ? [
+        '- Há mais de um pedido pendente (pedidos_pendentes). Para editar ou cancelar um deles, inclua pedido=ID_DO_PEDIDO na tag; se não estiver claro qual, pergunte antes.',
+      ] : []),
+      '- Inclua primeira_vez=sim ou primeira_vez=nao na tag somente se a própria pessoa respondeu isso sobre quem será atendida neste pedido; sem resposta explícita omita o campo. Nunca reaproveite a resposta de outra pessoa.',
     ] : []),
     ...(keepsAiOnTeamReview(context) ? [
       '- ATUALIZAR_PEDIDO e CANCELAR_PEDIDO só são válidos para o pedido_pendente e apenas quando a mensagem atual se refere a ele.',
@@ -2662,6 +2713,13 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
       quando: appointmentDateLabel(appointments.passed),
       status: appointments.passed.status || null,
     } : null,
+    ...(contextualBooking && appointments?.openRequests?.length > 1 ? {
+      pedidos_pendentes: appointments.openRequests.map(item => ({
+        id: item.id, titulo: item.title, pessoa_atendida: item.contact_name || null,
+        servicos: item.metadata?.services || [], data: item.metadata?.requested_date || null, hora: item.metadata?.requested_time || null,
+        versao: item.metadata?.request_version || null,
+      })),
+    } : {}),
     pedido_pendente: appointments?.openRequest ? {
       titulo: appointments.openRequest.title,
       pessoa_atendida: appointments.openRequest.contact_name || null,
@@ -2868,11 +2926,13 @@ ${bookingRules}
 
   let needsTeamReview = false;
   const proposedRequest = parseAppointmentRequestAction(generated.text);
-  const repeatedRequest = contextualBooking && repeatsPendingAppointmentRequest(proposedRequest, appointments.openRequest, context);
+  const repeatedRequest = contextualBooking && repeatsPendingAppointmentRequest(proposedRequest,
+    proposedRequest?.kind === 'create' ? findAppointmentRequestForRecipient(appointments.openRequests, proposedRequest.customerName)
+      : selectOpenAppointmentRequest(appointments.openRequests, proposedRequest), context);
   let bookingRepair = repairInstruction;
   if (!bookingRepair && keepsAiOnTeamReview(context)) {
     const invalidConfirmedChange = appointments.futureConfirmed && ['update', 'cancel'].includes(proposedRequest?.kind)
-      && (!appointments.openRequest || (contextualBooking && proposedRequest.requestId !== appointments.openRequest.id));
+      && (!appointments.openRequest || (contextualBooking && !(appointments.openRequests || []).some(item => item.id === proposedRequest.requestId)));
     const missingReviewReply = generated.text.trim() !== '[HUMANO_SOLICITADO]'
       && detectActions(generated.text).humanRequested && !cleanReplyText(generated.text).trim();
     needsTeamReview = Boolean(invalidConfirmedChange || missingReviewReply);
@@ -14797,7 +14857,7 @@ async function runTurn() {
   const contextualBooking = requestConfig?.valid && requestConfig.reply_mode === 'contextual';
   const appointmentResult = await loadAppointments(context.tenant.id, false, contextualBooking);
   const appointments = appointmentState(appointmentResult.rows);
-  if (requestConfig?.valid) appointments.openRequest = await loadOpenAppointmentRequest(context);
+  if (requestConfig?.valid) await refreshOpenAppointmentRequests(context, appointments);
   const catalog = await loadCatalogContext(context);
   if (catalog.error || !catalog.matches?.length) throw new Error('Service catalog unavailable');
   const gate = usageGate(context);
@@ -14849,8 +14909,12 @@ async function runTurn() {
   if (slotDecision && !event.handoff) {
     const outcome = await salonResolveSlotProposalSafely(context, slotDecision);
     const resolved = outcome.resolved;
-    if (resolved && slotDecision.decision === 'accept') appointments.openRequest = resolved.appointment;
-    else if (resolved) appointments.openRequest = null;
+    if (resolved) {
+      // A proposta aceita volta a ser pedido pendente; a recusada deixa de ser. Os pedidos das outras pessoas seguem como estão.
+      const others = (appointments.openRequests || []).filter(item => item.id !== resolved.appointment?.id);
+      appointments.openRequests = slotDecision.decision === 'accept' ? [...others, resolved.appointment] : others;
+      appointments.openRequest = appointments.openRequests.at(-1) || null;
+    }
     event.raw_payload.slot_proposal_resolution = { proposal_id: slotDecision.proposal_id, decision: slotDecision.decision,
       turn_event: slotDecision.turn_event, appointment_id: slotDecision.appointment_id, already: resolved?.already === true,
       ...(outcome.refused ? { refused: outcome.refused } : {}) };
@@ -14884,21 +14948,23 @@ async function runTurn() {
       if (!requestConfig.valid) throw new Error('APPOINTMENT_REQUEST_CONFIG_INVALID');
       if (requestAction.kind === 'cancel') {
         if (!cleanReplyText(responseText).trim()) throw new Error('APPOINTMENT_REQUEST_EMPTY_REPLY');
-        const cancelled = contextualBooking ? await cancelContextualAppointmentRequest(context, appointments.openRequest)
+        const cancelled = contextualBooking ? await cancelContextualAppointmentRequest(context, selectOpenAppointmentRequest(appointments.openRequests, requestAction))
           : await supabasePost('/rest/v1/rpc/magia_cancel_appointment_request', { p_tenant: context.tenant.id, p_channel: 'whatsapp',
             p_chat: String(chatId), p_reason: 'customer_cancelled', p_actor: 'ai' });
         event.raw_payload.appointment_request = { kind: 'cancel', cancelled: cancelled?.cancelled === true, appointment_id: cancelled?.appointment?.id || null };
         if (cancelled?.cancelled !== true) throw new Error('APPOINTMENT_REQUEST_NOT_OPEN');
         event.service = 'agendamento_cancelado';
       } else {
-        const request = await saveAppointmentRequest(context, requestAction, appointments.openRequest);
-        const template = appointments.openRequest && requestConfig.reply_mode === 'contextual'
+        const request = await saveAppointmentRequest(context, requestAction,
+          requestAction.kind === 'update' ? selectOpenAppointmentRequest(appointments.openRequests, requestAction) : null, appointments.openRequests || []);
+        const template = requestAction.kind === 'update' && requestConfig.reply_mode === 'contextual'
           && typeof requestConfig.updated_template === 'string' && requestConfig.updated_template.trim()
           ? requestConfig.updated_template : requestConfig.received_template;
         const received = renderAppointmentRequest(template, request, context);
         responseText = received; preserveLiteralReply = true;
         event.service = 'agendamento_pendente'; event.stage = 'Aguardando confirmação';
         event.raw_payload.appointment_request = { kind: requestAction.kind, appointment_id: request.id, request_version: request.metadata?.request_version || null };
+        appointments.openRequests = [...(appointments.openRequests || []).filter(item => item.id !== request.id), request];
         appointments.openRequest = request;
       }
     } catch (error) {
@@ -14911,10 +14977,13 @@ async function runTurn() {
       const retryText = retryKey ? salonLiteralTemplate(context, retryKey) : '';
       if (contextualBooking && /APPOINTMENT_REQUEST_(?:CHANGED|NOT_OPEN|BUSY)/.test(code)) {
         const current = appointmentState((await loadAppointments(context.tenant.id, false, true)).rows);
-        current.openRequest = await loadOpenAppointmentRequest(context);
+        await refreshOpenAppointmentRequests(context, current);
         const revised = await callGemini(context, '', history, catalog, current,
-          '\n\nCORREÇÃO OPERACIONAL: a operação solicitada não foi aplicada. Use o estado atual abaixo para explicar com naturalidade o que a equipe vai verificar. Não diga que cancelou, alterou ou confirmou e não emita tag de agendamento.');
-        responseText = revised.text;
+          '\n\nCORREÇÃO OPERACIONAL: nada foi gravado: o pedido desta mensagem não foi registrado, alterado nem cancelado, e os pedidos já existentes seguem como estão no estado atual. Não diga nem sugira que o pedido foi registrado, anotado, enviado ou encaminhado, e não diga que a equipe vai confirmar este dia, horário ou serviço. Explique com naturalidade que não foi possível registrar agora e que a equipe foi avisada para falar com a pessoa por aqui. Não emita tag de agendamento.');
+        // Texto com tag de agendamento ou vazio nunca sai: sem registro, só o texto de erro do tenant.
+        if (parseAppointmentRequestAction(revised.text) || !cleanReplyText(revised.text).trim()) {
+          responseText = salonLiteralTemplate(context, 'processing_error_template'); preserveLiteralReply = true;
+        } else responseText = revised.text;
         event.handoff = true;
         event.stage = 'Atendimento humano';
         event.service = 'atendimento_humano';
