@@ -98,3 +98,12 @@ test('confirmar e pedir outro horário: o Gemini escreve com dados conferidos; o
  assert.equal(reject.result.ok,true,JSON.stringify(reject.result));assert.equal(reject.calls.find(c=>c.t==='sendText').body.text,'Ana, 28/09 às 10h não está livre. Qual outro fica bom?');
  const rejectDown=await execute({noProposal:true,geminiFail:true});assert.equal(rejectDown.calls.find(c=>c.t==='sendText').body.text,'Texto legado');
 });
+test('proposta: conversa em andamento (sem cumprimento), horário pedido citado e data por extenso no texto',async()=>{
+ const {result,calls}=await execute();assert.equal(result.ok,true);
+ const prompt=JSON.stringify(calls.find(c=>/generateContent/.test(c.t)).body);
+ assert.match(prompt,/já está em andamento/);
+ assert.match(prompt,/não cumprimente/);
+ assert.match(prompt,/horario_pedido/);
+ assert.match(prompt,/29 de setembro/);
+ assert.doesNotMatch(prompt,/"data":"29\/09\/2099"/);
+});

@@ -24,6 +24,8 @@ const replies = {
   appointment_request_confirmed: 'Seu horário está confirmado!',
   appointment_request_rejected: 'Esse horário está ocupado. Qual horário funciona melhor?',
   appointment_payment_confirmed: 'Pagamento confirmado! Seu horário está reservado.',
+  // Contraproposta de horário da equipe (Sugerir outro horário): é mensagem enviada à cliente, não evento do sistema.
+  appointment_slot_proposed: 'O horário das 13h não está livre. Pode ser sábado, 14 de novembro, às 14h?',
 };
 
 for (const [mode, project] of Object.entries(projections)) {

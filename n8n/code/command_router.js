@@ -303,18 +303,22 @@ async function main(helpers) {
     const model = env('GEMINI_MODEL', 'gemini-2.5-flash-lite');
     const key = required(env('GEMINI_API_KEY'), 'GEMINI_API_KEY');
     if (!/^gemini-[a-z0-9.-]+$/i.test(model)) throw new Error('Modelo Gemini invalido');
-    const displayDate = expected.date.slice(8, 10) + '/' + expected.date.slice(5, 7) + '/' + expected.date.slice(0, 4);
+    // Data por extenso para o texto à cliente ("terça-feira, 29 de setembro"); o campo estruturado conferido segue DD/MM/AAAA.
+    const [isoYear, isoMonth, isoDay] = expected.date.split('-').map(Number);
+    const displayDate = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' })
+      .format(new Date(Date.UTC(isoYear, isoMonth - 1, isoDay, 12)));
     const facts = { empresa: tenant.name || tenant.slug, tom: String(settings.tone || '').slice(0, 400), cliente: row.contact_name || '',
       servicos: expected.services || row.metadata?.services || [], data: displayDate, hora: expected.time, ...extraFacts,
       ...(expected.template ? { modelo_do_estabelecimento: expected.template } : {}) };
     const prompt = purpose + ' Escreva em português brasileiro, no tom do estabelecimento descrito em tom, como atendente da equipe (no feminino); trate a pessoa atendida de forma neutra, sem presumir gênero. Use somente os dados fornecidos, sem inventar fatos, disponibilidade ou promessas. '
       + (expected.template ? 'O modelo_do_estabelecimento traz informações e avisos obrigatórios do estabelecimento: reescreva com naturalidade, mas preserve todas elas (sem copiar a forma); marque avisos_do_modelo_mantidos como verdadeiro somente se nenhuma foi omitida. ' : '')
-      + 'Informe também, nos campos estruturados, a data, a hora e os serviços exatamente como aparecem na mensagem. Não inclua instruções internas nem aspas. Dados: ' + JSON.stringify(facts);
+      + 'Informe também, nos campos estruturados, a data no formato DD/MM (sem ano), a hora no formato HH:MM e os serviços exatamente como aparecem na mensagem. Não inclua instruções internas nem aspas. Dados: ' + JSON.stringify(facts);
     const schema = { type: 'OBJECT', properties: { text: { type: 'STRING' }, date: { type: 'STRING' }, time: { type: 'STRING' },
       services: { type: 'ARRAY', items: { type: 'STRING' } }, avisos_do_modelo_mantidos: { type: 'BOOLEAN' } }, required: ['text', 'date', 'time'] };
     const generated = await httpJson('POST', `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 600, responseMimeType: 'application/json', responseSchema: schema } });
+      // Modelos com raciocínio gastam parte do limite pensando: 600 cortava a resposta (MAX_TOKENS) e a mensagem caía no modelo fixo.
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 4096, responseMimeType: 'application/json', responseSchema: schema } });
     const raw = generated?.candidates?.[0]?.content?.parts?.filter(part => !part.thought).map(part => part.text || '').join('').trim();
     let value;
     try { value = JSON.parse(raw || ''); } catch (error) { throw new Error('Gemini nao devolveu mensagem estruturada'); }
@@ -613,7 +617,12 @@ async function main(helpers) {
       const proposalStart = zonedWallToEpoch(date, time, await loadTenantTimezone(tenant.id));
       if (!Number.isFinite(proposalStart)) throw new Error('Data ou horario da proposta invalido');
       if (proposalStart <= Date.now()) throw new Error('O horario proposto ja passou');
-      const composed = await composeWithGemini(settings, tenant, row, 'Redija uma mensagem curta e acolhedora propondo à pessoa atendida o novo horário informado e perguntando se aceita. O horário ainda não está confirmado.', { date, time });
+      // A conversa já está em andamento: sem cumprimento nem boas-vindas ("Olá! Que alegria ter você aqui" no meio do atendimento).
+      const requestedAt = new Date(row.starts_at || '');
+      const horarioPedido = Number.isFinite(requestedAt.getTime()) ? new Intl.DateTimeFormat('pt-BR', { timeZone: await loadTenantTimezone(tenant.id),
+        weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(requestedAt) : '';
+      const composed = await composeWithGemini(settings, tenant, row, 'A conversa com a pessoa já está em andamento: não cumprimente, não se apresente e não use boas-vindas. Em uma ou duas frases curtas e acolhedoras, diga que o horário pedido (horario_pedido) não está disponível e proponha o novo horário informado, perguntando se pode ser. Se o novo horário for no mesmo dia, cite o dia uma vez só. Escreva a data por extenso, como está em data. O novo horário ainda não está confirmado.', { date, time },
+        horarioPedido ? { horario_pedido: horarioPedido } : {});
       const text = composed.text, model = composed.model;
       const proposalId = commandId + ':' + Date.now() + ':' + Math.random().toString(36).slice(2);
       const scope = { p_tenant: tenant.id, p_channel: normalizedChannel, p_chat: externalConversationId, p_appointment: appointmentId, p_proposal_id: proposalId };

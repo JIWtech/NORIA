@@ -348,6 +348,8 @@ const APPOINTMENT_REPLY_SERVICES = new Set([
   'appointment_request_confirmed',
   'appointment_request_rejected',
   'appointment_payment_confirmed',
+  // Contraproposta de horário enviada pela equipe ("Sugerir outro horário"): mensagem real à cliente.
+  'appointment_slot_proposed',
 ]);
 
 // Serviços de resposta de agendamento: qualquer atualização de entrega deve
