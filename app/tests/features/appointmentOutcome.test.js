@@ -87,7 +87,7 @@ test('marcar desfecho chama a função do banco e traduz os erros esperados', as
   const ok = await createMarkAppointmentOutcome({ getClient: () => client() })('ap-1', 'no_show', '  não avisou  ');
   assert.deepEqual(calls[0], { name: 'magia_mark_appointment_outcome', args: { p_appointment: 'ap-1', p_outcome: 'no_show', p_note: 'não avisou' } });
   assert.equal(ok.closed_conversation, true);
-  await assert.rejects(createMarkAppointmentOutcome({ getClient: () => client({ message: 'APPOINTMENT_NOT_STARTED' }) })('ap-1', 'no_show'), /ainda não começou/);
+  await assert.rejects(createMarkAppointmentOutcome({ getClient: () => client({ message: 'APPOINTMENT_NOT_STARTED' }) })('ap-1', 'no_show'), /ainda não terminou/);
   await assert.rejects(createMarkAppointmentOutcome({ getClient: () => client({ message: 'APPOINTMENT_OUTCOME_FORBIDDEN' }) })('ap-1', 'no_show'), /permissão/);
   await assert.rejects(createMarkAppointmentOutcome({ getClient: () => null })('ap-1', 'no_show'), /Supabase/);
   await assert.rejects(createMarkAppointmentOutcome({ getClient: () => client() })('ap-1', 'invalido'), /desfecho/i);
@@ -95,11 +95,12 @@ test('marcar desfecho chama a função do banco e traduz os erros esperados', as
 
 test('carregar a lista de sinal obrigatório nunca derruba a tela', async () => {
   const calls = [];
-  const rows = [{ channel_type: 'whatsapp', external_conversation_id: CHAT, appointment_id: 'ap-1', last_no_show_at: '2026-11-10T12:00:00Z' }];
+  const rows = [{ channel_type: 'whatsapp', external_conversation_id: CHAT, recipient_key: 'ana souza', appointment_id: 'ap-1', last_no_show_at: '2026-11-10T12:00:00Z' }];
   const load = (rpc) => createLoadDepositRequired({ getClient: () => ({ rpc }), loadTenant: async (slug) => (slug === 'ic_salon' ? { id: 'tenant-1' } : null) });
   const index = await load(async (name, args) => { calls.push({ name, args }); return { data: rows, error: null }; })('ic_salon');
-  assert.deepEqual(calls[0], { name: 'magia_deposit_required_contacts', args: { p_tenant: 'tenant-1' } });
-  assert.ok(isDepositRequired(index, 'whatsapp', CHAT));
+  assert.deepEqual(calls[0], { name: 'magia_deposit_required_recipients', args: { p_tenant: 'tenant-1' } });
+  assert.ok(isDepositRequired(index, 'whatsapp', CHAT, 'Ana Souza'));
+  assert.equal(isDepositRequired(index, 'whatsapp', CHAT, 'Outra Pessoa'), null);
   assert.equal((await load(async () => ({ data: null, error: { message: 'boom' } }))('ic_salon')).size, 0, 'erro vira lista vazia');
   assert.equal((await load(async () => { throw new Error('rede'); })('ic_salon')).size, 0, 'exceção vira lista vazia');
   assert.equal((await load(async () => ({ data: rows, error: null }))('outro')).size, 0, 'tenant desconhecido');

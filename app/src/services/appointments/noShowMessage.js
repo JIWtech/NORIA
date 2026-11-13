@@ -137,7 +137,7 @@ export function appointmentFromKanbanCard(card = {}) {
     status: card.appointmentStatus,
     startsAt: card.appointmentStartsAt,
     title: card.appointmentTitle || '',
-    contactName: card.title || '',
+    contactName: card.appointmentContactName || card.appointmentMetadata?.customer_name || '',
     channelType: card.channelType || '',
     externalConversationId: card.externalConversationId || '',
     raw: { metadata: card.appointmentMetadata || {} },

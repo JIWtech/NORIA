@@ -28,6 +28,7 @@ import {
 import { isDepositRequired } from '../../../services/appointments/appointmentOutcome.js';
 import { archiveAppointment, markAppointmentOutcome } from '../../../services/appointments/outcomeActions.js';
 import { appointmentAgendaItem, appointmentSections } from '../../../services/appointments/appointmentAgenda.js';
+import { useAppointmentClock } from '../utils/useAppointmentClock.js';
 import { appointmentActionsFor, localInputToIso } from '../../../services/appointments/appointmentActions.js';
 import { noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { useDepositRequired } from '../utils/useDepositRequired';
@@ -96,9 +97,10 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
   }, [initialData]);
 
   // Seções da agenda dentro do tenant ativo (as linhas já chegam filtradas por tenant_id).
+  const appointmentNow = useAppointmentClock();
   const sections = useMemo(
-    () => appointmentSections(appointments, { now: Date.now(), timeZone, query: searchQuery }),
-    [appointments, timeZone, searchQuery],
+    () => appointmentSections(appointments, { now: appointmentNow, timeZone, query: searchQuery }),
+    [appointments, timeZone, searchQuery, appointmentNow],
   );
   const visibleCount = sections.reduce((total, section) => total + section.items.length, 0);
 
@@ -134,13 +136,13 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
   async function handleOutcome(appointment, outcome, confirmed = false) {
     if (outcomeBusyId) return;
-    if (!confirmed && outcome === 'no_show' && noShowMessageConfig(tenantSettings, appointment).enabled) {
+    if (!confirmed && tenantSlug !== 'ic_salon' && outcome === 'no_show' && noShowMessageConfig(tenantSettings, appointment).enabled) {
       setNoShowTarget(appointment);
       return;
     }
     const message = outcome === 'no_show'
-      ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
-      : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
+      ? 'Registrar a falta neste agendamento?'
+      : 'Registrar presença neste agendamento?';
     if (!confirmed) {
       setConfirmation({ title: outcome === 'no_show' ? 'Registrar falta' : 'Registrar comparecimento', message, confirmLabel: 'Registrar', onConfirm: () => handleOutcome(appointment, outcome, true) });
       return;
@@ -148,8 +150,10 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     setOutcomeBusyId(appointment.id);
     setStatus('');
     try {
-      await markAppointmentOutcome(appointment.id, outcome);
-      setStatus(outcome === 'no_show' ? 'Falta registrada e conversa encerrada.' : 'Comparecimento registrado.');
+      const result = await markAppointmentOutcome(appointment.id, outcome);
+      setStatus(outcome === 'no_show'
+        ? (result?.closed_conversation ? 'Falta registrada e conversa encerrada.' : 'Falta registrada.')
+        : 'Comparecimento registrado.');
       await onChanged?.();
     } catch (error) {
       setStatus(error.message || 'Não foi possível registrar o desfecho.');
@@ -278,10 +282,11 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                   </summary>
                   {section.items.map((appointment) => {
                     const item = appointmentAgendaItem(appointment, { timeZone });
-                    const actions = appointmentActionsFor(appointment, { outcomeTracking });
+                    const actions = appointmentActionsFor(appointment, { outcomeTracking, now: appointmentNow });
                     const outcomes = actions.filter((action) => action === 'attended' || action === 'no_show');
                     const busy = outcomeBusyId === appointment.id;
-                    const depositRequired = outcomeTracking && isDepositRequired(depositIndex, appointment.channelType, appointment.externalConversationId);
+                    const depositRequired = outcomeTracking && isDepositRequired(depositIndex, appointment.channelType,
+                      appointment.externalConversationId, tenantSlug === 'ic_salon' ? appointment.contactName : '');
                     return (
                       <article className="appointment-card appointment-agenda-card" key={appointment.id} data-status={appointment.status}>
                         <div className="appointment-card-content">

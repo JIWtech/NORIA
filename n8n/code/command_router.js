@@ -395,7 +395,7 @@ async function main(helpers) {
   const command = required(input.command, 'command');
   const tenantSlug = required(input.tenant_slug, 'tenant_slug').toLowerCase();
   const payload = input.payload || {};
-  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
+  if (!['manual_reply', 'broadcast_send', 'broadcast_campaign', 'close_conversation', 'assign_conversation', 'confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation', 'invite_appointment_reschedule', 'suggest_kanban_flow_order', 'apply_kanban_flow_order'].includes(command)) throw new Error('command nao suportado: ' + command);
 
   const user = await validateUserSession();
   const tenant = await loadTenant(tenantSlug);
@@ -429,7 +429,7 @@ async function main(helpers) {
     ? String(payload.message_text || 'Atendimento encerrado').trim()
     : command === 'assign_conversation'
       ? String(payload.message_text || 'Conversa atribuida').trim()
-      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'].includes(command)
+      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation', 'invite_appointment_reschedule'].includes(command)
         ? String(payload.message_text || '').trim()
     : required(payload.message_text, 'payload.message_text');
   const token = tokenFor(tenantSlug, channelType);
@@ -738,6 +738,89 @@ async function main(helpers) {
       throw new Error('Entrega nao comprovada. Verifique no WhatsApp antes de tentar novamente.');
     }
     return await finish(claimedMetadata, 'sending', sent.messageId, text);
+  }
+
+  if (command === 'invite_appointment_reschedule') {
+    const appointmentId = required(payload.appointment_id, 'payload.appointment_id');
+    const settings = await loadTenantSettings(tenant.id);
+    if (tenantSlug !== 'ic_salon' || settings.appointment_outcome_tracking !== true || normalizedChannel !== 'whatsapp')
+      throw new Error('Convite de remarcação indisponível para este canal ou empresa.');
+    const { supabaseUrl } = supabaseConfig();
+    const path = supabaseUrl + '/rest/v1/appointments?tenant_id=eq.' + encodeURIComponent(tenant.id)
+      + '&id=eq.' + encodeURIComponent(appointmentId);
+    const rows = await httpJson('GET', path + '&select=*', serviceHeaders());
+    const row = rows?.[0];
+    if (!row || row.channel_type !== normalizedChannel || row.external_conversation_id !== externalConversationId)
+      throw new Error('Agendamento não pertence a este contato.');
+    const previous = row.metadata?.reschedule_invite || {};
+    const reconciling = payload.invite_resolution !== undefined;
+    if (!reconciling && row.status !== 'no_show') throw new Error('O agendamento precisa estar marcado como falta.');
+    if (!row.updated_at) throw new Error('Agendamento sem versão para controle de envio.');
+    const snapshot = path + '&updated_at=eq.' + encodeURIComponent(row.updated_at);
+    const patchInvite = async (filter, invitation) => {
+      const updated = await httpJson('PATCH', filter, serviceHeaders('return=representation'),
+        { metadata: { ...row.metadata, reschedule_invite: invitation }, updated_at: new Date().toISOString() });
+      if (updated?.length !== 1) throw new Error('Agendamento alterado por outro atendente. Atualize o painel.');
+      return updated[0];
+    };
+    const recordInvite = async (invitation, appointment) => {
+      const eventId = invitation.message_id || invitation.command_id;
+      const historyPath = supabaseUrl + '/rest/v1/channel_events?select=id&tenant_id=eq.' + encodeURIComponent(tenant.id)
+        + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeURIComponent(externalConversationId)
+        + '&external_message_id=eq.' + encodeURIComponent(eventId) + '&limit=1';
+      const existing = await httpJson('GET', historyPath, serviceHeaders()).catch(() => []);
+      const saved = existing?.[0] || await recordSentEvent({ tenant_id: tenant.id, tenant_slug: tenantSlug, channel_type: normalizedChannel,
+        external_conversation_id: externalConversationId, external_message_id: eventId,
+        direction: 'outbound', sender_type: 'system',
+        message_text: invitation.text, service: 'appointment_reschedule_invite', stage: 'Convite para remarcar',
+        handoff: false, delivery_status: 'sent', command_id: invitation.command_id, sent_by_user: invitation.actor,
+        raw_payload: { command, appointment_id: appointmentId, appointment_recipient: row.contact_name || row.metadata?.customer_name } });
+      return { ok: true, command, appointment, saved, ...eventWarning(saved) };
+    };
+    if (previous.state === 'sent') return recordInvite(previous, row);
+    if (reconciling) {
+      const resolution = payload.invite_resolution;
+      if (!['delivered', 'not_delivered'].includes(resolution)) throw new Error('Resultado de conferência inválido.');
+      const stuck = previous.state === 'sending' && Date.now() - Date.parse(previous.at || '') >= 120000;
+      if (previous.state !== 'uncertain' && !stuck) throw new Error('O convite não está disponível para conferência.');
+      if (resolution === 'not_delivered' && previous.message_id) throw new Error('O provedor já identificou o envio.');
+      const invitation = { ...previous, state: resolution === 'delivered' ? 'sent' : 'not_delivered',
+        reconciled_at: new Date().toISOString(), reconciled_by: user.id };
+      const appointment = await patchInvite(snapshot, invitation);
+      return resolution === 'delivered' ? recordInvite(invitation, appointment) : { ok: true, command, appointment };
+    }
+    if (previous.state && previous.state !== 'not_delivered')
+      throw new Error('Confira o envio no WhatsApp antes de tentar novamente.');
+    if (!messageText || messageText.length > 1000) throw new Error('Escreva uma mensagem de até 1000 caracteres.');
+    if (!row.contact_name && !row.metadata?.customer_name) throw new Error('O agendamento não identifica a pessoa atendida.');
+    if (!evolution?.baseUrl || !evolution.apiKey || !evolution.instance) throw new Error('WhatsApp não configurado para esta empresa.');
+    const claim = { state: 'sending', at: new Date().toISOString(), command_id: commandId,
+      actor: user.email || user.id, text: messageText };
+    await patchInvite(snapshot + '&status=eq.no_show', claim);
+    const claimPath = path + '&metadata->reschedule_invite->>command_id=eq.' + encodeURIComponent(commandId)
+      + '&metadata->reschedule_invite->>state=eq.sending';
+    // Só altera o convite enquanto ele ainda pertence a este envio, preservando metadados gravados em paralelo.
+    const settle = async invitation => {
+      const latest = (await httpJson('GET', claimPath + '&select=metadata,updated_at', serviceHeaders()))?.[0];
+      if (!latest?.updated_at) throw new Error('A tentativa foi alterada durante o envio.');
+      const updated = await httpJson('PATCH', claimPath + '&updated_at=eq.' + encodeURIComponent(latest.updated_at),
+        serviceHeaders('return=representation'), { metadata: { ...latest.metadata, reschedule_invite: invitation }, updated_at: new Date().toISOString() });
+      if (updated?.length !== 1) throw new Error('A tentativa foi alterada durante o envio.');
+      return updated[0];
+    };
+    let providerId;
+    let invitation;
+    let appointment;
+    try {
+      providerId = (await sendWhatsApp(evolution, externalConversationId, messageText)).messageId;
+      if (!providerId) throw new Error('Envio sem identificador da Evolution.');
+      invitation = { ...claim, state: 'sent', message_id: providerId };
+      appointment = await settle(invitation);
+    } catch (_) {
+      try { await settle({ ...claim, state: 'uncertain', ...(providerId ? { message_id: providerId } : {}) }); } catch (_) {}
+      throw new Error('Entrega incerta. Confira no WhatsApp antes de repetir o envio.');
+    }
+    return recordInvite(invitation, appointment);
   }
 
   if (command === 'confirm_payment_signal') {

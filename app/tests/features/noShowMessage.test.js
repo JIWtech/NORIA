@@ -117,7 +117,7 @@ test('catálogo de preços é lido do tenant ativo e falha vira lista vazia', as
 
 test('card do Kanban vira agendamento para a prévia de falta', async () => {
   const { appointmentFromKanbanCard } = await import('../../src/services/appointments/noShowMessage.js');
-  const card = { id: 'conv-1', title: 'Ana Souza', appointmentId: 'appt-1', appointmentStatus: 'confirmed', appointmentStartsAt: '2026-11-10T17:30:00Z',
+  const card = { id: 'conv-1', title: 'Outro Contato', appointmentContactName: 'Ana Souza', appointmentId: 'appt-1', appointmentStatus: 'confirmed', appointmentStartsAt: '2026-11-10T17:30:00Z',
     appointmentTitle: 'Corte', appointmentMetadata: { services: ['Corte'] }, channelType: 'whatsapp', externalConversationId: '5521@s.whatsapp.net' };
   const appointment = appointmentFromKanbanCard(card);
   assert.equal(noShowMessageConfig(tenantSettings, appointment).enabled, true);

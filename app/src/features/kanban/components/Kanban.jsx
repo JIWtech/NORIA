@@ -43,6 +43,7 @@ import { AppointmentRequestActions } from './AppointmentRequestActions.jsx';
 import { slotProposalSuggestionEnabled } from '../../../services/appointments/appointmentRequest.js';
 import { slotProposalBadge } from '../../../services/appointments/slotProposalStatus.js';
 import { NoShowMessageDialog } from '../../appointments/components/NoShowMessageDialog.jsx';
+import { RescheduleInviteDialog } from '../../appointments/components/RescheduleInviteDialog.jsx';
 import { AppointmentConfirmDialog } from '../../appointments/components/AppointmentConfirmDialog.jsx';
 import { appointmentFromKanbanCard, noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { AppointmentDetails } from './AppointmentDetails.jsx';
@@ -70,6 +71,8 @@ import {
   matchesKanbanOwnerFilter,
 } from '../../../services/kanban/kanbanFilters';
 import { formatConversationPreview } from '../../../utils/audioUtils';
+import { AWAITING_OUTCOME_COLUMN, withAppointmentOutcomeColumn } from '../../../services/kanban/appointmentOutcomeColumns.js';
+import { useAppointmentClock } from '../../appointments/utils/useAppointmentClock.js';
 
 export function Kanban({
   allowedChannels = CHANNEL_OPTIONS.map(c => c.id),
@@ -95,10 +98,12 @@ export function Kanban({
   const [confirmingCardId, setConfirmingCardId] = useState('');
   const [outcomeCardId, setOutcomeCardId] = useState('');
   const [noShowTarget, setNoShowTarget] = useState(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [kanbanActionStatus, setKanbanActionStatus] = useState('');
   // Recurso por tenant (settings.appointment_outcome_tracking): os demais clientes não veem nada novo.
   const outcomeTracking = isOutcomeTrackingEnabled(tenantSettings);
+  const appointmentNow = useAppointmentClock(outcomeTracking);
   const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', kanbanColumns);
   const [draggingCardId, setDraggingCardId] = useState(null);
   const [dragOverColumnId, setDragOverColumnId] = useState(null);
@@ -260,19 +265,19 @@ export function Kanban({
     }
   }
   const cardOutcomes = (card) => (outcomeTracking && card?.appointmentId
-    ? availableOutcomes({ startsAt: card.appointmentStartsAt, status: card.appointmentStatus })
+    ? availableOutcomes({ startsAt: card.appointmentStartsAt, endsAt: card.appointmentEndsAt, status: card.appointmentStatus }, appointmentNow)
     : []);
 
   function handleMarkOutcome(card, outcome) {
     if (!card?.appointmentId || outcomeCardId) return;
     const noShowAppointment = outcome === 'no_show' ? appointmentFromKanbanCard(card) : null;
-    if (noShowAppointment && noShowMessageConfig(tenantSettings, noShowAppointment).enabled) {
+    if (tenantSlug !== 'ic_salon' && noShowAppointment && noShowMessageConfig(tenantSettings, noShowAppointment).enabled) {
       setNoShowTarget(noShowAppointment);
       return;
     }
     const message = outcome === 'no_show'
-      ? 'Registrar que o cliente não veio? A conversa será encerrada e novos agendamentos dele passarão a exigir sinal.'
-      : 'Registrar que o cliente compareceu? Se ele estava na lista de sinal obrigatório, volta ao normal.';
+      ? 'Registrar a falta neste agendamento?'
+      : 'Registrar presença neste agendamento?';
     setConfirmation({
       title: outcome === 'no_show' ? 'Registrar falta' : 'Registrar comparecimento',
       message,
@@ -285,8 +290,10 @@ export function Kanban({
     setOutcomeCardId(card.id);
     setKanbanActionStatus('');
     try {
-      await markAppointmentOutcome(card.appointmentId, outcome);
-      setKanbanActionStatus(outcome === 'no_show' ? 'Falta registrada e conversa encerrada.' : 'Comparecimento registrado.');
+      const result = await markAppointmentOutcome(card.appointmentId, outcome);
+      setKanbanActionStatus(outcome === 'no_show'
+        ? (result?.closed_conversation ? 'Falta registrada e conversa encerrada.' : 'Falta registrada.')
+        : 'Comparecimento registrado.');
       await onChanged?.();
     } catch (error) {
       setKanbanActionStatus(error.message || 'Não foi possível registrar o desfecho.');
@@ -300,7 +307,8 @@ export function Kanban({
 
   const filteredColumns = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return orderedColumns.map((col) => {
+    const displayColumns = outcomeTracking ? withAppointmentOutcomeColumn(orderedColumns, appointmentNow) : orderedColumns;
+    return displayColumns.map((col) => {
       const cards = (col?.cards || []).filter((card) => {
         const ownerStr = String(card?.owner || '');
         const channelStr = String(card?.channelType || card?.channel || '').toLowerCase();
@@ -309,6 +317,8 @@ export function Kanban({
           [
             card?.title,
             card?.subtitle,
+            card?.appointmentContactName,
+            card?.appointmentTitle,
             ownerStr,
             card?.ownerKind === 'ai' ? 'Assistente IA Atendimento por IA' : '',
             card?.channel,
@@ -326,7 +336,7 @@ export function Kanban({
       });
       return { ...col, cards };
     });
-  }, [orderedColumns, agentFilter, channelFilter, searchQuery, focusedCardId]);
+  }, [orderedColumns, agentFilter, channelFilter, searchQuery, focusedCardId, outcomeTracking, appointmentNow]);
 
   useEffect(() => {
     if (!focusedCardId || !ready) return;
@@ -404,7 +414,7 @@ export function Kanban({
     const columnId = e.target.closest?.('[data-column-id]')?.dataset.columnId;
     const targetColumn = filteredColumns.find(column => String(column.id) === columnId);
     handleDragEnd();
-    if (targetColumn && move.sourceColumnId !== targetColumn.id) {
+    if (targetColumn && (targetColumn.automationKey || targetColumn.id) !== AWAITING_OUTCOME_COLUMN && move.sourceColumnId !== targetColumn.id) {
       const target = targetColumn.automationKey || targetColumn.id;
       const blockReason = kanbanMoveBlockReason(move.card, target);
       if (blockReason) {
@@ -599,14 +609,20 @@ export function Kanban({
                       const isDragging = draggingCardId === card.id;
                       const labels = kanbanCardLabels(card, column);
                       const outcomes = cardOutcomes(card);
-                      const canDrag = Boolean(onMoveCard) && !card.isFollowUp;
+                      const canDrag = Boolean(onMoveCard) && !card.isFollowUp && !card.detachedFromConversation
+                        && (column.automationKey || column.id) !== AWAITING_OUTCOME_COLUMN;
                       const aiOwner = card.ownerKind === 'ai' || card.owner === 'Assistente IA';
                       const depositRequired = outcomeTracking && !labels.closed
-                        && isDepositRequired(depositIndex, card.channelType, card.externalConversationId);
+                        && isDepositRequired(depositIndex, card.channelType, card.externalConversationId,
+                          tenantSlug === 'ic_salon' ? card.appointmentContactName : '');
                       const hasConversation = Boolean(card.externalConversationId || !card.appointmentId);
                       const hasChat = Boolean(onOpenChat && hasConversation);
                       const columnKey = column.automationKey || column.id;
                       const actionMode = kanbanCardActionMode(card, columnKey, outcomes.length > 0, hasChat);
+                      const canInvite = outcomeTracking && tenantSlug === 'ic_salon' && card.appointmentStatus === 'no_show'
+                        && card.channelType === 'whatsapp' && card.externalConversationId
+                        && (card.appointmentContactName || card.appointmentMetadata?.customer_name);
+                      const inviteState = card.appointmentMetadata?.reschedule_invite?.state;
                       const chatLabel = columnKey === 'conversas_abandonadas' ? 'Retomar conversa' : 'Abrir conversa';
                       const openChat = () => onOpenChat(card.externalConversationId || card.id);
                       const link = card.hasSchedulingLink && (card.schedulingLink || schedulingUrl);
@@ -736,8 +752,13 @@ export function Kanban({
                             </span>
                           )}
 
-                          {(actionMode || menu.length > 0) && (
+                          {(actionMode || menu.length > 0 || canInvite) && (
                             <footer className="kanban-card-footer">
+                              {canInvite && (inviteState === 'sent'
+                                ? <span>Convite enviado</span>
+                                : <button type="button" className="kanban-card-primary" onClick={() => setRescheduleTarget(appointmentFromKanbanCard(card))}>
+                                  {inviteState === 'uncertain' || inviteState === 'sending' ? 'Conferir envio' : 'Convidar para remarcar'}
+                                </button>)}
                               {actionMode === 'chat' && (
                                 <button type="button" className="kanban-card-primary" onClick={openChat}>
                                   <MessageCircle size={14} aria-hidden="true" /> {chatLabel}
@@ -795,6 +816,16 @@ export function Kanban({
           onClose={() => setNoShowTarget(null)}
           onDone={async (message) => {
             setNoShowTarget(null);
+            setKanbanActionStatus(message);
+            await onChanged?.();
+          }}
+        />
+      )}
+      {rescheduleTarget && (
+        <RescheduleInviteDialog appointment={rescheduleTarget} tenantSlug={tenantSlug} now={appointmentNow}
+          onClose={() => setRescheduleTarget(null)}
+          onDone={async message => {
+            setRescheduleTarget(null);
             setKanbanActionStatus(message);
             await onChanged?.();
           }}

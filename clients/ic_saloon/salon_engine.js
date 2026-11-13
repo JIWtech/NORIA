@@ -2111,7 +2111,7 @@ async function salonResolveSlotProposalSafely(context, decision) {
     return { resolved: await salonResolveSlotProposal(context, decision) };
   } catch (error) {
     const text = supabaseErrorText(error) + ' ' + String(error?.message || '');
-    const refused = ['SLOT_PROPOSAL_OPEN_REQUEST_EXISTS', 'SLOT_PROPOSAL_PAST', 'SLOT_PROPOSAL_NOT_SENT',
+    const refused = ['SLOT_PROPOSAL_OPEN_REQUEST_EXISTS', 'SLOT_PROPOSAL_PAST', 'SLOT_PROPOSAL_EXPIRED', 'SLOT_PROPOSAL_NOT_SENT',
       'SLOT_PROPOSAL_CHANGED', 'SLOT_PROPOSAL_ALREADY_RESOLVED', 'SLOT_PROPOSAL_INVALID_TURN'].find(code => text.includes(code));
     if (!refused) throw error;
     return { refused };

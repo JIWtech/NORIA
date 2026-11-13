@@ -72,6 +72,32 @@ const insertAppointment = async (db, { tenant = tenantA, chat = '5521900000001@s
 const outcome = async (db, id, kind, note = null) => (await db.query('select magia_mark_appointment_outcome($1, $2, $3) r', [id, kind, note])).rows[0].r;
 const required = async (db, tenant = tenantA) => (await db.query('select * from magia_deposit_required_contacts($1)', [tenant])).rows;
 
+test('Salon registra a falta por agendamento e mantém o sinal restrito à pessoa atendida', async () => {
+  const db = await bootstrap();
+  try {
+    await db.exec(read('supabase/migrations_pending_review/20261113000100_salon_appointment_outcomes.sql'));
+    await db.exec(`update tenants set slug = 'ic_salon' where id = '${tenantA}'`);
+    const ana = await insertAppointment(db);
+    const joao = await insertAppointment(db, { status: 'completed', startsAt: "now() - interval '1 hour'" });
+    await db.query("update appointments set contact_name = 'João da Silva' where id = $1", [joao]);
+    await db.query("update appointments set ends_at = now() + interval '1 hour' where id = $1", [ana]);
+    await as(db, ownerA);
+    await assert.rejects(() => outcome(db, ana, 'no_show'), /APPOINTMENT_NOT_STARTED/);
+    await db.exec('reset role');
+    await db.query('update appointments set ends_at = null where id = $1', [ana]);
+    await as(db, ownerA);
+    assert.equal((await outcome(db, ana, 'no_show')).closed_conversation, false);
+    const result = await db.query('select * from magia_deposit_required_recipients($1)', [tenantA]);
+    assert.deepEqual(result.rows.map(row => [row.appointment_id, row.recipient_key]), [[ana, 'cliente teste']]);
+    assert.equal((await db.query('select count(*)::int as total from channel_events')).rows[0].total, 0);
+    await db.exec('reset role');
+    await db.exec(read('supabase/migrations_pending_review/20261113000100_salon_appointment_outcomes_rollback.sql'));
+    await assert.rejects(() => db.query('select * from magia_deposit_required_recipients($1)', [tenantA]), /does not exist/);
+  } finally {
+    await db.close();
+  }
+});
+
 test('"cliente não veio" encerra a conversa, marca o agendamento e é idempotente', async () => {
   const db = await bootstrap();
   try {

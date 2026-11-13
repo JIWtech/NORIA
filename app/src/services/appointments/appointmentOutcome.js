@@ -7,8 +7,19 @@ import { canonicalConversationKey } from '../identity/conversationIdentity.js';
 const OPEN_STATUSES = new Set(['scheduled', 'confirmed', 'pending_payment', 'payment_reported', 'reserved']);
 const OUTCOMES = new Set(['attended', 'no_show']);
 
+export function appointmentOutcomeDueAt(appointment) {
+  const start = Date.parse(appointment?.startsAt || appointment?.starts_at || '');
+  const end = Date.parse(appointment?.endsAt || appointment?.ends_at || '');
+  return Number.isFinite(start) && end >= start ? end : start;
+}
+
+export function isAwaitingAppointmentOutcome(appointment, now = Date.now()) {
+  return OPEN_STATUSES.has(String(appointment?.status || '').trim().toLowerCase())
+    && appointmentOutcomeDueAt(appointment) <= now;
+}
+
 const ERROR_MESSAGES = {
-  APPOINTMENT_NOT_STARTED: 'O horário deste agendamento ainda não começou.',
+  APPOINTMENT_NOT_STARTED: 'O horário deste agendamento ainda não terminou.',
   APPOINTMENT_OUTCOME_FORBIDDEN: 'Você não tem permissão para registrar este desfecho.',
   APPOINTMENT_NOT_FOUND: 'Agendamento não encontrado. Atualize a tela e tente de novo.',
   APPOINTMENT_OUTCOME_INVALID_STATUS: 'Este agendamento não aceita esse desfecho no status atual.',
@@ -23,7 +34,7 @@ export function isOutcomeTrackingEnabled(tenantSettings) {
 
 export function availableOutcomes(appointment, now = Date.now()) {
   if (!appointment) return [];
-  const startsAt = Date.parse(appointment.startsAt || appointment.starts_at || '');
+  const startsAt = appointmentOutcomeDueAt(appointment);
   if (!Number.isFinite(startsAt) || startsAt > now) return [];
   const status = String(appointment.status || '').trim().toLowerCase();
   if (OPEN_STATUSES.has(status)) return ['attended', 'no_show'];
@@ -36,7 +47,8 @@ export function buildDepositRequiredIndex(rows) {
   const index = new Map();
   for (const item of Array.isArray(rows) ? rows : []) {
     if (!item?.external_conversation_id) continue;
-    index.set(canonicalConversationKey(item.channel_type, item.external_conversation_id), {
+    const key = canonicalConversationKey(item.channel_type, item.external_conversation_id);
+    index.set(item.recipient_key ? key + ':' + item.recipient_key : key, {
       appointmentId: item.appointment_id || null,
       lastNoShowAt: item.last_no_show_at || null,
     });
@@ -44,9 +56,11 @@ export function buildDepositRequiredIndex(rows) {
   return index;
 }
 
-export function isDepositRequired(index, channelType, externalConversationId) {
+export function isDepositRequired(index, channelType, externalConversationId, recipientName = '') {
   if (!(index instanceof Map) || !index.size || !externalConversationId) return null;
-  return index.get(canonicalConversationKey(channelType, externalConversationId)) || null;
+  const key = canonicalConversationKey(channelType, externalConversationId);
+  const recipient = String(recipientName || '').normalize('NFKC').toLowerCase().replace(/\s+/gu, ' ').trim();
+  return index.get(recipient ? key + ':' + recipient : key) || null;
 }
 
 export function createMarkAppointmentOutcome({ getClient }) {
@@ -76,7 +90,8 @@ export function createLoadDepositRequired({ getClient, loadTenant }) {
       if (!supabase) return new Map();
       const tenant = await loadTenant(activeTenantSlug);
       if (!tenant?.id) return new Map();
-      const { data, error } = await supabase.rpc('magia_deposit_required_contacts', { p_tenant: tenant.id });
+      const rpc = activeTenantSlug === 'ic_salon' ? 'magia_deposit_required_recipients' : 'magia_deposit_required_contacts';
+      const { data, error } = await supabase.rpc(rpc, { p_tenant: tenant.id });
       if (error) {
         console.warn('Deposit-required fallback:', error.message);
         return new Map();

@@ -350,6 +350,7 @@ const APPOINTMENT_REPLY_SERVICES = new Set([
   'appointment_payment_confirmed',
   // Contraproposta de horário enviada pela equipe ("Sugerir outro horário"): mensagem real à cliente.
   'appointment_slot_proposed',
+  'appointment_reschedule_invite',
 ]);
 
 // Serviços de resposta de agendamento: qualquer atualização de entrega deve
@@ -368,6 +369,9 @@ export function isSentAppointmentReply(event) {
 
 export function resolveOutboundTimelineAuthor(event) {
   if (isSentAppointmentReply(event)) {
+    if (event.service === 'appointment_reschedule_invite') {
+      return { from: 'agent', sent_by: visibleAgentName(event.sent_by_user) || 'Operador', isAppointmentReply: true };
+    }
     return { from: 'ai', sent_by: null, isAppointmentReply: true };
   }
 

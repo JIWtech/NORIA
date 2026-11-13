@@ -388,7 +388,9 @@ export function eventsToKanban(
       || (priority === currentPriority && isMoreRecentRecord(appointment, current));
     // Cada pedido pendente ou confirmado mantém seu cartão, mesmo quando a conversa está vinculada a outro agendamento.
     const displaced = replaces ? current : appointment;
-    if (['pending_confirmation', 'confirmed'].includes(displaced?.status)) extraAppointments.push(displaced);
+    if (displaced && (appointmentKanbanPriority(displaced.status) > 0 || displaced.status === 'no_show')) {
+      extraAppointments.push(displaced);
+    }
     if (replaces) latestAppointmentsByConversation.set(key, appointment);
   }
 
@@ -408,6 +410,7 @@ export function eventsToKanban(
       appointmentStatus: appointment.status,
       appointmentStatusLabel: appointment.statusLabel,
       appointmentStartsAt: appointment.startsAt,
+      appointmentEndsAt: appointment.endsAt,
       appointmentMetadata: appointment.raw?.metadata || {},
       externalConversationId: appointment.externalConversationId,
       // 'nao_compareceu' só existe em quadros que a criaram; nos demais o cartão cai em 'agendamentos' (fallback abaixo).
@@ -438,6 +441,13 @@ export function eventsToKanban(
       // Pedido aberto fica na coluna mesmo com mensagem nova, salvo se a conversa estiver com humano.
       const openRequest = appointment.status === 'pending_confirmation';
       const heldByHuman = openRequest && HUMAN_HELD_COLUMNS.has(matchingEvent.column.automationKey || matchingEvent.column.id);
+      if (targetColumn && appointment.status === 'no_show') {
+        if (matchingEvent.column === targetColumn && closeEventsByChat.get(key)?.raw_payload?.appointment_id === appointment.id) {
+          matchingEvent.column.cards = matchingEvent.column.cards.filter(card => card.id !== matchingEvent.card.id);
+        }
+        targetColumn.cards.push(detachedAppointmentCard(appointmentCard, matchingEvent.card, targetColumn));
+        continue;
+      }
       // Agendamento confirmado e futuro também puxa o card que só está com a IA (ex.: "Obrigada" depois da confirmação).
       const upcomingConfirmed = appointment.status === 'confirmed'
         && Date.parse(appointment.startsAt || '') > Date.now()
@@ -499,10 +509,11 @@ export function eventsToKanban(
     appointment.externalConversationId || appointment.external_conversation_id,
     `appointment-${appointment.id}`,
   ));
+  const visibleProposals = new Set();
   for (const column of columns) {
     for (const card of column.cards) {
-      if (card.appointmentStatus === 'confirmed') continue;
       const own = card.appointmentStatus === 'pending_confirmation' ? card.appointmentMetadata?.slot_proposal : null;
+      if (card.appointmentId && card.appointmentStatus !== 'pending_confirmation') continue;
       let proposal = own?.status === 'accepted'
         ? own
         : proposalsByConversation.get(canonicalConversationKey(card.channelType, card.externalConversationId, card.id));
@@ -512,7 +523,30 @@ export function eventsToKanban(
         const proposalAt = Date.parse(proposal.resolved_at || proposal.sent_at || '');
         if (Number.isFinite(requestedAt) && Number.isFinite(proposalAt) && requestedAt > proposalAt) proposal = null;
       }
-      if (proposal) card.slotProposal = { id: proposal.id, status: proposal.status, date: proposal.date, time: proposal.time, sent_at: proposal.sent_at, resolved_at: proposal.resolved_at };
+      if (proposal?.status === 'sent' && card.appointmentId) continue;
+      if (proposal) {
+        card.slotProposal = { id: proposal.id, appointmentId: proposal.appointmentId, status: proposal.status, date: proposal.date, time: proposal.time, sent_at: proposal.sent_at, resolved_at: proposal.resolved_at };
+        visibleProposals.add(proposal.id);
+      }
+    }
+  }
+  const proposalColumn = findKanbanColumn(columns, 'confirmar_agendamento') || findKanbanColumn(columns, 'agendamentos');
+  if (proposalColumn) {
+    for (const proposal of proposalsByConversation.values()) {
+      if (proposal.status !== 'sent' || visibleProposals.has(proposal.id)) continue;
+      const appointment = appointmentsById.get(proposal.appointmentId);
+      const card = toAppointmentCard(appointment);
+      proposalColumn.cards.push({
+        id: `proposal-${appointment.id}`,
+        title: appointment.contactName || appointment.title,
+        subtitle: appointment.title,
+        channel: card.channel,
+        channelType: card.channelType,
+        externalConversationId: card.externalConversationId,
+        targetColumnId: proposalColumn.automationKey || proposalColumn.id,
+        detachedFromConversation: true,
+        slotProposal: proposal,
+      });
     }
   }
 
@@ -538,9 +572,11 @@ function enrichCardWithAppointment(card, appointmentCard) {
     ...card,
     appointmentId: appointmentCard.appointmentId,
     appointmentTitle: appointmentCard.appointmentTitle,
+    appointmentContactName: appointmentCard.appointmentContactName,
     appointmentStatus: appointmentCard.appointmentStatus,
     appointmentStatusLabel: appointmentCard.appointmentStatusLabel,
     appointmentStartsAt: appointmentCard.appointmentStartsAt,
+    appointmentEndsAt: appointmentCard.appointmentEndsAt,
     appointmentMetadata: appointmentCard.appointmentMetadata,
     actionType: appointmentCard.actionType,
     hasSchedulingLink: card.hasSchedulingLink || appointmentCard.targetColumnId === 'agendamentos',

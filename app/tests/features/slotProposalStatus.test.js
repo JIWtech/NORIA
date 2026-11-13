@@ -85,6 +85,17 @@ test('dois confirmados no mesmo contato aparecem sem o selo da recusa anterior',
   }
 });
 
+test('falta e proposta ativa ficam visíveis ao lado de outro confirmado no mesmo WhatsApp', () => {
+  const sent = cancelled({ id: 'nova', status: 'sent', sent_at: hoursAgo(0) });
+  const booked = mapAppointment({ ...sent.raw, id: 'confirmado', status: 'confirmed', metadata: {} });
+  const missed = mapAppointment({ ...sent.raw, id: 'falta', status: 'no_show', metadata: {} });
+  const columns = eventsToKanban([inbound], 'ic_salon', [booked, sent, missed], config);
+  const cards = columns.flatMap(column => column.cards);
+  assert.equal(cards.find(card => card.appointmentId === 'confirmado').slotProposal, undefined);
+  assert.equal(cards.find(card => card.appointmentId === 'falta').appointmentStatus, 'no_show');
+  assert.equal(cards.find(card => card.slotProposal?.id === 'nova').slotProposal.appointmentId, 'ap-cancelled');
+});
+
 test('pedido reaberto por aceite indica que veio de proposta', () => {
   const reopened = mapAppointment({
     id: 'ap-open', title: 'Corte - Ana', starts_at: '2026-11-21T13:00:00Z', status: 'pending_confirmation', contact_name: 'Ana', channel_type: 'whatsapp',

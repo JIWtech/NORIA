@@ -1,4 +1,5 @@
 import { asObject } from '../../utils/asObject.js';
+import { isAwaitingAppointmentOutcome } from './appointmentOutcome.js';
 
 // Organização da tela de Agendamentos, igual para todos os tenants. Recebe agendamentos já mapeados
 // por mapAppointment e devolve seções prontas para exibir.
@@ -43,7 +44,7 @@ export function appointmentSectionKey(appointment, { now = Date.now(), timeZone 
   if (!OPEN_STATUSES.has(status)) return 'history';
   const start = startsAtEpoch(appointment);
   if (start === null) return 'upcoming';
-  if (start <= now) return 'awaiting_outcome';
+  if (isAwaitingAppointmentOutcome(appointment, now)) return 'awaiting_outcome';
   return dayKey(start, timeZone) === dayKey(now, timeZone) ? 'today' : 'upcoming';
 }
 

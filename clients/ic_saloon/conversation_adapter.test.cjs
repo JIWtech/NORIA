@@ -494,15 +494,16 @@ test('agendamento em andamento: a pergunta para seguir nunca é cortada (regress
   assert.equal(kept.diagnostics.adapter_outcome, 'passed');
 });
 
-test('reservas futuras do contato entram como contexto e exigem existing_acknowledged', async () => {
-  const known = [{ nome: 'Maria', servicos: 'Corte', data: 'quarta-feira, 30 de setembro', hora: '14:30', status: 'confirmed' }];
-  const acknowledged = await run({ appointments: [otherSlot] });
+test('reservas futuras da mesma pessoa entram como contexto e exigem existing_acknowledged', async () => {
+  const samePersonOtherSlot = { ...otherSlot, contact_name: name };
+  const known = [{ nome: name, servicos: 'Corte', data: 'quarta-feira, 30 de setembro', hora: '14:30', status: 'confirmed' }];
+  const acknowledged = await run({ appointments: [samePersonOtherSlot] });
   assert.equal(acknowledged.text, tag);
   assert.equal(acknowledged.diagnostics.adapter_outcome, 'creation_allowed');
   assert.deepEqual(acknowledged.reviews[0].booking.existing_appointments, known);
   assert.match(acknowledged.generations[0][0].text, /RESERVAS FUTURAS DESTE CONTATO[^.]*"servicos":"Corte"[^.]*"hora":"14:30"/);
 
-  const pending = await run({ appointments: [otherSlot], verdict: { ...withEvidence, existing_acknowledged: false } });
+  const pending = await run({ appointments: [samePersonOtherSlot], verdict: { ...withEvidence, existing_acknowledged: false } });
   assert.equal(pending.text, repairText);
   assert.deepEqual(pending.diagnostics.adapter_trail, ['existing_not_acknowledged']);
   assert.match(pending.generations.at(-1).at(-1).text, /cite serviço, dia e hora da reserva existente/);
@@ -511,7 +512,7 @@ test('reservas futuras do contato entram como contexto e exigem existing_acknowl
   // Reproduz o turno real ("13:30 tá bom"): o modelo devolvia só a tag nos dois reparos (repair_empty, repair_empty) porque o
   // contexto do reparo ainda mandava "devolver somente a tag". O reparo agora suspende o registro e remove essa regra.
   const tagOnlyModel = parts => (parts[0].text.includes('devolva somente a tag de registro') ? tag : repairText);
-  const accepted = await run({ appointments: [otherSlot], verdict: { ...withEvidence, existing_acknowledged: false }, repairs: tagOnlyModel });
+  const accepted = await run({ appointments: [samePersonOtherSlot], verdict: { ...withEvidence, existing_acknowledged: false }, repairs: tagOnlyModel });
   assert.equal(accepted.text, repairText);
   assert.equal(accepted.diagnostics.adapter_outcome, 'repaired');
   assert.deepEqual(accepted.diagnostics.adapter_trail, ['existing_not_acknowledged']);
@@ -520,7 +521,7 @@ test('reservas futuras do contato entram como contexto e exigem existing_acknowl
   assert.match(repairParts.at(-1).text, /NÃO devolva tag/);
   assert.match(repairParts.at(-1).text, /Ignore qualquer regra anterior/);
   // Um modelo que ainda devolvesse só a tag cairia no erro técnico: o diagnóstico continua registrando repair_empty.
-  const stubbornTag = await run({ appointments: [otherSlot], verdict: { ...withEvidence, existing_acknowledged: false }, repairs: [tag] });
+  const stubbornTag = await run({ appointments: [samePersonOtherSlot], verdict: { ...withEvidence, existing_acknowledged: false }, repairs: [tag] });
   assert.deepEqual(stubbornTag.diagnostics.adapter_trail, ['existing_not_acknowledged', 'repair_empty', 'repair_empty']);
 
   // Reservas passadas, canceladas ou concluídas não são reservas futuras nem exigem confirmação.
@@ -535,7 +536,7 @@ test('reservas futuras do contato entram como contexto e exigem existing_acknowl
 });
 
 test('tag igual a um pedido pendente já gravado responde sem nova ação', async () => {
-  const pending = { ...sameSlot, id: 'apt-p', status: 'pending_confirmation' };
+  const pending = { ...sameSlot, id: 'apt-p', contact_name: name, status: 'pending_confirmation' };
   const result = await run({ appointments: [pending] });
   assert.equal(result.text, repairText);
   assert.deepEqual(result.diagnostics.adapter_trail, ['repeated_pending']);
@@ -544,27 +545,34 @@ test('tag igual a um pedido pendente já gravado responde sem nova ação', asyn
 });
 
 test('mesmo horário de uma reserva existente: o Gemini escreve o aviso com os dados do sistema e a equipe assume', async () => {
+  const booking = { ...sameSlot, contact_name: name };
   const written = 'Vi que você já tem Corte na terça-feira, 29 de setembro, às 10:00. A equipe vai olhar esse horário com você.';
-  const composed = await run({ appointments: [sameSlot], repairs: [written] });
+  const composed = await run({ appointments: [booking], repairs: [written] });
   assert.equal(composed.text, written + handoff);
   assert.equal(composed.diagnostics.adapter_outcome, 'conflict_handoff');
   assert.equal(composed.diagnostics.adapter_message_source, 'gemini');
   assert.match(composed.generations.at(-1).at(-1).text, /"Corte"/);
   // Dado obrigatório ausente no texto do Gemini: vale o template configurado.
-  const missingData = await run({ appointments: [sameSlot], repairs: ['Você já tem um horário marcado. A equipe confere.'] });
+  const missingData = await run({ appointments: [booking], repairs: ['Você já tem um horário marcado. A equipe confere.'] });
   assert.equal(missingData.text, 'Você já tem Corte na terça-feira, 29 de setembro, às 10:00. A equipe confere com você.' + handoff);
   assert.equal(missingData.diagnostics.adapter_message_source, 'template_fallback');
-  const result = await run({ appointments: [sameSlot], repairs: noGeneration });
+  const result = await run({ appointments: [booking], repairs: noGeneration });
   assert.equal(result.text, 'Você já tem Corte na terça-feira, 29 de setembro, às 10:00. A equipe confere com você.' + handoff);
   assert.equal(result.diagnostics.adapter_outcome, 'conflict_handoff');
   assert.deepEqual(result.diagnostics.adapter_trail, ['conflict_existing', 'repair_finish', 'repair_finish']);
   assert.equal(result.diagnostics.adapter_message_source, 'template_fallback');
-  const defaults = await run({ appointments: [sameSlot], repairs: noGeneration, settings: { price_rejection_template: priceFallback } });
+  const defaults = await run({ appointments: [booking], repairs: noGeneration, settings: { price_rejection_template: priceFallback } });
   assert.equal(defaults.text, 'Vi aqui que você já tem Corte marcado para terça-feira, 29 de setembro, às 10:00. Vou pedir para a equipe conferir esse horário com você por aqui.' + handoff);
 });
 
+test('outro destinatário no mesmo WhatsApp não vira conflito do pedido', async () => {
+  const result = await run({ appointments: [sameSlot], verdict: { ...withEvidence, existing_acknowledged: false } });
+  assert.equal(result.text, tag);
+  assert.deepEqual(result.reviews[0].booking.existing_appointments, []);
+});
+
 test('após falta o novo registro exige sinal acordado e a marca sinal_exigido é do sistema', async () => {
-  const noShow = [past('n1', 'no_show', '2026-10-01T13:00:00Z')];
+  const noShow = [past('n1', 'no_show', '2026-10-01T13:00:00Z', { contact_name: name })];
   const asked = await run({ appointments: noShow, verdict: { ...withEvidence, deposit_acknowledged: false } });
   assert.equal(asked.text, repairText);
   assert.deepEqual(asked.diagnostics.adapter_trail, ['deposit_not_acknowledged']);
@@ -577,7 +585,9 @@ test('após falta o novo registro exige sinal acordado e a marca sinal_exigido �
   assert.equal(agreed.diagnostics.adapter_outcome, 'creation_allowed');
 
   // Um comparecimento posterior à falta desfaz a exigência, e a marca vinda do modelo é removida.
-  const later = [...noShow, past('c1', 'completed', '2026-10-20T13:00:00Z')];
+  const unrelated = await run({ appointments: [past('n2', 'no_show', '2026-10-01T13:00:00Z')] });
+  assert.equal(unrelated.text, tag, 'a falta de outra pessoa no mesmo WhatsApp não exige sinal');
+  const later = [...noShow, past('c1', 'completed', '2026-10-20T13:00:00Z', { contact_name: name })];
   const cleared = await run({ appointments: later, draft: tag.replace(/\]$/, '|sinal_exigido=sim]') });
   assert.equal(cleared.text, tag);
   assert.equal(cleared.reviews[0].booking.deposit_required, false);

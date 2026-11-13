@@ -104,9 +104,13 @@ function projectAppointmentRequestCommands(code) {
   const text = "      : command === 'confirm_payment_signal'\n        ? String(payload.message_text || '').trim()";
   if (out.includes(text)) out = out.replace(text, "      : ['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text || '').trim()");
   else if (!out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot'].includes(command)\n        ? String(payload.message_text")
-    && !out.includes("['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'].includes(command)\n        ? String(payload.message_text")) throw new Error('APPOINTMENT_REQUEST_MESSAGE_TEXT_MISSING');
+    && !/\['confirm_payment_signal', 'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'(?:, 'invite_appointment_reschedule')?\]\.includes\(command\)\s+\? String\(payload\.message_text/.test(out)) {
+    throw new Error('APPOINTMENT_REQUEST_MESSAGE_TEXT_MISSING');
+  }
   out = out.replace(/'confirm_appointment_request', 'reject_appointment_slot'(?!, 'notify_appointment_cancellation')/g,
     "'confirm_appointment_request', 'reject_appointment_slot', 'notify_appointment_cancellation'");
+  out = out.replace(/, 'notify_appointment_cancellation'(?!, 'invite_appointment_reschedule')/g,
+    ", 'notify_appointment_cancellation', 'invite_appointment_reschedule'");
   return out;
 }
 

@@ -33,7 +33,6 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
     .limit(200);
   if (error) {
     console.warn('Appointments fallback:', error.message);
-    return [];
   }
   const { data: openAppointments, error: openError } = await supabase
     .from('appointments')

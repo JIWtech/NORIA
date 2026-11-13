@@ -108,8 +108,17 @@ test('aceite de proposta antiga com outro pedido pendente na conversa é recusad
     await assert.rejects(() => rpc('magia_slot_proposal_resolve', [tenant, 'whatsapp', 'chat', a, 'p1', 'accept', turn]), /SLOT_PROPOSAL_OPEN_REQUEST_EXISTS/);
     const rows = (await db.query(`select id, status, metadata->'slot_proposal'->>'status' as proposal from appointments order by id`)).rows;
     assert.deepEqual(rows.map(r => [r.id, r.status, r.proposal]), [[a, 'cancelled', 'sent'], [c, 'pending_confirmation', null]], 'nada muda');
-    // Recusar a proposta antiga continua possível.
-    assert.equal((await rpc('magia_slot_proposal_resolve', [tenant, 'whatsapp', 'chat', a, 'p1', 'reject', turn])).proposal.status, 'rejected');
+    await db.exec('alter table appointments add column contact_name text, add column created_at timestamptz');
+    await db.exec(fs.readFileSync(path.join(__dirname, '../supabase/migrations_pending_review/20261113000100_salon_appointment_outcomes.sql'), 'utf8'));
+    await assert.rejects(() => rpc('magia_slot_proposal_resolve', [tenant, 'whatsapp', 'chat', a, 'p1', 'accept', turn]), /SLOT_PROPOSAL_OPEN_REQUEST_EXISTS/, 'pedido legado sem identidade mantém a proteção');
+    await db.exec(`drop index one_open;
+      create unique index one_open on appointments(tenant_id,channel_type,external_conversation_id,(coalesce(metadata->>'recipient_key',''))) where status='pending_confirmation';
+      update appointments set metadata=metadata || '{"recipient_key":"ana"}' where id in ('${a}','${c}');`);
+    await assert.rejects(() => rpc('magia_slot_proposal_resolve', [tenant, 'whatsapp', 'chat', a, 'p1', 'accept', turn]), /SLOT_PROPOSAL_OPEN_REQUEST_EXISTS/);
+    await db.exec(`update appointments set metadata=metadata || '{"recipient_key":"joao"}' where id='${c}'`);
+    const accepted = await rpc('magia_slot_proposal_resolve', [tenant, 'whatsapp', 'chat', a, 'p1', 'accept', turn]);
+    assert.equal(accepted.appointment.status, 'pending_confirmation');
+    assert.equal((await db.query('select status from appointments where id=$1', [c])).rows[0].status, 'pending_confirmation');
   } finally { await db.close(); }
 });
 

@@ -44,7 +44,10 @@ export function latestSlotProposalByConversation(appointments, keyOf) {
     const key = keyOf(appointment);
     const stamp = Date.parse(proposal.resolved_at || proposal.sent_at || appointment.raw?.updated_at || '') || 0;
     const current = latest.get(key);
-    if (!current || stamp > current.stamp) latest.set(key, { stamp, proposal });
+    if (!current || (proposal.status === 'sent' && current.proposal.status !== 'sent')
+      || ((proposal.status === 'sent') === (current.proposal.status === 'sent') && stamp > current.stamp)) {
+      latest.set(key, { stamp, proposal: { ...proposal, appointmentId: appointment.id } });
+    }
   }
   return new Map([...latest].map(([key, value]) => [key, value.proposal]));
 }
