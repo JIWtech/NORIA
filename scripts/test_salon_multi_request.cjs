@@ -251,3 +251,28 @@ test('regras do motor: formato único da tag com campos opcionais, cancelamento 
   assert.doesNotMatch(r.prompt, /Use humano apenas para reclama/);
   assert.doesNotMatch(r.prompt, /HH:mm/);
 });
+
+test('cancelamento nunca atinge o pedido de outra pessoa (regressão Gemini real: cancelou a namorada ao desistir da mãe)', async () => {
+  const onlyGirlfriend = [second];
+  for (const tag of ['[ACAO: CANCELAR_PEDIDO|pedido=mae|nome=Louzania Santos]', '[ACAO: CANCELAR_PEDIDO|pedido=namorada|nome=Louzania Santos]',
+    '[ACAO: CANCELAR_PEDIDO|pedido=id-inexistente]']) {
+    const reply = 'Não encontrei pedido pendente da sua mãe por aqui. Posso ajudar com outra coisa?';
+    const r = await run({ request: contextual, appointments: onlyGirlfriend, texts: ['Não quero mais marcar pra minha mãe'],
+      response: ['Já retirei o pedido da sua mãe. ' + tag, reply] });
+    assert.deepEqual(r.patched, [], tag);
+    assert.doesNotMatch(r.sentText, /retirei/i, tag);
+    assert.ok(!r.events.some(e => e.handoff === true), 'sem pedido para retirar não é caso da equipe: ' + tag);
+    const generations = r.calls.filter(c => c.url.includes('generateContent')).map(c => JSON.stringify(c.body));
+    assert.match(generations.at(-1), /não há pedido pendente/i, tag);
+  }
+  // Nome da tag igual ao da pessoa do pedido: cancela normalmente.
+  const ok = await run({ request: contextual, appointments: onlyGirlfriend, texts: ['Não quero mais o da Ana Julia'],
+    response: 'Tudo bem, retirei o pedido da Ana Julia. [ACAO: CANCELAR_PEDIDO|pedido=namorada|nome=Ana Julia Souza]' });
+  assert.equal(ok.patched.length, 1);
+  assert.equal(ok.patched[0].status, 'cancelled');
+});
+
+test('regras do motor: cancelamento leva o nome de quem seria atendida no pedido', async () => {
+  const r = await run({ request: contextual, appointments: [mother], texts: ['Oi'], response: 'Oi!' });
+  assert.match(r.prompt, /CANCELAR_PEDIDO\|pedido=ID_DO_PEDIDO\|nome=NOME/);
+});

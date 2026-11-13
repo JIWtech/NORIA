@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -836,4 +836,27 @@ test('preço reprovado: antes da frase fixa de preço, tenta uma resposta sem va
     priceReport: (message) => (/\d/.test(message) ? [{ kind: 'reject', text: message }] : [{ kind: 'non_price', text: message }]) });
   assert.equal(result.text, noPrice);
   assert.notEqual(result.text, priceFallback);
+});
+
+test('"retirei" sem ação de cancelamento é reparado; com a ação de cancelar, passa (regressão Gemini real)', async () => {
+  const claim = 'Prontinho, retirei tudo por aqui, fique tranquila.';
+  const fixed = 'De qual pedido você quer desistir, do seu ou do de outra pessoa?';
+  const verdict = body => ({ ...okVerdict, claims_cancellation: body.draft === claim || /retirei/.test(body.draft || '') });
+  const repaired = await run({ draft: claim, currentText: 'cancela tudo', verdict, repairs: [fixed] });
+  assert.equal(repaired.text, fixed);
+  assert.equal(repaired.diagnostics.adapter_trail[0], 'claims_cancellation');
+  const withAction = 'Tudo bem, retirei o pedido da Ana. [ACAO: CANCELAR_PEDIDO|pedido=p1|nome=Ana Souza]';
+  const allowed = await run({ draft: withAction, currentText: 'não quero mais o da Ana', verdict });
+  assert.equal(allowed.text, withAction);
+});
+
+test('chave Pix, CNPJ ou contato nunca saem da IA (regressão Gemini real: CNPJ inventado)', async () => {
+  const invented = 'A chave Pix do salão é o CNPJ 45.678.901/0001-23. ✨';
+  const fixed = 'A equipe te envia os dados do Pix por aqui quando for preciso, tá bem?';
+  const verdict = body => ({ ...okVerdict, shares_payment_or_contact: body.draft === invented });
+  const result = await run({ draft: invented, currentText: 'me passa o pix', verdict, repairs: [fixed] });
+  assert.equal(result.text, fixed);
+  assert.equal(result.diagnostics.adapter_trail[0], 'shares_payment_or_contact');
+  const stubborn = await run({ draft: invented, currentText: 'me passa o pix', verdict, repairs: [invented] });
+  assert.notEqual(stubborn.text, invented);
 });

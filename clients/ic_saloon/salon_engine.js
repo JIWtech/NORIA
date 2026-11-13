@@ -1955,16 +1955,17 @@ function appointmentRecipientKey(name) {
 
 // Pedido que a tag de alterar ou cancelar alcança. Com mais de um pendente, só o id da tag (pedido=) decide; uma pessoa
 // atendida com nome idêntico também serve. Ambiguidade devolve null e o turno cai na revisão da equipe.
+// Id inexistente ou nome de outra pessoa nunca caem no único pedido pendente: isso cancelava o pedido de quem não desistiu.
 function selectOpenAppointmentRequest(requests, action) {
   const list = Array.isArray(requests) ? requests : [];
+  const key = appointmentRecipientKey(action?.customerName);
+  const samePerson = item => !key || appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key;
   if (action?.requestId) {
     const byId = list.find(item => item.id === action.requestId);
-    if (byId) return byId;
-    if (list.length !== 1) return null;
+    return byId && samePerson(byId) ? byId : null;
   }
-  if (list.length <= 1) return list[0] || null;
-  const key = appointmentRecipientKey(action?.customerName);
-  const byName = key ? list.filter(item => appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key) : [];
+  if (list.length <= 1) return list[0] && samePerson(list[0]) ? list[0] : null;
+  const byName = key ? list.filter(samePerson) : [];
   return byName.length === 1 ? byName[0] : null;
 }
 
@@ -2690,7 +2691,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
         '- Há mais de um pedido pendente (pedidos_pendentes). Para editar ou cancelar um deles, inclua pedido=ID_DO_PEDIDO na tag; se não estiver claro qual, pergunte antes.',
       ] : []),
       '- Inclua primeira_vez=sim ou primeira_vez=nao na tag somente se a própria pessoa respondeu isso sobre quem será atendida neste pedido; sem resposta explícita omita o campo. Nunca reaproveite a resposta de outra pessoa.',
-      '- Quando a pessoa desistir de um pedido pendente (ainda não confirmado pela equipe), responda com texto visível e inclua [ACAO: CANCELAR_PEDIDO|pedido=ID_DO_PEDIDO], com o id de pedido_pendente ou de pedidos_pendentes. Mudar um pedido ou mudar ou cancelar uma reserva confirmada vai para a equipe com [HUMANO_SOLICITADO].',
+      '- Quando a pessoa desistir de um pedido pendente (ainda não confirmado pela equipe), responda com texto visível e inclua [ACAO: CANCELAR_PEDIDO|pedido=ID_DO_PEDIDO|nome=NOME], com o id de pedido_pendente ou de pedidos_pendentes e o nome da pessoa que seria atendida nesse pedido. Se não houver pedido pendente dessa pessoa, não use a tag e não diga que retirou nada. Mudar um pedido ou mudar ou cancelar uma reserva confirmada vai para a equipe com [HUMANO_SOLICITADO].',
     ] : []),
     ...(keepsAiOnTeamReview(context) ? [
       '- ATUALIZAR_PEDIDO e CANCELAR_PEDIDO só são válidos para o pedido_pendente e apenas quando a mensagem atual se refere a ele.',
@@ -14983,7 +14984,14 @@ async function runTurn() {
       const retryKey = /APPOINTMENT_FULL_NAME_REQUIRED/.test(code) ? 'full_name_template'
         : /Invalid appointment details|APPOINTMENT_REQUEST_PAST/.test(code) ? 'missing_details_template' : '';
       const retryText = retryKey ? salonLiteralTemplate(context, retryKey) : '';
-      if (contextualBooking && /APPOINTMENT_REQUEST_(?:CHANGED|NOT_OPEN|BUSY)/.test(code)) {
+      if (contextualBooking && requestAction.kind === 'cancel' && /APPOINTMENT_REQUEST_NOT_OPEN/.test(code)) {
+        // Não há pedido pendente dessa pessoa: nada a retirar e nada para a equipe; o modelo explica sem afirmar cancelamento.
+        const revised = await callGemini(context, '', history, catalog, appointments,
+          '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar, e nenhum pedido foi cancelado neste turno. Os pedidos de outras pessoas continuam como estão. Diga isso com naturalidade, sem afirmar que retirou, cancelou ou removeu algo, e pergunte se pode ajudar em mais alguma coisa. Não emita tag de agendamento.');
+        responseText = parseAppointmentRequestAction(revised.text) || !cleanReplyText(revised.text).trim()
+          ? salonLiteralTemplate(context, 'processing_error_template') : revised.text;
+        preserveLiteralReply = responseText !== revised.text;
+      } else if (contextualBooking && /APPOINTMENT_REQUEST_(?:CHANGED|NOT_OPEN|BUSY)/.test(code)) {
         const current = appointmentState((await loadAppointments(context.tenant.id, false, true)).rows);
         await refreshOpenAppointmentRequests(context, current);
         const revised = await callGemini(context, '', history, catalog, current,

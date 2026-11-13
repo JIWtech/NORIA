@@ -191,6 +191,8 @@ function createSalonHelpers(helpers, input, env) {
           'Em claims_registration informe, pelo significado e não por palavras isoladas, se o rascunho afirma que um pedido, horário ou alteração',
           'já foi anotado, registrado, reservado, confirmado ou encaminhado (inclusive com outras palavras). Pergunta, oferta de ajuda,',
           'relato de reserva anterior ou explicação de que ainda não foi registrado não afirmam registro. Sem rascunho, use false.',
+          'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
+          'Em shares_payment_or_contact use true quando o rascunho informa chave Pix, CNPJ, CPF, conta bancária, número de telefone, e-mail ou outro dado de pagamento ou de contato de alguém. Dizer que a equipe envia esses dados por aqui é false. Sem rascunho, use false.',
           'Em claims_availability informe, pelo significado, se o rascunho afirma ou sugere que existe vaga, horário livre ou disponibilidade,',
           'ou oferece um horário, turno ou parte do dia como livre. A IA não vê a agenda; só a equipe confirma o encaixe. Perguntar qual dia e',
           'horário a pessoa prefere, repetir o que ela mesma pediu sem dizer que está livre, ou dizer que a equipe confirma não afirmam',
@@ -212,13 +214,13 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
-            booking_in_progress: { type: 'BOOLEAN' },
+            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -488,7 +490,8 @@ function createSalonHelpers(helpers, input, env) {
           continue;
         }
         // Afirmação de registro e de disponibilidade são leituras do Gemini; campo ausente ou fora do contrato nunca libera.
-        if (verdict.claims_registration !== false) {
+        // O reparo nunca leva tag: afirmar cancelamento ou passar dado de pagamento/contato reprova o texto.
+        if (verdict.claims_registration !== false || verdict.claims_cancellation !== false || verdict.shares_payment_or_contact !== false) {
           note('repair_claim');
           technicalOnly = false;
           continue;
@@ -622,6 +625,14 @@ function createSalonHelpers(helpers, input, env) {
     // que acabava reprovada de novo e mandava a pessoa para a equipe só com "vou pedir para conferir".
     if (verdict.claims_registration !== false) {
       return fallback('claims_booking', 'O rascunho anterior dava o pedido por combinado, marcado, anotado ou encaminhado. Nada foi marcado ainda: não use "combinado", "marcado", "anotado", "vou deixar anotado" nem "vou passar para a equipe", e não confirme o horário como livre. Em uma mensagem curta, agradeça o dia e o horário sugeridos, diga que a equipe confirma o horário e faça UMA pergunta com o próximo dado que falta para o pedido (por exemplo, o nome completo com sobrenome). Se todos os dados já foram dados, pergunte se pode seguir.');
+    }
+    // Cancelamento afirmado sem a ação de cancelar (o motor só cancela com a tag); com a tag, quem confere o pedido é o motor.
+    if (verdict.claims_cancellation !== false && !tags.some(tag => /^CANCELAR_PEDIDO$/i.test(tag[1]))) {
+      return fallback('claims_cancellation', 'O rascunho anterior dizia que um pedido foi cancelado ou retirado, mas nada foi cancelado neste turno. Não diga que cancelou, retirou ou removeu nada. Se a pessoa quer desistir de um pedido pendente, pergunte em uma frase curta de qual pessoa é o pedido que ela quer retirar.');
+    }
+    // A IA nunca informa chave Pix, CNPJ, conta, telefone ou contato: esses dados quem envia é a equipe.
+    if (verdict.shares_payment_or_contact !== false) {
+      return fallback('shares_payment_or_contact', 'O rascunho anterior informava chave Pix, CNPJ, conta, telefone ou outro dado de pagamento ou contato. Não informe nenhum desses dados: diga com naturalidade que a equipe envia por aqui o que for preciso e siga o atendimento.');
     }
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.
     if (verdict.claims_availability !== false) {
