@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false, skipped_registration: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false, skipped_registration: false, wants_service_list: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -1111,4 +1111,37 @@ test('resposta que deixa de registrar um pedido completo para perguntar algo opc
   // Só uma nova tentativa: se insistir na pergunta, ela sai como está.
   const stubborn = await run({ draft: question, verdict });
   assert.equal(stubborn.text, question);
+});
+
+test('revisor de estilo: abertura do catálogo que manda pedir a lista (já anexada) é reescrita', async () => {
+  const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict });
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /dizer para a pessoa pedir a lista também é style_violation/);
+});
+
+test('resposta cortada por tamanho: a reescrita é orientada a usar a tag do catálogo em vez de prometer a lista sem ela', async () => {
+  const result = await run({ draft: 'Aqui estão todos os serviços: Corte, Escova', finishReason: 'MAX_TOKENS', currentText: 'Me manda a lista de serviços',
+    verdict: okVerdict, repairs: ['Claro, olha só tudo o que fazemos! [CATALOGO_COMPLETO]'] });
+  const guidance = result.generations.at(-1).map(p => p.text).join(' ');
+  assert.ok(guidance.includes('termine com [CATALOGO_COMPLETO]'));
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /Prometer a lista ou os serviços/);
+});
+
+test('pediu a lista de serviços e a IA escreveu a lista ela mesma: vira abertura + tag do catálogo (o sistema anexa a lista oficial)', async () => {
+  const draft = 'Boa tarde! Cheguei há pouco na equipe. Temos várias opções para você. • Corte • Escova • Drenagem';
+  const verdict = { ...okVerdict, wants_service_list: true };
+  const result = await run({ draft, currentText: 'Quais serviços vocês fazem?', verdict });
+  assert.equal(result.text, 'Boa tarde! Cheguei há pouco na equipe. Temos várias opções para você. [CATALOGO_COMPLETO]');
+  assert.equal(result.diagnostics.adapter_outcome, 'catalog_tag_added');
+  // Promessa sem lista também ganha a tag.
+  const promise = await run({ draft: 'Com certeza, veja só as opções que preparamos para você.', currentText: 'Me manda a lista', verdict });
+  assert.equal(promise.text, 'Com certeza, veja só as opções que preparamos para você. [CATALOGO_COMPLETO]');
+  // Já com a tag: nada muda.
+  const tagged = 'Claro! [CATALOGO_COMPLETO]';
+  const ok = await run({ draft: tagged, currentText: 'Quais serviços?', verdict });
+  assert.equal(ok.text, tagged);
+  // Pediu preços junto: tag com preços.
+  const withPrice = await run({ draft: 'Olha só:', currentText: 'Quais serviços e quanto custam?', verdict: { ...verdict, price_request_quote: 'quanto custam' } });
+  assert.equal(withPrice.text, 'Olha só: [CATALOGO_COMPLETO_COM_PRECOS]');
 });
