@@ -8,6 +8,7 @@ export function createRefreshCoordinator({
 } = {}) {
   const freshAtByScope = new Map();
   const inFlightByScope = new Map();
+  const queuedByScope = new Map();
 
   return {
     shouldRefreshOnVisibility(scope) {
@@ -21,7 +22,18 @@ export function createRefreshCoordinator({
     run(scope, load) {
       if (!scope) return Promise.resolve(false);
       const existing = inFlightByScope.get(scope);
-      if (existing) return existing;
+      if (existing) {
+        // A recarga em andamento leu o banco antes deste pedido (ex.: agendamento cancelado no meio dela).
+        // Os pedidos feitos nesse intervalo viram uma única recarga extra, executada quando a atual termina.
+        const queued = queuedByScope.get(scope);
+        if (queued) return queued;
+        const trailing = existing.catch(() => {}).then(() => {
+          queuedByScope.delete(scope);
+          return this.run(scope, load);
+        });
+        queuedByScope.set(scope, trailing);
+        return trailing;
+      }
 
       let task;
       try {
