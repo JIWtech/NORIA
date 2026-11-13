@@ -468,6 +468,15 @@ test('remove_suffix só corta o convite indevido; o pedido explícito de agendam
   assert.equal(middle.text, 'Tudo bem? Posso ajudar.');
 });
 
+test('agendamento em andamento: a pergunta para seguir nunca é cortada (regressão "só a mão mesmo")', async () => {
+  const question = 'Para qual dia e horário você quer marcar para ela?';
+  const draft = 'Perfeito, mão tradicional para ela então. ' + question;
+  const kept = await run({ draft, currentText: 'deixa, só a mão mesmo',
+    verdict: { ...okVerdict, remove_suffix: question, booking_in_progress: true } });
+  assert.equal(kept.text, draft);
+  assert.equal(kept.diagnostics.adapter_outcome, 'passed');
+});
+
 test('reservas futuras do contato entram como contexto e exigem existing_acknowledged', async () => {
   const known = [{ nome: 'Maria', servicos: 'Corte', data: 'quarta-feira, 30 de setembro', hora: '14:30', status: 'confirmed' }];
   const acknowledged = await run({ appointments: [otherSlot] });

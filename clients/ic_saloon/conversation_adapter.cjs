@@ -184,6 +184,9 @@ function createSalonHelpers(helpers, input, env) {
           'o trecho final da resposta, a partir do convite, sem incluir o preço ou a explicação. Não use pedidos antigos',
           'como autorização para retomar agendamento. Se a mensagem atual pede para marcar, mudar ou cancelar, ou responde',
           'claramente a um pedido em andamento, preserve a pergunta operacional necessária. Sem convite indevido, use texto vazio.',
+          'Em booking_in_progress use true quando, pelo significado e pelo recent_context deste atendimento, a pessoa está combinando um agendamento:',
+          'pediu para marcar, escolheu ou confirmou serviço, pessoa, dia ou horário, ou a mensagem atual responde a uma pergunta do salão sobre isso',
+          '(inclusive "só isso mesmo", "deixa, só a mão"). Uma dúvida solta de preço, serviço ou endereço sem pedido de marcar é false.',
           'Em claims_registration informe, pelo significado e não por palavras isoladas, se o rascunho afirma que um pedido, horário ou alteração',
           'já foi anotado, registrado, reservado, confirmado ou encaminhado (inclusive com outras palavras). Pergunta, oferta de ajuda,',
           'relato de reserva anterior ou explicação de que ainda não foi registrado não afirmam registro. Sem rascunho, use false.',
@@ -208,12 +211,13 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
+            booking_in_progress: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -628,7 +632,8 @@ function createSalonHelpers(helpers, input, env) {
     const prefix = typeof verdict.remove_prefix === 'string' ? verdict.remove_prefix.trim() : '';
     const opening = /\p{L}{2}/u.test(prefix) && draft.startsWith(prefix) ? draft.slice(prefix.length).trimStart() : '';
     const headless = /\p{L}{2}/u.test(opening) ? opening.charAt(0).toLocaleUpperCase('pt-BR') + opening.slice(1) : draft;
-    const suffix = typeof verdict.remove_suffix === 'string' ? verdict.remove_suffix.trim() : '';
+    // Com agendamento em andamento (leitura do revisor), a pergunta para seguir é o próximo passo e nunca é cortada.
+    const suffix = verdict.booking_in_progress !== true && typeof verdict.remove_suffix === 'string' ? verdict.remove_suffix.trim() : '';
     const cut = /\p{L}{2}/u.test(suffix) && headless.endsWith(suffix) ? headless.slice(0, -suffix.length).trimEnd() : headless;
     const audit = cut ? await priceAudit(options, cut) : { ok: false, kind: 'rejected', reason: 'empty_reply' };
     lastPriceAuditKind = audit.ok ? '' : audit.kind;

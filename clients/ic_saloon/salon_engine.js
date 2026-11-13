@@ -14943,7 +14943,9 @@ async function runTurn() {
   let creation = null;
   // No turno em que a proposta foi resolvida, tag de agendamento da segunda geração não cria nem altera pedido.
   const requestAction = requestConfig && !slotResolutionTurn ? parseAppointmentRequestAction(responseText) : null;
-  if (!event.handoff && requestAction?.kind === 'create' && !actions.humanRequested && !actions.complaint) {
+  // Criar e, no modo contextual, cancelar um pedido ainda não confirmado pela equipe são gravados pela IA; alterar segue com a equipe.
+  const writableRequestAction = requestAction?.kind === 'create' || (requestAction?.kind === 'cancel' && contextualBooking);
+  if (!event.handoff && writableRequestAction && !actions.humanRequested && !actions.complaint) {
     try {
       if (!requestConfig.valid) throw new Error('APPOINTMENT_REQUEST_CONFIG_INVALID');
       if (requestAction.kind === 'cancel') {
@@ -15093,7 +15095,7 @@ async function runTurn() {
       event.raw_payload.appointment_creation = { created: false, reason: error.message };
     }
   } else if (actions.humanRequested || actions.complaint
-    || ['update', 'cancel'].includes(requestAction?.kind)) {
+    || requestAction?.kind === 'update' || (requestAction?.kind === 'cancel' && !writableRequestAction)) {
     event.handoff = true;
     event.stage = 'Atendimento humano';
     event.service = 'atendimento_humano';

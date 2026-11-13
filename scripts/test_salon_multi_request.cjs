@@ -162,13 +162,23 @@ test('o contexto do modelo lista todos os pedidos pendentes com id e pessoa aten
   assert.ok(r.prompt.includes('Ana Julia Souza') && r.prompt.includes('Louzania Santos'));
 });
 
-test('no Salon alterar ou cancelar nunca grava: com vários pendentes a equipe assume e nenhum pedido muda', async () => {
-  for (const response of ['Ok [ACAO: ATUALIZAR_PEDIDO|pedido=namorada|hora=11:00]', 'Cancelei. [ACAO: CANCELAR_PEDIDO|pedido=mae]']) {
-    const r = await run({ request: contextual, appointments: [mother, second], response });
-    assert.deepEqual(r.patched, []);
-    assert.deepEqual(r.posted, []);
-    assert.ok(r.events.some(e => e.handoff === true && e.raw_payload?.explicit_handoff), response);
-  }
+test('no Salon alterar nunca grava: com vários pendentes a equipe assume e nenhum pedido muda', async () => {
+  const r = await run({ request: contextual, appointments: [mother, second], response: 'Ok [ACAO: ATUALIZAR_PEDIDO|pedido=namorada|hora=11:00]' });
+  assert.deepEqual(r.patched, []);
+  assert.deepEqual(r.posted, []);
+  assert.ok(r.events.some(e => e.handoff === true && e.raw_payload?.explicit_handoff));
+});
+
+test('cliente desiste de um pedido ainda não confirmado: só esse pedido é cancelado e a IA segue no atendimento', async () => {
+  const r = await run({ request: contextual, appointments: [mother, second], texts: ['Não quero mais marcar pra minha mãe'],
+    response: 'Tudo bem, tirei o pedido da sua mãe. Quer seguir com o da Ana Julia? [ACAO: CANCELAR_PEDIDO|pedido=mae]' });
+  assert.deepEqual(r.posted, []);
+  assert.equal(r.patched.length, 1);
+  assert.equal(r.patched[0].status, 'cancelled');
+  assert.equal(r.patched[0].metadata.customer_name, 'Louzania Santos');
+  assert.equal(r.patched[0].metadata.cancel_reason, 'customer_cancelled');
+  assert.ok(!r.events.some(e => e.handoff === true), 'sem passar para a equipe');
+  assert.equal(r.sentText, 'Tudo bem, tirei o pedido da sua mãe. Quer seguir com o da Ana Julia?');
 });
 
 test('segundo pedido para a mesma pessoa não vira novo registro', async () => {
