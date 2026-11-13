@@ -1058,7 +1058,7 @@ test('preço pedido e reprovado: a reescrita recebe o valor oficial do serviço 
 
 test('revisor confere data, dia da semana, horário de funcionamento e cumprimento com um calendário pronto (regressão: "sábado, 15/11")', async () => {
   const settings = { appointment_request: {}, price_rejection_template: priceFallback,
-    business_hours: { schedule: { terca: { start: '09:00', end: '18:00' }, segunda: { closed: true } } } };
+    business_hours: { schedule: { terca: { start: '09:00', end: '18:00' }, segunda: { closed: true } }, holidays: ['11-20'] } };
   const wrong = 'Perfeito, seu corte fica para sábado, 15/11, às 15h. Qual é o seu nome completo?';
   const fixed = 'Perfeito, corte no sábado, 14 de novembro, às 15h. Qual é o seu nome completo?';
   const verdict = body => ({ ...okVerdict, fact_mismatch: body.draft === wrong });
@@ -1069,6 +1069,7 @@ test('revisor confere data, dia da semana, horário de funcionamento e cumprimen
   assert.equal(calendar.proximos_dias.length, 14);
   assert.match(calendar.proximos_dias[0], /^\d{2}\/\d{2} \(/);
   assert.ok(calendar.hora_local && calendar.funcionamento.terca);
+  assert.deepEqual(calendar.funcionamento.feriados_fechado_mes_dia, ['11-20']);
 });
 
 test('revisor de estilo também barra palavras grudadas e erros de digitação (regressão "Queótimo")', async () => {
