@@ -939,3 +939,32 @@ test('boas-vindas ou nome do salão na resposta são reescritos (regressão Gemi
   const stubborn = await run({ draft: welcome, currentText: 'oi', verdict, repairs: [welcome], settings });
   assert.notEqual(stubborn.text, welcome);
 });
+
+test('instrução do adaptador não manda passar desistência de pedido pendente para a equipe (contradizia o cancelamento do motor)', async () => {
+  const pending = [{ id: 'p1', status: 'pending_confirmation', title: 'Corte - Maria', contact_name: 'Maria Souza', starts_at: '2099-09-29T13:00:00Z',
+    created_at: '2026-11-01T10:00:00Z', metadata: { services: ['Corte'] } }];
+  const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict, appointments: pending });
+  const sent = result.generations[0].map(part => part.text).join('\n');
+  assert.doesNotMatch(sent, /somente para alterar ou cancelar uma reserva existente/);
+  assert.match(sent, /pedido pendente[^.]*CANCELAR_PEDIDO/);
+});
+
+test('"retirei" sem a marcação: a IA refaz uma vez com a marcação de cancelamento e o motor recebe a ação (regressão Gemini real)', async () => {
+  const claim = 'Tudo bem, retirei o pedido da sua mãe. 🌸';
+  const withTag = 'Tudo bem, retirei o pedido da sua mãe. 🌸 [ACAO: CANCELAR_PEDIDO|pedido=p1|nome=Louzania Santos]';
+  const verdict = body => ({ ...okVerdict, claims_cancellation: /retirei/.test(body.draft || '') });
+  // O rascunho principal vem sem tag; a segunda tentativa do modelo principal (com a instrução de cancelamento) traz a tag.
+  const repairs = parts => (parts.some(p => /CANCELAMENTO OBRIGATÓRIO/.test(p.text || '')) ? withTag : 'De qual pedido você quer desistir?');
+  const result = await run({ draft: claim, currentText: 'Não quero mais marcar pra minha mãe', verdict, repairs });
+  assert.equal(result.text, withTag);
+  assert.equal(result.diagnostics.adapter_outcome, 'cancel_tag_recovered');
+  // Se a segunda tentativa também vier sem tag, segue a proteção: pergunta, sem afirmar cancelamento.
+  const noTag = await run({ draft: claim, currentText: 'Não quero mais marcar pra minha mãe', verdict, repairs: () => 'De qual pedido você quer desistir?' });
+  assert.equal(noTag.text, 'De qual pedido você quer desistir?');
+});
+
+test('revisor: encaminhar mudança de pedido à equipe com [HUMANO_SOLICITADO] é permitido', async () => {
+  const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict });
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /contém \[HUMANO_SOLICITADO\]/);
+});

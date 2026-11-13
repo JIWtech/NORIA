@@ -2712,7 +2712,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
         '- Há mais de um pedido pendente (pedidos_pendentes). Para editar ou cancelar um deles, inclua pedido=ID_DO_PEDIDO na tag; se não estiver claro qual, pergunte antes.',
       ] : []),
       '- Inclua primeira_vez=sim ou primeira_vez=nao na tag somente se a própria pessoa respondeu isso sobre quem será atendida neste pedido; sem resposta explícita omita o campo. Nunca reaproveite a resposta de outra pessoa.',
-      '- Quando a pessoa desistir de um pedido pendente (ainda não confirmado pela equipe), responda com texto visível e inclua [ACAO: CANCELAR_PEDIDO|pedido=ID_DO_PEDIDO|nome=NOME], com o id de pedido_pendente ou de pedidos_pendentes e o nome da pessoa que seria atendida nesse pedido. Se não houver pedido pendente dessa pessoa, não use a tag e não diga que retirou nada. Mudar um pedido ou mudar ou cancelar uma reserva confirmada vai para a equipe com [HUMANO_SOLICITADO].',
+      '- Quando a pessoa desistir de um pedido pendente (ainda não confirmado pela equipe), responda com texto visível e inclua [ACAO: CANCELAR_PEDIDO|pedido=ID_DO_PEDIDO|nome=NOME], com o id de pedido_pendente ou de pedidos_pendentes e o nome da pessoa que seria atendida nesse pedido. Se não houver pedido pendente dessa pessoa, não use a tag e não diga que retirou nada. Sem a tag na mesma resposta nada é cancelado: nunca escreva que retirou, cancelou ou removeu um pedido sem incluí-la. Mudar um pedido ou mudar ou cancelar uma reserva confirmada vai para a equipe com [HUMANO_SOLICITADO].',
     ] : []),
     ...(keepsAiOnTeamReview(context) ? [
       '- ATUALIZAR_PEDIDO e CANCELAR_PEDIDO só são válidos para o pedido_pendente e apenas quando a mensagem atual se refere a ele.',
