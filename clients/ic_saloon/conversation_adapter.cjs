@@ -184,6 +184,7 @@ function createSalonHelpers(helpers, input, env) {
           'o trecho final da resposta, a partir do convite, sem incluir o preço ou a explicação. Não use pedidos antigos',
           'como autorização para retomar agendamento. Se a mensagem atual pede para marcar, mudar ou cancelar, ou responde',
           'claramente a um pedido em andamento, preserve a pergunta operacional necessária. Sem convite indevido, use texto vazio.',
+          'Oferecer o catálogo, a lista de serviços ou mais detalhes sobre serviços não é convite de agendamento: nunca coloque essa oferta em remove_suffix.',
           'Em booking_in_progress use true quando, pelo significado e pelo recent_context deste atendimento, a pessoa está combinando um agendamento:',
           'pediu para marcar, escolheu ou confirmou serviço, pessoa, dia ou horário, ou a mensagem atual responde a uma pergunta do salão sobre isso',
           '(inclusive "só isso mesmo", "deixa, só a mão"). Uma dúvida solta de preço, serviço ou endereço sem pedido de marcar é false.',

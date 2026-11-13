@@ -225,3 +225,21 @@ test('primeira_vez só vale com sim ou não e não passa de uma pessoa para outr
   const yes = await run({ request: contextual, appointments: [mother], response: withVisit('Sim') });
   assert.equal(yes.posted[0].metadata.first_visit, 'sim');
 });
+
+test('tag de criação sem status (a IA omitiu o campo) grava o pedido pendente em vez de erro (regressão 13/11 "João Victor")', async () => {
+  const noStatus = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=João Victor Santos|servicos=Corte|data=2099-09-30|hora=11:00]';
+  const r = await run({ request: contextual, response: noStatus, texts: ['João Victor Santos'] });
+  assert.equal(r.posted.length, 1, JSON.stringify(r.events.map(e => e.raw_payload?.appointment_request)));
+  assert.equal(r.posted[0].status, 'pending_confirmation');
+  // Status explícito diferente de pendente continua inválido: só a equipe confirma.
+  const confirmed = await run({ request: contextual, response: noStatus.replace(']', '|status=confirmed]'), texts: ['João Victor Santos'] });
+  assert.deepEqual(confirmed.posted, []);
+});
+
+test('catálogo completo: categorias em negrito do WhatsApp e um serviço por linha, vindos do banco', async () => {
+  const r = await run({ request: contextual, response: 'Claro, aqui estão todos os nossos serviços! [CATALOGO_COMPLETO]', texts: ['Quero a lista completa'] });
+  assert.match(r.sentText, /^Claro, aqui estão todos os nossos serviços!/);
+  assert.match(r.sentText, /\*Cabelo\*\n• Corte\n• Escova/);
+  assert.match(r.sentText, /\*Corpo\*\n• Drenagem/);
+  assert.doesNotMatch(r.sentText, /CATALOGO_COMPLETO/);
+});

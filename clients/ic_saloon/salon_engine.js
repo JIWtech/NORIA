@@ -1886,7 +1886,9 @@ function parseAppointmentRequestAction(text) {
   return {
     kind, services, customerName: details.nome || details.cliente || '', date: details.data || details.date || '',
     time: details.hora || details.horario || details.time || '', professional: details.profissional || '',
-    firstVisit: normalizeFirstVisit(details.primeira_vez), status: normalizeText(details.status || ''), requestId: details.pedido || '',
+    // Criação só existe como pedido pendente: status omitido pela IA vale pending_confirmation; outro valor explícito segue inválido.
+    firstVisit: normalizeFirstVisit(details.primeira_vez),
+    status: normalizeText(details.status || '') || (kind === 'create' ? 'pending_confirmation' : ''), requestId: details.pedido || '',
     depositRequired: normalizeText(details.sinal_exigido || '') === 'sim',
   };
 }
@@ -2379,7 +2381,8 @@ function buildFullCatalogReplyFromRows(rows = [], intro = '', includePrices = fa
       (item) => `• ${item.name || 'Serviço'}${includePrices ? ' — ' + formatCatalogPrice(item) : ''}`
     );
 
-    return `${category}:\n${lines.join('\n')}`;
+    // Negrito do WhatsApp destaca cada categoria; o conteúdo continua sendo só o que está no banco.
+    return `*${category}*\n${lines.join('\n')}`;
   });
 
   // A abertura é a prosa do Gemini (sem vocativo por palavra); sem prosa, uma frase neutra.
