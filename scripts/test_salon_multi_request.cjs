@@ -171,7 +171,7 @@ test('no Salon alterar nunca grava: com vários pendentes a equipe assume e nenh
 
 test('cliente desiste de um pedido ainda não confirmado: só esse pedido é cancelado e a IA segue no atendimento', async () => {
   const r = await run({ request: contextual, appointments: [mother, second], texts: ['Não quero mais marcar pra minha mãe'],
-    response: 'Tudo bem, tirei o pedido da sua mãe. Quer seguir com o da Ana Julia? [ACAO: CANCELAR_PEDIDO|pedido=mae]' });
+    response: 'Tudo bem, tirei o pedido da sua mãe. Quer seguir com o da Ana Julia? [ACAO: CANCELAR_PEDIDO|pedido=mae|nome=Louzania Santos]' });
   assert.deepEqual(r.posted, []);
   assert.equal(r.patched.length, 1);
   assert.equal(r.patched[0].status, 'cancelled');
@@ -425,4 +425,12 @@ test('reescrita que terminou no texto de passar à equipe também não serve: di
 test('regras do motor: primeira vez, profissional e telefone são opcionais e nunca adiam o registro', async () => {
   const r = await run({ request: contextual, texts: ['Oi'], response: 'Oi!' });
   assert.match(r.prompt, /nunca adiam o registro/);
+});
+
+test('cancelamento sem o nome da pessoa na tag nunca cancela (regressão Gemini real: cancelou a namorada ao desistir da mãe)', async () => {
+  for (const tag of ['[ACAO: CANCELAR_PEDIDO|pedido=namorada]', '[ACAO: CANCELAR_PEDIDO]']) {
+    const r = await run({ request: contextual, appointments: [second], texts: ['Não quero mais marcar pra minha mãe'],
+      response: ['Retirei o pedido da sua mãe. ' + tag, 'Não encontrei pedido pendente da sua mãe. Posso ajudar em algo mais?'] });
+    assert.deepEqual(r.patched, [], tag);
+  }
 });

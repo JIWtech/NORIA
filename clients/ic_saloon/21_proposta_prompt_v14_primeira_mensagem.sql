@@ -33,7 +33,7 @@ set settings = s.settings || jsonb_build_object(
       'descubra qual serviço do catálogo a cliente pretende fazer (pergunte, se ainda não estiver claro) e registre o pedido com esse serviço.',
       'descubra qual serviço do catálogo a cliente pretende fazer (pergunte, se ainda não estiver claro) e registre o pedido com esse serviço, indicando que é avaliação conforme as regras do sistema.'),
       'dia e horário exatos; profissional preferido, se houver; se é a primeira vez no salão; e telefone de contato, se for outro número.',
-      'dia e horário exatos; profissional preferido, se houver; se é a primeira vez no salão; e telefone de contato, se for outro número. Profissional, primeira vez e telefone são opcionais: com nome completo, serviço, dia e horário, registre o pedido na hora e nunca adie o registro para perguntá-los.'),
+      'dia e horário exatos; profissional preferido, se houver; e se é a primeira vez no salão. O telefone desta conversa já é o contato: não pergunte telefone, salvo se a pessoa disser que é outro número. Profissional e primeira vez são opcionais: com nome completo, serviço, dia e horário, registre o pedido na hora e nunca adie o registro para perguntá-los. Para registrar o pedido de outra pessoa, o nome de quem escreve não é necessário.'),
     'prompt_revision', 'ic_salon_recepcao_v14_primeira_mensagem',
     -- Cópia literal da v13 para o rollback restaurar sem depender de replace inverso.
     'system_prompt_v13_backup', s.settings->>'system_prompt'

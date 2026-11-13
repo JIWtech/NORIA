@@ -1968,6 +1968,9 @@ function appointmentRecipientKey(name) {
 function selectOpenAppointmentRequest(requests, action) {
   const list = Array.isArray(requests) ? requests : [];
   const key = appointmentRecipientKey(action?.customerName);
+  // Cancelar exige o nome de quem seria atendido: sem ele não há como conferir a pessoa (cancelava o único pedido pendente,
+  // mesmo sendo de outra pessoa).
+  if (action?.kind === 'cancel' && !key) return null;
   const samePerson = item => !key || appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key;
   if (action?.requestId) {
     const byId = list.find(item => item.id === action.requestId);
