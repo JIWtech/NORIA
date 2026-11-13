@@ -42,7 +42,7 @@ test('v14 aplica todas as trocas sobre o v13 real, limpa as frases prontas do ca
   assert.equal(settings.prompt_revision, 'ic_salon_recepcao_v14_primeira_mensagem');
   assert.equal(settings.system_prompt_v13_backup, V13);
   for (const text of ['bom dia antes das 12h', 'nunca responda só com a apresentação', 'nunca escreva a lista você mesma',
-    'Não cite profissional se a pessoa não perguntou', 'é o próximo dia com esse nome', 'isso já responde', 'sem ela, nada é cancelado']) {
+    'Não cite profissional se a pessoa não perguntou', 'é o próximo dia com esse nome', 'isso já responde', 'sem ela, nada é cancelado', 'Menores de idade só são atendidos acompanhados do pai ou da mãe']) {
     assert.ok(settings.system_prompt.includes(text), text);
   }
   const rows = (await pg.query('select external_id, notes, searchable_text, metadata from public.tenant_service_catalog order by external_id')).rows;

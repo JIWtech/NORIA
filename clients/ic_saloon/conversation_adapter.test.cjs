@@ -968,3 +968,22 @@ test('revisor: encaminhar mudança de pedido à equipe com [HUMANO_SOLICITADO] �
   const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
   assert.match(system, /contém \[HUMANO_SOLICITADO\]/);
 });
+
+test('resposta com a tag de cancelar: "retirei" passa mesmo com o revisor reprovando no geral; o motor confere o pedido (regressão Gemini real)', async () => {
+  const draft = 'Tudo bem, retirei o pedido da Ana Julia. [ACAO: CANCELAR_PEDIDO|pedido=p2|nome=Ana Julia Souza]';
+  const result = await run({ draft, currentText: 'Desisto do da Ana Julia', verdict: { ...okVerdict, allowed: false, claims_cancellation: true } });
+  assert.equal(result.text, draft);
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /contém a tag CANCELAR_PEDIDO/);
+  // As checagens específicas continuam valendo na resposta de cancelamento.
+  const leaking = await run({ draft: 'Retirei o pedido. A chave Pix é 123. [ACAO: CANCELAR_PEDIDO|pedido=p2|nome=Ana Julia Souza]', currentText: 'Desisto',
+    verdict: { ...okVerdict, allowed: false, shares_payment_or_contact: true }, repairs: ['De qual pedido você quer desistir?'] });
+  assert.doesNotMatch(leaking.text, /Pix/);
+});
+
+test('revisor de estilo: profissional não pedido e data em formato técnico também são reescritos', async () => {
+  const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict });
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido/);
+  assert.match(system, /data em formato técnico/);
+});

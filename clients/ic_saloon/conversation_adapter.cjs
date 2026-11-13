@@ -191,6 +191,8 @@ function createSalonHelpers(helpers, input, env) {
           'rejeite se a resposta disser que esse horário já está confirmado, garantido ou livre. Se não houver nenhuma afirmação de registro, permita a',
           'saudação, pergunta, resposta informativa ou oferta de ajuda. Use allowed=true e evidence_id vazio nesse caso.',
           'Em dúvida sobre uma afirmação de registro ou sobre o destinatário de uma ação, rejeite.',
+          'Quando o rascunho contém a tag CANCELAR_PEDIDO, dizer que retirou ou cancelou o pedido daquela pessoa é correto (o sistema',
+          'confere o pedido e cancela): permita.',
           'Quando o rascunho contém [HUMANO_SOLICITADO], dizer que a equipe ou um responsável vai falar com a pessoa por aqui para ajustar,',
           'alterar ou cancelar algo é o encaminhamento correto (o sistema passa a conversa para a equipe): permita, desde que não afirme',
           'que a alteração ou o cancelamento já foi feito.',
@@ -209,7 +211,7 @@ function createSalonHelpers(helpers, input, env) {
           'relato de reserva anterior ou explicação de que ainda não foi registrado não afirmam registro. Sem rascunho, use false.',
           'Quando appointment_recipients traz um pedido com status pending_confirmation, dizer que a equipe já recebeu esse pedido e ainda vai confirmar o horário é relato de status, não afirmação de registro: use claims_registration=false e allowed=true. Só é afirmação indevida dizer que o horário já está confirmado ou garantido.',
           'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
-          'Em style_violation use true quando o rascunho dá boas-vindas (“bem-vindo” em qualquer gênero, “boas-vindas” ou equivalente) ou cita o nome do negócio em business_name sem a pessoa ter perguntado por ele. Responder ao cumprimento e se apresentar sem essas palavras é false. Sem rascunho, use false.',
+          'Em style_violation use true quando o rascunho dá boas-vindas (“bem-vindo” em qualquer gênero, “boas-vindas” ou equivalente) ou cita o nome do negócio em business_name sem a pessoa ter perguntado por ele, ou cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido, ou escreve data em formato técnico (como 2026-11-14). Responder ao cumprimento e se apresentar sem essas palavras é false. Sem rascunho, use false.',
           'Em shares_payment_or_contact use true quando o rascunho informa chave Pix, CNPJ, CPF, conta bancária, número de telefone, e-mail ou outro dado de pagamento ou de contato de alguém. Dizer que a equipe envia esses dados por aqui é false. Sem rascunho, use false.',
           'Em claims_availability informe, pelo significado, se o rascunho afirma ou sugere que existe vaga, horário livre ou disponibilidade,',
           'ou oferece um horário, turno ou parte do dia como livre. A IA não vê a agenda; só a equipe confirma o encaixe. Perguntar qual dia e',
@@ -658,7 +660,10 @@ function createSalonHelpers(helpers, input, env) {
     // Transferência sem texto: o motor enviaria só a frase genérica. Gera resposta contextual antes.
     if (/\[HUMANO_SOLICITADO\]/iu.test(draft) && !visibleText(draft)) return fallback('empty_handoff');
     const verdict = await review(options, draft, null, current, [], identityContext);
-    if (verdict?.allowed !== true) return fallback(verdict ? 'review_rejected' : 'review_unavailable');
+    // Com uma única tag de cancelar, quem confere o pedido é o motor (id e pessoa; se falhar, reescreve sem afirmar nada).
+    // A reprovação geral do revisor não bloqueia; as checagens específicas abaixo (Pix, estilo, horário, preço) continuam.
+    const cancelAction = tags.length === 1 && /^CANCELAR_PEDIDO$/i.test(tags[0][1]);
+    if (!verdict || (verdict.allowed !== true && !cancelAction)) return fallback(verdict ? 'review_rejected' : 'review_unavailable');
     // Afirmação de registro sem ação é leitura do Gemini (claims_registration); campo ausente ou fora do contrato falha fechado.
     // O rascunho deu o pedido por combinado, marcado ou encaminhado sem a ação de registro. O reparo recebe o caminho certo
     // (agradecer o dia e o horário, dizer que a equipe confirma e pedir o próximo dado que falta) em vez de uma tentativa às cegas,
@@ -679,7 +684,8 @@ function createSalonHelpers(helpers, input, env) {
       const retriedTags = [...retriedText.matchAll(/\[A[CÇ][AÃ]O:\s*(CANCELAR_PEDIDO)\b[^\]\r\n]*\]/giu)];
       if (retriedTags.length === 1 && visibleText(retriedText)) {
         const recheck = await review(options, retriedText, null, current, [], identityContext);
-        if (recheck?.allowed === true && recheck.shares_payment_or_contact === false && recheck.style_violation === false
+        // Mesma regra da resposta com tag de cancelar: o motor confere o pedido; aqui valem as checagens específicas.
+        if (recheck && recheck.shares_payment_or_contact === false && recheck.style_violation === false
           && recheck.claims_availability === false) {
           return finish('cancel_tag_recovered', messageResponse(response, retriedCandidate, sanitizeTags(retriedText)));
         }
@@ -692,7 +698,7 @@ function createSalonHelpers(helpers, input, env) {
     }
     // Regra de estilo do salão (prompt): sem boas-vindas e sem citar o nome do negócio. O revisor aponta; o reparo reescreve.
     if (verdict.style_violation !== false) {
-      return fallback('style_violation', 'O rascunho anterior dava boas-vindas ou citava o nome do salão. Reescreva sem dar boas-vindas (nenhuma forma de “bem-vindo”) e sem o nome do salão, mantendo o resto do conteúdo e o tom.');
+      return fallback('style_violation', 'O rascunho anterior dava boas-vindas, citava o nome do salão, citava um profissional que a pessoa não pediu ou escrevia data em formato técnico. Reescreva sem dar boas-vindas (nenhuma forma de “bem-vindo”), sem o nome do salão, sem citar profissional que a pessoa não pediu e com datas por extenso (por exemplo, sábado, 14 de novembro), mantendo o resto do conteúdo e o tom.');
     }
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.
     if (verdict.claims_availability !== false) {
