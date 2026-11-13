@@ -276,3 +276,27 @@ test('regras do motor: cancelamento leva o nome de quem seria atendida no pedido
   const r = await run({ request: contextual, appointments: [mother], texts: ['Oi'], response: 'Oi!' });
   assert.match(r.prompt, /CANCELAR_PEDIDO\|pedido=ID_DO_PEDIDO\|nome=NOME/);
 });
+
+test('sobrenome informado depois do pedido completa o nome do mesmo pedido, sem novo registro nem equipe (regressão Gemini real)', async () => {
+  const partial = { ...mother, id: 'joao', title: 'Corte - João Victor', contact_name: 'João Victor',
+    metadata: { ...mother.metadata, services: ['Corte'], customer_name: 'João Victor', recipient_key: 'joao victor', first_visit: null } };
+  const fuller = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=João Victor Santos|servicos=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]';
+  const r = await run({ request: contextual, appointments: [partial], response: fuller, texts: ['João Victor Santos'] });
+  assert.deepEqual(r.posted, []);
+  assert.equal(r.patched.length, 1, JSON.stringify(r.events.map(e => e.raw_payload?.appointment_request)));
+  assert.equal(r.patched[0].contact_name, 'João Victor Santos');
+  assert.equal(r.patched[0].metadata.recipient_key, 'joao victor santos');
+  assert.ok(!r.events.some(e => e.handoff === true));
+  // Outro horário com nome mais longo não é "completar nome": continua sendo alteração (equipe).
+  const otherSlot = fuller.replace('hora=10:00', 'hora=15:00');
+  const changed = await run({ request: contextual, appointments: [partial], response: [otherSlot, 'Vou pedir para a equipe ajustar.'], texts: ['João Victor Santos às 15'] });
+  assert.ok(!changed.patched.some(p => p.contact_name === 'João Victor Santos' && p.starts_at));
+});
+
+test('nome completado responde com o texto de pedido atualizado, sem repetir o recibo', async () => {
+  const partial = { ...mother, id: 'joao', title: 'Corte - João Victor', contact_name: 'João Victor',
+    metadata: { ...mother.metadata, services: ['Corte'], customer_name: 'João Victor', recipient_key: 'joao victor' } };
+  const r = await run({ request: contextual, appointments: [partial], texts: ['João Victor Santos'],
+    response: 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=João Victor Santos|servicos=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]' });
+  assert.match(r.sentText, /^Pedido atualizado/);
+});

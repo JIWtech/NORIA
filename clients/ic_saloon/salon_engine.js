@@ -1969,6 +1969,20 @@ function selectOpenAppointmentRequest(requests, action) {
   return byName.length === 1 ? byName[0] : null;
 }
 
+// O nome novo começa, palavra por palavra, pelo nome já gravado e é mais longo: é o mesmo destinatário com o nome completo.
+function appointmentNameCompletes(request, name) {
+  const before = appointmentRecipientKey(request?.contact_name || request?.metadata?.customer_name).split(' ').filter(Boolean);
+  const after = appointmentRecipientKey(name).split(' ').filter(Boolean);
+  return before.length > 0 && after.length > before.length && before.every((word, index) => after[index] === word);
+}
+
+function sameAppointmentRequestSlot(request, action) {
+  const metadata = request?.metadata || {};
+  const services = list => (list || []).map(item => normalizeText(item)).sort().join(';');
+  return metadata.requested_date === action.date && metadata.requested_time === action.time
+    && (!action.services.length || services(metadata.services) === services(action.services));
+}
+
 function findAppointmentRequestForRecipient(requests, name) {
   const key = appointmentRecipientKey(name);
   return key ? (requests || []).find(item => appointmentRecipientKey(item.contact_name || item.metadata?.customer_name) === key) || null : null;
@@ -2140,7 +2154,12 @@ async function saveAppointmentRequest(context, action, open, openRequests = open
     // Repetição do mesmo turno devolve o pedido já gravado. Pedido para outra pessoa é novo registro; para a mesma pessoa é alteração.
     const replay = openRequests.find(item => item.metadata?.request_key === requestKey);
     if (replay) return replay;
-    if (findAppointmentRequestForRecipient(openRequests, action.customerName)) throw new Error('APPOINTMENT_REQUEST_CHANGED');
+    // Mesmo serviço, dia e hora com o nome completado (ex.: "João Victor" → "João Victor Santos"): só completa o nome do pedido.
+    const completed = openRequests.find(item => appointmentNameCompletes(item, action.customerName) && sameAppointmentRequestSlot(item, action));
+    if (completed) {
+      open = completed;
+      action = { ...action, kind: 'update', services: [], date: '', time: '', nameCompleted: true };
+    } else if (findAppointmentRequestForRecipient(openRequests, action.customerName)) throw new Error('APPOINTMENT_REQUEST_CHANGED');
   }
   const base = action.kind === 'update' ? open.metadata || {} : {};
   const customerName = action.customerName || base.customer_name || '';
@@ -2175,7 +2194,9 @@ async function saveAppointmentRequest(context, action, open, openRequests = open
     duration_minutes: durationMinutes, conversation_session_id: turn?.boundary_id || null,
     ...(action.depositRequired === true ? { deposit_required: true } : {}) };
   if (contextual) {
-    return writeContextualAppointmentRequest(context, action.kind === 'update' ? open : null, { title, contact_name: customerName, starts_at: startsAt, ends_at: endsAt }, details, requestKey);
+    const written = await writeContextualAppointmentRequest(context, action.kind === 'update' ? open : null, { title, contact_name: customerName, starts_at: startsAt, ends_at: endsAt }, details, requestKey);
+    // Sinaliza ao turno que foi só o nome completado: a resposta usa o texto de pedido atualizado, sem repetir o recibo.
+    return action.nameCompleted ? { ...written, name_completed: true } : written;
   }
   const result = await supabasePost('/rest/v1/rpc/magia_upsert_appointment_request', {
     p_tenant: context.tenant.id, p_channel: 'whatsapp', p_chat: String(chatId), p_contact: customerName,
@@ -14966,7 +14987,7 @@ async function runTurn() {
       } else {
         const request = await saveAppointmentRequest(context, requestAction,
           requestAction.kind === 'update' ? selectOpenAppointmentRequest(appointments.openRequests, requestAction) : null, appointments.openRequests || []);
-        const template = requestAction.kind === 'update' && requestConfig.reply_mode === 'contextual'
+        const template = (requestAction.kind === 'update' || request.name_completed === true) && requestConfig.reply_mode === 'contextual'
           && typeof requestConfig.updated_template === 'string' && requestConfig.updated_template.trim()
           ? requestConfig.updated_template : requestConfig.received_template;
         const received = renderAppointmentRequest(template, request, context);

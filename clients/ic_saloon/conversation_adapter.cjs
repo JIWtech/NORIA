@@ -175,7 +175,10 @@ function createSalonHelpers(helpers, input, env) {
           'de uma reserva anterior, não é afirmação de registro nem promessa: permita, mesmo citando serviço, dia e hora pedidos.',
           'Sem ação de criação, rejeite afirmação ou promessa de que pedido ou alteração deste turno já foi anotado,',
           'registrado, reservado ou encaminhado, mesmo indireta. Relatar status de uma reserva anterior identificada',
-          'ou explicar que ainda não foi registrado é permitido. Se não houver nenhuma afirmação de registro, permita a',
+          'ou explicar que ainda não foi registrado é permitido. Um pedido de turno anterior que está em appointment_recipients com',
+          'status pending_confirmation já existe: dizer que a equipe já recebeu esse pedido, que ele ainda não está confirmado ou que',
+          'a equipe vai confirmar o horário por aqui é relato desse status e deve ser permitido (allowed=true), sem dúvida. Só',
+          'rejeite se a resposta disser que esse horário já está confirmado, garantido ou livre. Se não houver nenhuma afirmação de registro, permita a',
           'saudação, pergunta, resposta informativa ou oferta de ajuda. Use allowed=true e evidence_id vazio nesse caso.',
           'Em dúvida sobre uma afirmação de registro ou sobre o destinatário de uma ação, rejeite.',
           'Rejeite alegações de perda de mensagem, falha no WhatsApp ou falha de atendimento sem evidência no contexto.',
@@ -191,6 +194,7 @@ function createSalonHelpers(helpers, input, env) {
           'Em claims_registration informe, pelo significado e não por palavras isoladas, se o rascunho afirma que um pedido, horário ou alteração',
           'já foi anotado, registrado, reservado, confirmado ou encaminhado (inclusive com outras palavras). Pergunta, oferta de ajuda,',
           'relato de reserva anterior ou explicação de que ainda não foi registrado não afirmam registro. Sem rascunho, use false.',
+          'Quando appointment_recipients traz um pedido com status pending_confirmation, dizer que a equipe já recebeu esse pedido e ainda vai confirmar o horário é relato de status, não afirmação de registro: use claims_registration=false e allowed=true. Só é afirmação indevida dizer que o horário já está confirmado ou garantido.',
           'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
           'Em shares_payment_or_contact use true quando o rascunho informa chave Pix, CNPJ, CPF, conta bancária, número de telefone, e-mail ou outro dado de pagamento ou de contato de alguém. Dizer que a equipe envia esses dados por aqui é false. Sem rascunho, use false.',
           'Em claims_availability informe, pelo significado, se o rascunho afirma ou sugere que existe vaga, horário livre ou disponibilidade,',
@@ -549,10 +553,16 @@ function createSalonHelpers(helpers, input, env) {
     // A tag repete um pedido pendente já gravado (por exemplo, num agradecimento): responde sem nova ação.
     const proposedStart = /^\d{4}-\d{2}-\d{2}$/.test(field('data')) && /^\d{2}:\d{2}$/.test(field('hora'))
       ? Date.parse(field('data') + 'T' + field('hora') + ':00-03:00') : NaN;
+    const nameCompletes = (before, after) => {
+      const old = normalize(before).split(' ').filter(Boolean), next = normalize(after).split(' ').filter(Boolean);
+      return old.length > 0 && next.length > old.length && old.every((word, index) => next[index] === word);
+    };
     const proposedServices = (field('servicos') || field('servico')).split(';').map(item => item.trim()).filter(Boolean);
     const sameServices = row => !proposedServices.length || JSON.stringify(proposedServices.map(normalize).sort()) === row.servicesKey;
     const repeated = single && /^(CRIAR_AGENDAMENTO|ATUALIZAR_PEDIDO)$/i.test(single[1]) && (existing || [])
-      .some(row => row.status === 'pending_confirmation' && row.startsAt === proposedStart && sameServices(row));
+      .some(row => row.status === 'pending_confirmation' && row.startsAt === proposedStart && sameServices(row)
+        // Nome completado (mesmo pedido, nome mais longo que começa pelo gravado) segue ao motor, que só completa o nome.
+        && !nameCompletes(row.nome, name));
     if (repeated) {
       return fallback('repeated_pending', 'Os dados propostos já estão no pedido pendente, sem alteração. Responda apenas ao sentido da mensagem atual, sem repetir o recibo.');
     }
@@ -562,7 +572,9 @@ function createSalonHelpers(helpers, input, env) {
         note('appointments_unavailable');
         return processingError();
       }
-      const conflict = existing.find(row => row.startsAt === proposedStart);
+      // O pedido pendente cujo nome está sendo completado é o próprio pedido, não um conflito de horário.
+      const conflict = existing.find(row => row.startsAt === proposedStart
+        && !(row.status === 'pending_confirmation' && sameServices(row) && nameCompletes(row.nome, name)));
       if (conflict) {
         note('conflict_existing');
         const warning = await compose(
@@ -609,7 +621,10 @@ function createSalonHelpers(helpers, input, env) {
         if (!matched.length && slotReady) return askName('previous_name_unconfirmed');
         return fallback(verdict.allowed !== true ? 'review_rejected' : 'evidence_mismatch', matched.length ? '' : confirmName);
       }
-      if (existing.length && verdict.existing_acknowledged !== true) {
+      // Completar o nome do próprio pedido pendente não é atendimento a mais: só outras reservas exigem a confirmação da pessoa.
+      const others = existing.filter(row => !(row.status === 'pending_confirmation' && row.startsAt === proposedStart
+        && sameServices(row) && nameCompletes(row.nome, name)));
+      if (others.length && verdict.existing_acknowledged !== true) {
         return fallback('existing_not_acknowledged', 'A pessoa já tem reserva futura. Pergunte se o novo horário é um atendimento a mais ou uma mudança na reserva existente.');
       }
       if (depositRequired && verdict.deposit_acknowledged !== true) {

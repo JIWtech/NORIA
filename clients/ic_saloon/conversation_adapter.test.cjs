@@ -879,3 +879,22 @@ test('"Quanto custa?": auditor erra, revisor prova com o trecho literal e o pre�
     verdict: { ...okVerdict, price_request_quote: 'quanto custa' }, repairs: noGeneration });
   assert.notEqual(invented.text, priceText);
 });
+
+test('revisor: relatar que a equipe recebeu o pedido pendente e ainda confirma não é registro indevido (regressão "tá confirmado né?")', async () => {
+  const pending = [{ id: 'p1', status: 'pending_confirmation', title: 'Corte - Maria', contact_name: 'Maria Souza', starts_at: '2099-09-29T13:00:00Z',
+    created_at: '2026-11-01T10:00:00Z', metadata: { services: ['Corte'] } }];
+  const result = await run({ draft: 'A equipe já recebeu seu pedido e confirma o horário por aqui.', currentText: 'tá confirmado né?', verdict: okVerdict, appointments: pending });
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /relato de status, não afirmação de registro/);
+  assert.ok(result.reviews[0].appointment_recipients.some(item => item.status === 'pending_confirmation'));
+});
+
+test('nome completado do pedido pendente segue ao motor, não vira "pedido repetido" (regressão Gemini real)', async () => {
+  const partial = { id: 'p-joao', status: 'pending_confirmation', title: 'Corte - João Victor', contact_name: 'João Victor', starts_at: '2099-09-29T13:00:00Z',
+    created_at: '2026-11-01T10:00:00Z', metadata: { services: ['Corte'] } };
+  const result = await run({ appointments: [partial], verdict: { ...withEvidence, existing_acknowledged: false } });
+  assert.equal(result.diagnostics.adapter_outcome, 'creation_allowed', JSON.stringify(result.diagnostics.adapter_trail));
+  // Mesmo nome gravado: continua sendo repetição, sem nova ação.
+  const same = await run({ appointments: [{ ...partial, contact_name: name }] });
+  assert.notEqual(same.diagnostics.adapter_outcome, 'creation_allowed');
+});
