@@ -860,3 +860,22 @@ test('chave Pix, CNPJ ou contato nunca saem da IA (regressão Gemini real: CNPJ 
   const stubborn = await run({ draft: invented, currentText: 'me passa o pix', verdict, repairs: [invented] });
   assert.notEqual(stubborn.text, invented);
 });
+
+test('auditor de preço: pergunta curta ("Quanto custa?") vale como pedido do serviço em discussão (regressão Gemini real)', () => {
+  const { auditPrompt } = require('./price_guard.cjs').createPriceGuard('tenant-x');
+  assert.match(auditPrompt, /pergunta curta de preço sem nome de serviço/);
+  assert.match(auditPrompt, /serviço que está sendo discutido no diálogo recente/);
+});
+
+test('"Quanto custa?": auditor erra, revisor prova com o trecho literal e o preço oficial sai; sem trecho continua barrado', async () => {
+  const priceText = 'O corte custa R$ 140,00.';
+  const segment = { kind: 'catalog_price', text: priceText, service_id: 'corte', amount_cents: 14000, price_type: 'fixed', contextual_match: true };
+  const proven = await run({ draft: priceText, currentText: 'Quanto custa?', priceRequestQuote: '', priceReport: [segment],
+    verdict: { ...okVerdict, price_request_quote: 'Quanto custa?' } });
+  assert.equal(proven.text, priceText);
+  assert.equal(proven.diagnostics.adapter_outcome, 'passed');
+  // Trecho que não está na mensagem atual não prova nada.
+  const invented = await run({ draft: priceText, currentText: 'Quero cortar', priceRequestQuote: '', priceReport: [segment],
+    verdict: { ...okVerdict, price_request_quote: 'quanto custa' }, repairs: noGeneration });
+  assert.notEqual(invented.text, priceText);
+});

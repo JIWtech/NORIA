@@ -198,6 +198,7 @@ function createSalonHelpers(helpers, input, env) {
           'horário a pessoa prefere, repetir o que ela mesma pediu sem dizer que está livre, ou dizer que a equipe confirma não afirmam',
           'disponibilidade. Sem rascunho, use false.',
           'Em price_unrequested informe, pelo significado, se o rascunho informa preço ou valor de serviço (inclusive "a partir de") e a mensagem atual do cliente NÃO pede preço, valor, quanto custa ou orçamento. Um pedido antigo no contexto não autoriza repetir preço agora. Dizer que o orçamento é definido na avaliação, sem número, não é preço. Se a pessoa perguntou o valor nesta mensagem, use false. Sem rascunho, use false.',
+          'Em price_request_quote copie, literalmente e sem alterar nada, o trecho da mensagem atual do cliente que pede preço, valor ou orçamento (uma pergunta curta como "quanto custa?" vale para o serviço em discussão). Se a mensagem atual não pede preço, use texto vazio.',
           'Em remove_prefix, se recent_context mostra que a conversa já está em andamento e o rascunho abre repetindo saudação, cumprimento',
           'ou vocativo de abertura, copie exatamente esse trecho inicial, sem incluir o conteúdo útil que o segue. Sem repetição, use texto vazio.',
           'contact_display_name é apenas uma pista do perfil; identity_evidence contém falas do contato. Leia o contexto para separar quem escreve de quem será atendido.',
@@ -214,11 +215,11 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
-            claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' },
+            claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' }, price_request_quote: { type: 'STRING' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
             booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' },
           } },
@@ -254,7 +255,9 @@ function createSalonHelpers(helpers, input, env) {
   const sameLayoutFree = text => String(text).replace(/[︎️‍]/gu, '').replace(/\s+/gu, '');
   // Resultado do guarda de preço: { ok: true }, { ok: false, kind: 'unavailable', reason } (auditor sem resposta utilizável)
   // ou { ok: false, kind: 'rejected', reason, segments } (auditor respondeu e reprovou a afirmação de preço).
-  async function priceAudit(options, draft) {
+  // reviewerQuote: trecho literal que o revisor copiou da mensagem atual como pedido de preço. Prova independente do auditor:
+  // o auditor (modelo leve) errava em perguntas curtas como "Quanto custa?". Os valores seguem conferidos contra o catálogo.
+  async function priceAudit(options, draft, reviewerQuote = '') {
     const unavailable = reason => ({ ok: false, kind: 'unavailable', reason });
     // Texto sem nenhum algarismo não traz valor nem duração a conferir: o auditor não é chamado (falha técnica dele
     // transformava saudações e perguntas simples em "manda de novo"). A tag de catálogo com preços continua auditada.
@@ -311,7 +314,9 @@ function createSalonHelpers(helpers, input, env) {
     }
     if (report.segments.some(segment => segment.kind !== 'non_price') || /\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(draft)) {
       const quote = typeof report.price_request_quote === 'string' ? report.price_request_quote.trim() : '';
-      if (report.price_requested !== true || !quote || !currentCustomerMessage(options).includes(quote)) {
+      const literal = text => Boolean(text) && currentCustomerMessage(options).includes(text);
+      const reviewerProof = typeof reviewerQuote === 'string' && literal(reviewerQuote.trim());
+      if (!reviewerProof && (report.price_requested !== true || !literal(quote))) {
         return { ok: false, kind: 'rejected', reason: 'price_not_requested' };
       }
     }
@@ -511,7 +516,7 @@ function createSalonHelpers(helpers, input, env) {
           technicalOnly = false;
           continue;
         }
-        const audit = await priceAudit(options, text);
+        const audit = await priceAudit(options, text, verdict.price_request_quote);
         lastPriceAuditKind = audit.ok ? '' : audit.kind;
         if (!audit.ok) {
           note(audit.kind === 'unavailable' ? 'repair_price_audit_unavailable'
@@ -653,7 +658,7 @@ function createSalonHelpers(helpers, input, env) {
     // Com agendamento em andamento (leitura do revisor), a pergunta para seguir é o próximo passo e nunca é cortada.
     const suffix = verdict.booking_in_progress !== true && typeof verdict.remove_suffix === 'string' ? verdict.remove_suffix.trim() : '';
     const cut = /\p{L}{2}/u.test(suffix) && headless.endsWith(suffix) ? headless.slice(0, -suffix.length).trimEnd() : headless;
-    const audit = cut ? await priceAudit(options, cut) : { ok: false, kind: 'rejected', reason: 'empty_reply' };
+    const audit = cut ? await priceAudit(options, cut, verdict.price_request_quote) : { ok: false, kind: 'rejected', reason: 'empty_reply' };
     lastPriceAuditKind = audit.ok ? '' : audit.kind;
     if (audit.ok) {
       const final = sanitizeTags(cut);

@@ -73,6 +73,7 @@ function createPriceGuard(tenantId) {
     'Nesse caso marque contextual_match=true somente se o serviço for inequívoco no diálogo; se houver ambiguidade, use reject. O diálogo serve somente para identificar o serviço, nunca como fonte de preço, desconto, condição ou disponibilidade.',
     'Se a mensagem contém preço ou a tag [CATALOGO_COMPLETO_COM_PRECOS], julgue separadamente se current_customer_message pede preço, valor ou orçamento pelo significado. Interesse em fazer ou marcar um serviço não é pedido de preço. Não use perguntas antigas nem falas da atendente como autorização.',
     'Use price_requested=true somente se houver esse pedido na mensagem atual; copie em price_request_quote o trecho literal da mensagem atual que expressa o pedido. Caso contrário, use false e quote vazia. Não confunda avaliação gratuita com preço do serviço.',
+    'Uma pergunta curta de preço sem nome de serviço (como "quanto custa?", "qual o valor?" ou "e o preço?") é pedido de preço do serviço que está sendo discutido no diálogo recente: use price_requested=true e copie a pergunta inteira em price_request_quote.',
     'Em caso de dúvida, use reject. Responda só o JSON solicitado.'
   ].join(' ');
   return { officialServices, authorizeText, auditPrompt };
