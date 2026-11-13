@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false, skipped_registration: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -155,7 +155,7 @@ async function run({ draft = tag, evidence = true, verdict = withEvidence, price
     if (!nameInContents) assert.equal(JSON.stringify(options.body.contents).includes(name), false);
     if (options.body.system_instruction.parts.length === 2) {
       assert.equal(options.body.system_instruction.parts[1].text.includes(name), evidence);
-      return reply(draft, finishReason);
+      return reply(typeof draft === 'function' ? draft(options.body.system_instruction.parts) : draft, finishReason);
     }
     const next = typeof repairs === 'function' ? repairs(options.body.system_instruction.parts)
       : repairs[Math.min(repairIndex++, repairs.length - 1)];
@@ -1099,4 +1099,16 @@ test('marcação em dia fechado ou feriado: se a reescrita falhar, o último rec
   assert.equal(result.text, 'Nesse dia o salão não abre. Qual outro dia fica bom para você?');
   const review = result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'));
   assert.ok(review.body.generationConfig.responseSchema.required.includes('closed_day'));
+});
+
+test('resposta que deixa de registrar um pedido completo para perguntar algo opcional: a IA refaz uma vez registrando (regressão Gemini real)', async () => {
+  const question = 'É a primeira vez dela no salão?';
+  const draft = parts => (parts[0].text.includes('REGISTRO OBRIGATÓRIO') ? tag : question);
+  const verdict = body => ({ ...withEvidence, skipped_registration: body.draft === question });
+  const result = await run({ draft, verdict });
+  assert.equal(result.text, tag);
+  assert.equal(result.diagnostics.adapter_outcome, 'creation_allowed');
+  // Só uma nova tentativa: se insistir na pergunta, ela sai como está.
+  const stubborn = await run({ draft: question, verdict });
+  assert.equal(stubborn.text, question);
 });

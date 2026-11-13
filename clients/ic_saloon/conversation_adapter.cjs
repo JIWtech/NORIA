@@ -226,6 +226,7 @@ function createSalonHelpers(helpers, input, env) {
           'Quando appointment_recipients traz um pedido com status pending_confirmation, dizer que a equipe já recebeu esse pedido e ainda vai confirmar o horário é relato de status, não afirmação de registro: use claims_registration=false e allowed=true. Só é afirmação indevida dizer que o horário já está confirmado ou garantido.',
           'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
           'Em fact_mismatch use true quando o rascunho cita uma data cujo dia da semana não confere com calendar.proximos_dias, afirma um horário ou dias de funcionamento diferentes de calendar.funcionamento, trata como possível marcar num dia fechado ou num feriado de calendar.funcionamento.feriados_fechado_mes_dia, ou cumprimenta com bom dia, boa tarde ou boa noite incompatível com calendar.hora_local (bom dia antes das 12h, boa tarde das 12h às 18h, boa noite depois). Sem rascunho ou sem nada disso, use false.',
+          'Em skipped_registration use true quando recent_context e a mensagem atual já trazem o nome completo (nome e sobrenome) de quem será atendido, o serviço, o dia e o horário de um pedido ainda não registrado, e o rascunho, em vez de registrar, pergunta algo opcional (primeira vez, profissional, telefone) ou o nome de quem escreve. Caso contrário, false.',
           'Em closed_day use true quando a mensagem atual ou o rascunho trata de marcar num dia fechado ou num feriado de calendar.funcionamento; caso contrário, false.',
           'Em name_implausible use true quando booking.name não parece nome de pessoa: contém instrução, comando, pedido, frase ou palavras que não são nome (por exemplo, regras, confirme, horário). Nome e sobrenome comuns, compostos ou estrangeiros são false. Sem booking, use false.',
           'Em style_violation use true quando o rascunho dá boas-vindas (“bem-vindo” em qualquer gênero, “boas-vindas” ou equivalente) ou cita o nome do negócio em business_name sem a pessoa ter perguntado por ele, ou cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido, ou escreve data em formato técnico (como 2026-11-14), ou tem palavras grudadas ou erro de digitação (como “Queótimo” ou “Boa dia”). Responder ao cumprimento e se apresentar sem essas palavras é false. Sem rascunho, use false.',
@@ -252,13 +253,13 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch', 'closed_day'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch', 'closed_day', 'skipped_registration'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' }, price_request_quote: { type: 'STRING' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
-            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' }, closed_day: { type: 'BOOLEAN' },
+            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' }, closed_day: { type: 'BOOLEAN' }, skipped_registration: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -699,6 +700,15 @@ function createSalonHelpers(helpers, input, env) {
     // Transferência sem texto: o motor enviaria só a frase genérica. Gera resposta contextual antes.
     if (/\[HUMANO_SOLICITADO\]/iu.test(draft) && !visibleText(draft)) return fallback('empty_handoff');
     const verdict = await review(options, draft, null, current, [], identityContext);
+    // A resposta deixou de registrar um pedido já completo (nome de quem será atendido, serviço, dia e hora) para perguntar algo
+    // opcional ou o nome de quem escreve: uma nova geração, com a instrução de registrar, passa por todo o fluxo de novo.
+    if (verdict?.skipped_registration === true && !options.registrationRetry && !tags.length) {
+      const [first, ...rest] = options.body.system_instruction.parts;
+      return httpRequest({ ...options, registrationRetry: true, body: { ...options.body, system_instruction: { parts: [
+        { ...first, text: first.text + '\n\nREGISTRO OBRIGATÓRIO: a conversa já tem o nome completo de quem será atendido, o serviço, o dia e o horário. Registre o pedido agora com a tag das regras do sistema, sem texto de resumo. Primeira vez, profissional, telefone e o nome de quem escreve são opcionais e não impedem o registro.' },
+        ...rest,
+      ] } } });
+    }
     // Com uma única tag de cancelar, quem confere o pedido é o motor (id e pessoa; se falhar, reescreve sem afirmar nada).
     // A reprovação geral do revisor não bloqueia; as checagens específicas abaixo (Pix, estilo, horário, preço) continuam.
     // Cancelamento afirmado sem a ação de cancelar (o motor só cancela com a tag); com a tag, quem confere o pedido é o motor.
