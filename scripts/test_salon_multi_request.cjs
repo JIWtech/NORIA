@@ -243,3 +243,11 @@ test('catálogo completo: categorias em negrito do WhatsApp e um serviço por li
   assert.match(r.sentText, /\*Corpo\*\n• Drenagem/);
   assert.doesNotMatch(r.sentText, /CATALOGO_COMPLETO/);
 });
+
+test('regras do motor: formato único da tag com campos opcionais, cancelamento de pedido pendente e humano sem contradizer o prompt', async () => {
+  const r = await run({ request: contextual, appointments: [mother], texts: ['Oi'], response: 'Oi!' });
+  assert.match(r.prompt, /CRIAR_AGENDAMENTO\|nome=NOME COMPLETO\|servicos=SERVICO 1;SERVICO 2\|data=AAAA-MM-DD\|hora=HH:MM\|profissional=NOME\|primeira_vez=sim\|status=pending_confirmation/);
+  assert.match(r.prompt, /CANCELAR_PEDIDO\|pedido=ID_DO_PEDIDO/);
+  assert.doesNotMatch(r.prompt, /Use humano apenas para reclama/);
+  assert.doesNotMatch(r.prompt, /HH:mm/);
+});

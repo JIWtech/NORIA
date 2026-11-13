@@ -2675,12 +2675,13 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
   // com sinal que já existia. Só muda o protocolo da tag e quando encaminhar; nenhum texto comercial.
   const bookingRules = appointmentRequestConfig(context)?.valid === true ? [
     '- O agendamento deste tenant é por pedido: a equipe confirma o horário. Você não confirma e não reserva horário.',
-    '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:mm|status=pending_confirmation].',
-    '- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.',
+    // Formato único da tag: o prompt do tenant diz quando registrar; o protocolo (campos e formato) fica só aqui.
+    '- Quando tiver nome completo, serviço, data e horário exatos, registre o pedido com a tag interna exatamente neste formato, sem texto de resumo: [ACAO: CRIAR_AGENDAMENTO|nome=NOME COMPLETO|servicos=SERVICO 1;SERVICO 2|data=AAAA-MM-DD|hora=HH:MM|profissional=NOME|primeira_vez=sim|status=pending_confirmation]. profissional e primeira_vez são opcionais (omita o campo quando não houver); status é sempre pending_confirmation. O sistema escreve a confirmação de recebimento.',
+    '- A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:MM, em 24 horas.',
     ...bookingServiceNamesRule(catalog),
     ...(contextualBooking ? [
       '- Crie ou atualize um pedido só quando a intenção atual pedir um novo registro ou mudar dados. Uma confirmação de leitura, um agradecimento ou uma pergunta informativa sobre pedido existente recebe resposta natural sem tag de agendamento.',
-      '- Use as mensagens da IA que já foram enviadas neste chat como referência do que o cliente já sabe. Responda à novidade com a extensão que a pessoa pede, varie naturalmente a construção e evite repetir abertura, recibo, explicação e avisos sem motivo.',
+      '- Use as mensagens da IA que já foram enviadas neste chat como referência do que o cliente já sabe. Responda à novidade com a extensão que a pessoa pede e não repita recibo, explicação ou avisos já enviados sem motivo.',
       ...(appointments.openRequest && appointments.futureConfirmed ? [
         '- Há um pedido pendente e uma reserva confirmada. Para editar ou cancelar somente o pedido pendente, inclua pedido=ID_DO_PEDIDO_PENDENTE na tag. Em caso de ambiguidade ou de mudança na reserva confirmada, peça revisão da equipe.',
       ] : []),
@@ -2689,6 +2690,7 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
         '- Há mais de um pedido pendente (pedidos_pendentes). Para editar ou cancelar um deles, inclua pedido=ID_DO_PEDIDO na tag; se não estiver claro qual, pergunte antes.',
       ] : []),
       '- Inclua primeira_vez=sim ou primeira_vez=nao na tag somente se a própria pessoa respondeu isso sobre quem será atendida neste pedido; sem resposta explícita omita o campo. Nunca reaproveite a resposta de outra pessoa.',
+      '- Quando a pessoa desistir de um pedido pendente (ainda não confirmado pela equipe), responda com texto visível e inclua [ACAO: CANCELAR_PEDIDO|pedido=ID_DO_PEDIDO], com o id de pedido_pendente ou de pedidos_pendentes. Mudar um pedido ou mudar ou cancelar uma reserva confirmada vai para a equipe com [HUMANO_SOLICITADO].',
     ] : []),
     ...(keepsAiOnTeamReview(context) ? [
       '- ATUALIZAR_PEDIDO e CANCELAR_PEDIDO só são válidos para o pedido_pendente e apenas quando a mensagem atual se refere a ele.',
@@ -2696,7 +2698,8 @@ async function callGemini(context, fallback, history, catalog, appointments, rep
       '- Responda perguntas informativas sobre a reserva normalmente. Diferencie uma alteração de um novo agendamento independente e aproveite os dados já informados.',
       '- [HUMANO_SOLICITADO] registra revisão para a equipe e precisa acompanhar uma resposta visível. A conversa continua com a IA até uma resposta manual.',
     ] : []),
-    '- Ao registrar o pedido, não use [HUMANO_SOLICITADO]. Use humano apenas para reclamação ou pedido explícito de atendente.',
+    // Os motivos para passar à equipe são do tenant (prompt); aqui só o protocolo do registro.
+    '- Ao registrar o pedido, não use [HUMANO_SOLICITADO]. Os motivos para passar à equipe estão nas instruções do salão.',
   ].join('\n') : `- Durante agendamento com sinal/pagamento antecipado, registre o pre-agendamento quando tiver nome, servico, data e horario.
 - Quando tiver nome, servico, data e horario, confirme em uma frase curta, informe que o horario fica pendente do sinal conforme regra do tenant e inclua no final a tag interna exatamente neste formato: [ACAO: CRIAR_AGENDAMENTO|nome=NOME|servico=SERVICO|data=AAAA-MM-DD|hora=HH:mm|duracao=120|status=pending_payment].
 - A data da tag deve ser sempre no formato AAAA-MM-DD. A hora deve ser sempre HH:mm.
@@ -2790,7 +2793,7 @@ REGRAS OPERACIONAIS CURTAS
 - Se a conversa já possui histórico, não abra a resposta com saudação, cumprimento ou vocativo de abertura; vá direto ao assunto.
 - Se a mensagem for frustração apenas com a resposta da IA (por exemplo, dizer que não entendeu ou que a resposta não ajudou), corrija a resposta com humildade e não use [RECLAMACAO] nem [HUMANO_SOLICITADO]. Use [RECLAMACAO] somente para reclamação real do atendimento, do serviço ou de cobrança.
 - Público, idade e menores: interprete pela conversa inteira e siga o system_prompt; não presuma nada por palavras isoladas.
-- Se a pessoa pedir a lista completa de serviços, o catálogo ou tudo o que o negócio oferece, escreva só uma frase curta de abertura e termine com [CATALOGO_COMPLETO]. Se pedir explicitamente a lista completa COM preços ou valores na mensagem atual, use [CATALOGO_COMPLETO_COM_PRECOS]. O sistema anexa a lista oficial; não liste serviços nem valores você mesmo nesse caso.
+- Se a pessoa perguntar quais serviços o negócio faz, pedir a lista completa de serviços, o catálogo ou tudo o que o negócio oferece, escreva só uma frase curta de abertura e termine com [CATALOGO_COMPLETO]. Se pedir explicitamente a lista completa COM preços ou valores na mensagem atual, use [CATALOGO_COMPLETO_COM_PRECOS]. O sistema anexa a lista oficial; não liste serviços nem valores você mesmo nesse caso.
 - Exemplos de abertura que podem significar saudação/conversa casual: "coé", "coe", "fala tu", "salve", "qual a boa", "e aí", "opa", "oieee", "fala comigo". Responda naturalmente de acordo com o contexto, sem corrigir a pessoa.
 ${settings.conversation_style_instructions || settings.tone || ""}
 - IMPORTANTE: animação muda apenas a forma de falar. Nunca invente benefício, resultado, garantia, efeito, duração, tecnologia, conforto ou vantagem não presente no catálogo.
