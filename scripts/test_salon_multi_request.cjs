@@ -368,3 +368,29 @@ test('desistência de pedido que não existe: se a primeira reescrita vier com t
   assert.equal(r.sentText, reply);
   assert.deepEqual(r.patched, []);
 });
+
+test('recusas do motor viram explicação certa, sem texto fixo genérico (regressão Gemini real com outros nomes)', async () => {
+  // Horário que já passou: a IA explica e pede outro, em vez de "me confirma o serviço, o dia e o horário".
+  const past = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=José Carlos da Silva|servicos=Corte|data=2000-01-01|hora=14:00|status=pending_confirmation]';
+  const pastReply = 'Esse horário já passou. Qual outro dia fica bom para o José Carlos?';
+  const r1 = await run({ request: { ...contextual, missing_details_template: 'Para eu registrar seu pedido, me confirma o serviço, o dia e o horário exato que você prefere?' },
+    response: [past, pastReply], texts: ['Corte pro meu marido José Carlos da Silva sexta às 14'] });
+  assert.equal(r1.sentText, pastReply);
+  assert.match(JSON.stringify(r1.calls.filter(c => c.url.includes('generateContent')).at(-1).body), /já passaram/);
+  // Nome sem sobrenome da pessoa atendida: pede o sobrenome dela, não "o seu nome".
+  const single = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Thaís|servicos=Corte|data=2099-09-30|hora=15:00|status=pending_confirmation]';
+  const nameReply = 'Qual é o nome completo da Thaís, com sobrenome?';
+  const r2 = await run({ request: { ...contextual, full_name_template: 'Para eu anotar certinho, qual é o seu nome completo?' },
+    response: [single, nameReply], texts: ['Corte pra Thaís dia 30 às 15'] });
+  assert.equal(r2.sentText, nameReply);
+  assert.match(JSON.stringify(r2.calls.filter(c => c.url.includes('generateContent')).at(-1).body), /pessoa que será atendida/);
+});
+
+test('fora do funcionamento: reescrita com tag ou vazia tenta de novo antes do texto de erro', async () => {
+  const hours = { schedule: { segunda: { closed: true }, terca: { start: '09:00', end: '18:00' }, quarta: { start: '09:00', end: '18:00' },
+    quinta: { start: '09:00', end: '18:00' }, sexta: { start: '09:00', end: '18:00' }, sabado: { start: '09:00', end: '18:00' }, domingo: { closed: true } }, holidays: ['11-20'] };
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Paulo Mendes|servicos=Corte|data=2099-11-20|hora=10:00|status=pending_confirmation]';
+  const reply = 'Nesse dia é feriado e o salão fica fechado. Qual outro dia fica bom?';
+  const r = await run({ request: contextual, extra: { business_hours: hours }, texts: ['Dia 20 às 10, Paulo Mendes'], response: [tag, tag, reply] });
+  assert.equal(r.sentText, reply);
+});

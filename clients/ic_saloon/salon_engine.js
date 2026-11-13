@@ -2797,6 +2797,7 @@ DATA/HORA OFICIAL
 - Ao encaminhar para humano com expediente fechado, informe que a equipe continuará no próximo expediente. Nunca sugira que responderá agora. Sem horário configurado, não prometa disponibilidade imediata.
 - Use essas datas como referencia oficial para termos relativos.
 - Hoje e amanha ja sao datas especificas: converta para a data ISO acima, sem pedir a data novamente.
+- Um dia da semana sem data e a proxima ocorrencia futura desse dia; se for o dia de hoje e o horario pedido ja passou, e o da semana que vem.
 - As mensagens da ultima entrada foram agrupadas: interprete todas como um pedido unico e responda uma unica vez.
 ${contextualBooking ? '- Aproveite os dados já informados. A presença dos dados no histórico só autoriza a criação quando houver um novo pedido na mensagem atual.' : '- Se nome, servico, dia e hora ja constarem na entrada ou no historico, execute a tag de criacao, sem repetir perguntas.'}
 - Saber a data nao significa conhecer disponibilidade.
@@ -15049,11 +15050,20 @@ async function runTurn() {
         event.handoff = true;
         event.stage = 'Atendimento humano';
         event.service = 'atendimento_humano';
-      } else if (/outside_business_hours/.test(code)) {
-        // Nada foi gravado: o modelo explica que o dia/horário está fora do funcionamento e pede outro, sem tag de agendamento.
-        const revised = await callGemini(context, '', history, catalog, appointments,
-          '\n\nCORREÇÃO OPERACIONAL: o dia ou horário proposto está fora do horário de funcionamento configurado (o que inclui feriados em que o salão fecha) e nada foi registrado. Explique com naturalidade e peça outro dia ou horário dentro do funcionamento. Não diga que registrou e não emita tag de agendamento.');
-        responseText = revised.text;
+      } else if (/outside_business_hours|past_date_time|APPOINTMENT_REQUEST_PAST|APPOINTMENT_FULL_NAME_REQUIRED/.test(code)) {
+        // Nada foi gravado: o modelo explica o motivo certo e pede só o que falta, sem tag. Duas tentativas; o texto fixo do
+        // tenant fica como último recurso (ele dizia "o seu nome" mesmo quando faltava o sobrenome de outra pessoa).
+        const reason = /outside_business_hours/.test(code)
+          ? 'o dia ou horário proposto está fora do horário de funcionamento configurado (o que inclui feriados em que o salão fecha). Explique com naturalidade e peça outro dia ou horário dentro do funcionamento.'
+          : /APPOINTMENT_FULL_NAME_REQUIRED/.test(code)
+            ? 'falta o nome completo, com sobrenome, da pessoa que será atendida (' + (requestAction.customerName || 'nome informado') + '). Peça só o sobrenome ou o nome completo dessa pessoa, sem pedir o nome de quem escreve.'
+            : 'o dia e o horário entendidos já passaram. Explique com naturalidade e pergunte qual dia e horário futuro a pessoa prefere (um dia da semana sem data é a próxima ocorrência futura).';
+        const instruction = '\n\nCORREÇÃO OPERACIONAL: nada foi registrado: ' + reason + ' Não diga que registrou e não emita tag de agendamento.';
+        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim());
+        let revised = await callGemini(context, '', history, catalog, appointments, instruction);
+        if (!usable(revised.text)) revised = await callGemini(context, '', history, catalog, appointments, instruction + ' A tentativa anterior não pôde ser usada: escreva só uma mensagem curta, sem tag.');
+        if (usable(revised.text)) responseText = revised.text;
+        else { responseText = retryText || salonLiteralTemplate(context, 'processing_error_template'); preserveLiteralReply = true; }
       } else if (retryText) {
         responseText = retryText; preserveLiteralReply = true;
       } else {
