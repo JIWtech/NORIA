@@ -246,6 +246,7 @@ function createSalonHelpers(helpers, input, env) {
           'Em wrong_contact_name use true quando a resposta chama quem escreve pelo nome de outra pessoa, inclusive como vocativo. Citar o nome da beneficiária ao perguntar se o serviço é para ela não é vocativo errado.',
           'Em recipient_assumed use true quando a resposta ou tag presume que o serviço atual é para beneficiária de pedido anterior sem confirmação do cliente. Se o destinatário não está claro, pergunte se é para a mesma pessoa ou outra. Uma correção explícita do destinatário prevalece sobre pedidos antigos.',
           'Em first_visit_stated use true somente quando booking.first_visit existe e, pelo significado, o cliente disse explicitamente em recent_context se a pessoa atendida neste pedido (booking.name) é a primeira vez no salão. Valor deduzido pelo modelo, resposta sobre outra pessoa, pergunta ainda sem resposta ou ausência de booking.first_visit é false.',
+          'Em slot_stated use true somente quando booking existe e o cliente disse ou aceitou explicitamente, em current ou recent_context, o dia e o horário de booking.date e booking.time (datas relativas como amanhã ou terça valem pela data local). Dia ou horário que só a atendente ou o modelo escolheu, faixa de horário sem hora exata ou pergunta ainda sem resposta é false. Sem booking, use false.',
         ].join(' ') }] },
         contents: [{ role: 'user', parts: [{ text: JSON.stringify({
           draft, booking, current, name_evidence: rows, ...identity, business_name: businessName, calendar: calendarFacts(),
@@ -255,13 +256,13 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch', 'closed_day', 'skipped_registration', 'wants_service_list'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch', 'closed_day', 'skipped_registration', 'wants_service_list', 'slot_stated'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' }, price_request_quote: { type: 'STRING' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
-            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' }, closed_day: { type: 'BOOLEAN' }, skipped_registration: { type: 'BOOLEAN' }, wants_service_list: { type: 'BOOLEAN' },
+            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' }, closed_day: { type: 'BOOLEAN' }, skipped_registration: { type: 'BOOLEAN' }, wants_service_list: { type: 'BOOLEAN' }, slot_stated: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -670,6 +671,11 @@ function createSalonHelpers(helpers, input, env) {
         existing_appointments: existingFacts, deposit_required: depositRequired,
       }, current, candidates, identityContext);
       if (!verdict) return fallback('review_unavailable');
+      // Dia e horário precisam ter sido ditos ou aceitos pela pessoa. Vale também para os atalhos de nome abaixo, que dispensam
+      // a aprovação geral: sem esta checagem, só o nome completo bastava e o modelo inventava dia e hora no registro.
+      if (verdict.slot_stated !== true) {
+        return fallback('slot_unstated', 'Nada foi registrado. A pessoa ainda não disse nem aceitou o dia e o horário exatos. Agradeça o dado recebido e pergunte, em uma frase curta, qual dia e horário ficam bons, citando o serviço conversado. Não sugira dia nem horário.');
+      }
       // Nome que não é nome de pessoa (ex.: uma instrução escrita no lugar do nome): não registra e pede o nome real.
       if (verdict.name_implausible !== false) return askName('name_implausible');
       if (verdict.recipient_assumed !== false || verdict.wrong_contact_name !== false) {

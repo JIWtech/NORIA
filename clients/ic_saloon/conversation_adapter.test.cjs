@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false, skipped_registration: false, wants_service_list: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false, skipped_registration: false, wants_service_list: false, slot_stated: true };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -187,6 +187,14 @@ test('ação de registro só é liberada com evidência do cliente e sem pendên
   assert.equal(rejected.text, repairText);
   assert.deepEqual(rejected.diagnostics.adapter_trail, ['review_rejected']);
   assert.match(rejected.generations.at(-1).at(-1).text, /^Nenhum pedido foi gravado neste turno\./);
+  // Só o nome completo na mensagem atual, sem dia e hora ditos pela pessoa: o atalho do nome não registra horário inventado.
+  for (const currentText of [undefined, name]) {
+    const unstated = await run({ currentText, nameInContents: Boolean(currentText), verdict: body => body.booking ? { ...withEvidence, slot_stated: false } : okVerdict });
+    assert.equal(unstated.text, repairText);
+    assert.equal(unstated.diagnostics.adapter_outcome, 'repaired');
+    assert.deepEqual(unstated.diagnostics.adapter_trail, ['slot_unstated']);
+    assert.match(JSON.stringify(unstated.generations.at(-1)), /não disse nem aceitou o dia e o horário/);
+  }
   // Nome já dito pela pessoa (evidência literal): a reescrita não pode pedir o nome de novo.
   const repairOrder = JSON.stringify(rejected.generations.at(-1));
   assert.match(repairOrder, /não peça o nome de novo/);
