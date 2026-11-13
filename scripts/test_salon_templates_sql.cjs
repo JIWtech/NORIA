@@ -15,6 +15,7 @@ const OLD = {
   received_template: 'Prontinho, anotei aqui! {servicos} para {data}, às {hora} ✨\nAgora é só aguardar: a equipe confirma o horário com você por aqui, combinado?\nUm lembrete importante: menores de idade só são atendidos acompanhados do pai ou da mãe',
   confirmation_template: 'Oba, seu horário está confirmado! {servicos} para {data}, às {hora} 💜\nVamos te esperar com muito carinho!\nLembrando que menores de idade só são atendidos acompanhados do pai ou da mãe',
   updated_template: 'Pedido atualizado para {servicos}, {data}, às {hora}. A equipe ainda vai confirmar o horário por aqui.',
+  review_handoff_template: 'Vou pedir para a equipe conferir esse ponto com você por aqui, tá bem?',
 };
 
 test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação final e rollback', async () => {
@@ -30,6 +31,7 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   for (const key of ['received_template', 'confirmation_template']) assert.match(after[key].trim(), /[.?!]$/, key);
   assert.match(after.received_template, /\{servicos\}.*\{data\}.*\{hora\}/);
   assert.equal(after.mode, 'operator_confirmation');
+  assert.doesNotMatch(after.review_handoff_template, /esse ponto/);
   assert.equal(after.updated_template, OLD.updated_template);
   // Rodar de novo não sobrescreve a cópia guardada.
   await pg.exec(apply);
@@ -38,5 +40,6 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   const back = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.appointment_request;
   assert.equal(back.received_template, OLD.received_template);
   assert.equal(back.confirmation_template, OLD.confirmation_template);
+  assert.equal(back.review_handoff_template, OLD.review_handoff_template);
   assert.equal(back.templates_backup_v1, undefined);
 });

@@ -1070,3 +1070,9 @@ test('revisor confere data, dia da semana, horário de funcionamento e cumprimen
   assert.match(calendar.proximos_dias[0], /^\d{2}\/\d{2} \(/);
   assert.ok(calendar.hora_local && calendar.funcionamento.terca);
 });
+
+test('revisor de estilo também barra palavras grudadas e erros de digitação (regressão "Queótimo")', async () => {
+  const result = await run({ draft: 'Posso ajudar?', verdict: okVerdict });
+  const system = JSON.stringify(result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'))?.body?.system_instruction || '');
+  assert.match(system, /palavras grudadas ou erro de digitação/);
+});

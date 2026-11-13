@@ -342,3 +342,9 @@ test('recibo de avaliação presencial diz que é avaliação (regressão Gemini
   const r = await run({ request: contextual, response: tag, texts: ['Quero marcar a avaliação, Maria Silva'] });
   assert.match(r.sentText, /^Anotei, Maria Silva: Avaliação de Corte,/);
 });
+
+test('regras do motor: nome do registro é o da pessoa atendida e duas pessoas na mesma mensagem são registradas uma de cada vez', async () => {
+  const r = await run({ request: contextual, texts: ['Oi'], response: 'Oi!' });
+  assert.match(r.prompt, /não peça o nome de quem escreve/);
+  assert.match(r.prompt, /registre uma pessoa por vez/);
+});
