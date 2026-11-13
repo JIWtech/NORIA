@@ -12,8 +12,8 @@ where s.tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'::uuid
   and length(coalesce(s.settings->>'system_prompt_v13_backup', '')) > 0;
 
 update public.tenant_service_catalog c
-set notes = c.metadata->>'notes_v13', searchable_text = c.metadata->>'searchable_text_v13',
-    metadata = c.metadata - 'notes_v13' - 'searchable_text_v13', updated_at = now()
+set notes = c.metadata->>'notes_v13',
+    metadata = c.metadata - 'notes_v13', updated_at = now()
 where c.tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'::uuid
   and c.metadata ? 'notes_v13';
 

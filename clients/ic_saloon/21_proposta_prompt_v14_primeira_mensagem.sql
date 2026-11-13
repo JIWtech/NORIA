@@ -54,15 +54,12 @@ where s.tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'::uuid
 -- Observações do catálogo: as frases prontas ("perguntar se é só mão, só pé ou pé e mão", penteado, mechas) eram copiadas
 -- pela IA sempre iguais. A intenção já está no prompt; aqui ficam só os fatos. A cópia anterior vai para metadata.notes_v13.
 update public.tenant_service_catalog c
-set metadata = c.metadata || jsonb_build_object('notes_v13', c.notes, 'searchable_text_v13', c.searchable_text),
+-- searchable_text é coluna gerada a partir de notes em produção: o banco recalcula, não se escreve nela.
+set metadata = c.metadata || jsonb_build_object('notes_v13', c.notes),
     notes = btrim(regexp_replace(replace(replace(replace(c.notes,
       'Antes de passar valor ou horário, perguntar se é só mão, só pé ou pé e mão.', ''),
       'Perguntar se a cliente já vem com o cabelo escovado ou se será preparado antes no salão.', ''),
       'Perguntar o tipo de mecha e há quanto tempo foi a última química.', ''), '\s{2,}', ' ', 'g')),
-    searchable_text = btrim(regexp_replace(replace(replace(replace(c.searchable_text,
-      'antes de passar valor ou horário, perguntar se é só mão, só pé ou pé e mão.', ''),
-      'perguntar se a cliente já vem com o cabelo escovado ou se será preparado antes no salão.', ''),
-      'perguntar o tipo de mecha e há quanto tempo foi a última química.', ''), '\s{2,}', ' ', 'g')),
     updated_at = now()
 where c.tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'::uuid
   and c.external_id in ('servico_mao_tradicional', 'servico_pe_tradicional', 'servico_pe_e_mao_tradicional', 'servico_penteado',

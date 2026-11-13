@@ -24,12 +24,12 @@ async function db() {
   const pg = new PGlite();
   await pg.exec(`create table public.tenants (id uuid primary key, slug text);
     create table public.tenant_settings (tenant_id uuid primary key, settings jsonb, updated_at timestamptz);
-    create table public.tenant_service_catalog (tenant_id uuid, external_id text, notes text, searchable_text text, metadata jsonb, updated_at timestamptz);
+    create table public.tenant_service_catalog (tenant_id uuid, external_id text, notes text, searchable_text text generated always as (lower(notes)) stored, metadata jsonb, updated_at timestamptz);
     insert into public.tenants values ('${TENANT}', 'ic_salon');`);
   await pg.query('insert into public.tenant_settings values ($1, $2, now())',
     [TENANT, JSON.stringify({ system_prompt: V13, prompt_revision: 'ic_salon_recepcao_v13_alinhado_motor' })]);
   for (const [id, notes] of Object.entries(NOTES)) {
-    await pg.query('insert into public.tenant_service_catalog values ($1, $2, $3, $4, $5, now())', [TENANT, id, notes, notes.toLowerCase(), JSON.stringify({ price_type: 'fixed' })]);
+    await pg.query('insert into public.tenant_service_catalog (tenant_id, external_id, notes, metadata, updated_at) values ($1, $2, $3, $4, now())', [TENANT, id, notes, JSON.stringify({ price_type: 'fixed' })]);
   }
   return pg;
 }
