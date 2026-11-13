@@ -382,14 +382,15 @@ test('resposta informativa passa, e a guarda de preço usa só o preço oficial 
   assert.equal(invalid.text, priceFallback);
   assert.equal(invalid.diagnostics.adapter_outcome, 'price_fallback');
   assert.equal(invalid.diagnostics.adapter_message_source, 'template_fallback');
-  assert.deepEqual(invalid.diagnostics.adapter_trail, ['price_rejected', 'repair_finish', 'repair_finish']);
+  assert.deepEqual(invalid.diagnostics.adapter_trail, ['price_rejected', 'repair_finish', 'repair_finish', 'repair_finish', 'repair_finish']);
   // O Gemini reescreve só a afirmação de preço; o texto reparado passa de novo pelo auditor e o preço errado não chega ao cliente.
   const rewritten = 'Esse valor eu prefiro que a equipe confirme certinho para você.';
   const composedPrice = await run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: [rewritten] });
   assert.equal(composedPrice.text, rewritten);
   assert.equal(composedPrice.diagnostics.adapter_outcome, 'price_repaired');
   assert.equal(composedPrice.diagnostics.adapter_message_source, 'gemini');
-  assert.equal(composedPrice.audits.at(-1), rewritten);
+  // Texto reescrito sem nenhum valor não precisa do auditor; o rascunho com cifra foi auditado.
+  assert.deepEqual(composedPrice.audits, ['O corte custa R$ 50,00.']);
   const wrongAmount = await run({ ...priceQuestion, draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration,
     priceReport: [{ ...priceSegment, text: 'O corte custa R$ 50,00.', amount_cents: 5000 }] });
   assert.equal(wrongAmount.text, priceFallback);
@@ -426,18 +427,22 @@ test('preço reprovado: o reparo corrige só a afirmação de preço e preserva 
   const stubborn = await run({ ...priceQuestion, draft, verdict: okVerdict, priceReport: report, repairs: [draft] });
   assert.equal(stubborn.text, priceFallback);
   assert.equal(stubborn.diagnostics.adapter_outcome, 'price_fallback');
-  assert.deepEqual(stubborn.diagnostics.adapter_trail, ['price_rejected', 'repair_price_rejected', 'repair_price_rejected']);
+  assert.deepEqual(stubborn.diagnostics.adapter_trail, ['price_rejected', 'repair_price_rejected', 'repair_price_rejected', 'repair_price_rejected', 'repair_price_rejected']);
   // A geração só informa o preço quando a mensagem atual pede o valor.
   assert.match(repaired.generations[0][0].text, /Informe preço somente se a pessoa pedir valor ou orçamento na mensagem atual/);
 
   // Auditor indisponível (429, timeout, resposta truncada, JSON inválido) não é preço reprovado.
   const cases = [['http429', 'error_429'], ['timeout', 'timeout'], ['truncated', 'finish_MAX_TOKENS'], ['invalid_json', 'invalid_json']];
   for (const [auditFail, reason] of cases) {
-    const down = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail });
+    // Reparos que insistem no valor: sem auditor, a frase fixa é o último recurso.
+    const down = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail, repairs: ['O corte custa R$ 140,00.'] });
     assert.equal(down.text, priceFallback, auditFail);
     assert.equal(down.diagnostics.adapter_trail[0], 'price_audit_unavailable');
     assert.equal(down.diagnostics.adapter_trail.includes('price_rejected'), false);
-    assert.deepEqual(down.diagnostics.adapter_trail.slice(1), ['repair_price_audit_unavailable', 'repair_price_audit_unavailable']);
+    assert.deepEqual(down.diagnostics.adapter_trail.slice(1), Array(4).fill('repair_price_audit_unavailable'));
+    // Reparo sem nenhum valor sai normalmente, mesmo com o auditor fora do ar.
+    const plain = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail });
+    assert.equal(plain.text, repairText, auditFail);
     assert.deepEqual(down.diagnostics.adapter_price_audit, { kind: 'unavailable', reason, draft_excerpt: 'O corte custa R$ 140,00.' });
   }
   // Relatório que não reconstrói a mensagem é defeito do auditor.
@@ -651,7 +656,8 @@ test('falha técnica do auditor pede para repetir (texto do tenant); preço repr
   const settings = { appointment_request: {}, price_rejection_template: priceFallback,
     price_check_retry_template: 'Não consegui conferir essa informação agora. Pode me mandar sua pergunta de novo, por favor? 😊' };
   for (const auditFail of ['http429', 'timeout', 'truncated', 'invalid_json']) {
-    const down = await run({ draft: 'Trabalhamos sim! Mechas loiras a partir de R$ 580,00.', verdict: okVerdict, auditFail, settings });
+    const down = await run({ draft: 'Trabalhamos sim! Mechas loiras a partir de R$ 580,00.', verdict: okVerdict, auditFail, settings,
+      repairs: ['Mechas loiras a partir de R$ 580,00.'] });
     assert.equal(down.text, settings.price_check_retry_template, auditFail);
     assert.equal(down.diagnostics.adapter_outcome, 'price_fallback');
   }
@@ -659,12 +665,12 @@ test('falha técnica do auditor pede para repetir (texto do tenant); preço repr
   const wrong = await run({ draft: 'O corte custa R$ 50,00.', verdict: okVerdict, repairs: noGeneration, settings });
   assert.equal(wrong.text, priceFallback);
   // sem o texto configurado, o comportamento anterior é mantido
-  const legacy = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail: 'truncated' });
+  const legacy = await run({ draft: 'O corte custa R$ 140,00.', verdict: okVerdict, auditFail: 'truncated', repairs: ['O corte custa R$ 140,00.'] });
   assert.equal(legacy.text, priceFallback);
 });
 
 test('revisão e auditoria de preço pedem limite de saída suficiente para a mensagem inteira', async () => {
-  const result = await run({ draft: 'Tudo bem? Como posso ajudar?', verdict: okVerdict });
+  const result = await run({ ...priceQuestion, draft: 'O corte custa R$ 140,00.', verdict: okVerdict, priceReport: [{ kind: 'catalog_price', text: 'O corte custa R$ 140,00.', service_id: 'corte', amount_cents: 14000, price_type: 'fixed' }] });
   const limits = result.requests.filter(item => item.body && item.body.generationConfig && item.body.generationConfig.responseMimeType === 'application/json')
     .map(item => item.body.generationConfig.maxOutputTokens);
   assert.ok(limits.length >= 2, 'revisão e auditoria enviadas');
@@ -799,4 +805,35 @@ test('primeira_vez só segue na tag quando o revisor confirma que o cliente info
   const update = await run({ draft: 'Pronto, ajustei. [ACAO: ATUALIZAR_PEDIDO|pedido=apt-p|hora=11:00|primeira_vez=sim]', verdict: okVerdict });
   assert.doesNotMatch(update.text, /primeira_vez/);
   assert.match(update.text, /ATUALIZAR_PEDIDO/);
+});
+
+test('texto sem número não afirma preço: não depende do auditor (regressão "Oiee" → "manda de novo")', async () => {
+  const settings = { appointment_request: {}, price_rejection_template: priceFallback,
+    price_check_retry_template: 'Não consegui conferir essa informação agora. Pode me mandar sua pergunta de novo, por favor? 😊' };
+  for (const draft of ['Qual é o seu nome completo com sobrenome? ✨', 'Oi! Sou nova na equipe do salão. Como posso te ajudar hoje?']) {
+    const result = await run({ draft, verdict: okVerdict, auditFail: 'invalid_json', settings });
+    assert.equal(result.text, draft);
+    assert.equal(result.diagnostics.adapter_outcome, 'passed');
+    assert.deepEqual(result.audits, []);
+  }
+});
+
+test('relatório do auditor que difere só em espaços ou seletor de emoji reconstrói o texto', async () => {
+  const draft = 'O corte custa R$ 140,00.\n\nAté breve ✨️';
+  const report = [{ kind: 'catalog_price', text: 'O corte custa R$ 140,00.', service_id: 'corte', amount_cents: 14000, price_type: 'fixed' },
+    { kind: 'non_price', text: ' Até breve ✨' }];
+  const result = await run({ ...priceQuestion, draft, verdict: okVerdict, priceReport: report });
+  assert.equal(result.text, draft);
+  assert.equal(result.diagnostics.adapter_outcome, 'passed');
+});
+
+test('preço reprovado: antes da frase fixa de preço, tenta uma resposta sem valor nenhum', async () => {
+  const draft = 'O corte custa R$ 50,00. Para qual dia você quer?';
+  const noPrice = 'Fazemos sim! Para qual dia você quer marcar?';
+  const repairs = (parts) => (parts.some(part => /Não cite nenhum valor/.test(part.text)) ? noPrice : draft);
+  // Caso real: o auditor leu "Mão" como pedido de preço e reprovou o valor; a pessoa recebia só a frase fixa de preço.
+  const result = await run({ draft, verdict: okVerdict, currentText: 'Quero cortar o cabelo', priceRequestQuote: 'Quero cortar o cabelo', repairs,
+    priceReport: (message) => (/\d/.test(message) ? [{ kind: 'reject', text: message }] : [{ kind: 'non_price', text: message }]) });
+  assert.equal(result.text, noPrice);
+  assert.notEqual(result.text, priceFallback);
 });

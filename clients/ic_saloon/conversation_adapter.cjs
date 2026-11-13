@@ -247,10 +247,15 @@ function createSalonHelpers(helpers, input, env) {
     if (status !== undefined && status !== null && /^[\w.-]{1,24}$/.test(String(status))) return 'error_' + String(status).replace(/[^\w]/g, '_');
     return /time[d _-]*out/i.test(String(error?.message || '')) ? 'timeout' : 'exception';
   }
+  // Reconstrução do texto pelo auditor: espaços, quebras de linha e seletores invisíveis de emoji não mudam o conteúdo.
+  const sameLayoutFree = text => String(text).replace(/[︎️‍]/gu, '').replace(/\s+/gu, '');
   // Resultado do guarda de preço: { ok: true }, { ok: false, kind: 'unavailable', reason } (auditor sem resposta utilizável)
   // ou { ok: false, kind: 'rejected', reason, segments } (auditor respondeu e reprovou a afirmação de preço).
   async function priceAudit(options, draft) {
     const unavailable = reason => ({ ok: false, kind: 'unavailable', reason });
+    // Texto sem nenhum algarismo não traz valor nem duração a conferir: o auditor não é chamado (falha técnica dele
+    // transformava saudações e perguntas simples em "manda de novo"). A tag de catálogo com preços continua auditada.
+    if (!/\d/.test(draft) && !/\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(draft)) return { ok: true };
     try {
       if (!priceCatalog) {
         const rows = await request({ method: 'GET', json: true, timeout: 4500,
@@ -297,7 +302,8 @@ function createSalonHelpers(helpers, input, env) {
     try { report = JSON.parse(readText(candidate)); } catch { return unavailable('invalid_json'); }
     // Relatório que não reconstrói a mensagem é defeito do auditor, não reprovação de preço.
     if (report?.complete !== true || !Array.isArray(report.segments) || !report.segments.length
-        || report.segments.some(segment => typeof segment?.text !== 'string') || report.segments.map(segment => segment.text).join('') !== draft) {
+        || report.segments.some(segment => typeof segment?.text !== 'string')
+        || sameLayoutFree(report.segments.map(segment => segment.text).join('')) !== sameLayoutFree(draft)) {
       return unavailable('invalid_report');
     }
     if (report.segments.some(segment => segment.kind !== 'non_price') || /\[CATALOGO_COMPLETO_COM_PRECOS\]/i.test(draft)) {
@@ -655,6 +661,11 @@ function createSalonHelpers(helpers, input, env) {
         const retryTemplate = typeof priceRetryFallback === 'string' ? priceRetryFallback.trim() : '';
         return lastPriceAuditKind === 'unavailable' && retryTemplate ? retryTemplate : priceTemplate;
       }, { rascunho_anterior: cut.slice(0, 1200) });
+    if (messageSource === 'template_fallback') {
+      // Antes da frase fixa de preço (que fica fora de contexto quando a pessoa disse só "Mão"), uma resposta sem valor nenhum.
+      const plain = await generate('O sistema não conseguiu confirmar o valor citado no rascunho anterior. Não cite nenhum valor, preço ou duração. Responda só ao que a pessoa disse, em até duas frases curtas. Se ela perguntou o valor, diga com naturalidade que a equipe confirma o valor. Se ela quer fazer o serviço, siga com uma pergunta curta pelo próximo dado do agendamento.');
+      if (plain.response) return finish('price_repaired', plain.response);
+    }
     if (!priceReply) throw Error('IC_SALON_PRICE_REPLY_UNAVAILABLE');
     return finish(messageSource === 'gemini' ? 'price_repaired' : 'price_fallback', messageResponse(response, candidate, priceReply));
   }

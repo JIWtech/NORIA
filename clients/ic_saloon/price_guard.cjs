@@ -41,7 +41,9 @@ function createPriceGuard(tenantId) {
   function authorizeText(text, services, report, conversationContext = []) {
     if (report?.complete !== true || !Array.isArray(report.segments) || !report.segments.length) return false;
     if (report.segments.some(segment => typeof segment?.text !== 'string' || !segment.text.length)) return false;
-    if (report.segments.map(segment => segment.text).join('') !== text) return false;
+    // Espaços, quebras de linha e seletores invisíveis de emoji não mudam o conteúdo; as cifras continuam conferidas abaixo.
+    const layoutFree = value => String(value).replace(/[︎️‍]/gu, '').replace(/\s+/gu, '');
+    if (layoutFree(report.segments.map(segment => segment.text).join('')) !== layoutFree(text)) return false;
     const normalized = text.normalize('NFKC');
     const allFigures = [...normalized.matchAll(pricePattern)].map(match => match[0]);
     const splitFigures = report.segments.flatMap(segment =>
