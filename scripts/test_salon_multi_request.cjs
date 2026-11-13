@@ -300,3 +300,13 @@ test('nome completado responde com o texto de pedido atualizado, sem repetir o r
     response: 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=João Victor Santos|servicos=Corte|data=2099-09-29|hora=10:00|status=pending_confirmation]' });
   assert.match(r.sentText, /^Pedido atualizado/);
 });
+
+test('catálogo completo: se o modelo escreveu a própria lista antes da tag, só a lista oficial sai (regressão Gemini real: lista duplicada)', async () => {
+  const r = await run({ request: contextual, texts: ['Quais serviços?'],
+    response: 'Claro! Temos:\n• Corte\n• Escova\n• Drenagem\n\n[CATALOGO_COMPLETO]' });
+  assert.equal((r.sentText.match(/• Corte/g) || []).length, 1, r.sentText);
+  assert.match(r.sentText, /\*Cabelo\*\n• Corte/);
+  // Abertura curta de uma linha continua sendo usada.
+  const short = await run({ request: contextual, texts: ['Quais serviços?'], response: 'Claro, olha só tudo o que fazemos! [CATALOGO_COMPLETO]' });
+  assert.match(short.sentText, /^Claro, olha só tudo o que fazemos!/);
+});

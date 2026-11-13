@@ -14964,7 +14964,10 @@ async function runTurn() {
   const actions = detectActions(responseText);
   // O Gemini decide que o cliente quer o catálogo completo e sinaliza com a tag; a lista oficial vem do banco (nunca da prosa).
   if (actions.catalogRequested && catalog.isComplete) {
-    responseText = buildFullCatalogReplyFromRows(catalog.matches, cleanReplyText(responseText), actions.catalogPricesRequested);
+    // A abertura é a prosa do modelo só quando ela é uma frase curta; lista escrita pelo modelo duplicaria a lista oficial.
+    const opening = cleanReplyText(responseText).trim();
+    const intro = opening && opening.length <= 220 && !opening.includes('\n') ? opening : '';
+    responseText = buildFullCatalogReplyFromRows(catalog.matches, intro, actions.catalogPricesRequested);
     event.ai_provider = 'catalog_db_direct';
   }
   const tag = parseAppointmentCreationTag(responseText);
