@@ -421,3 +421,8 @@ test('reescrita que terminou no texto de passar à equipe também não serve: di
     texts: ['Dia 20 às 10, Paulo Mendes'], response: [tag, handoff + ' [HUMANO_SOLICITADO]', handoff + ' [HUMANO_SOLICITADO]'] });
   assert.equal(r.sentText, closedText);
 });
+
+test('regras do motor: primeira vez, profissional e telefone são opcionais e nunca adiam o registro', async () => {
+  const r = await run({ request: contextual, texts: ['Oi'], response: 'Oi!' });
+  assert.match(r.prompt, /nunca adiam o registro/);
+});

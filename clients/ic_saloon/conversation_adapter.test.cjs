@@ -62,7 +62,7 @@ const executeWithBudget = AsyncFn('$json', '$env', wrapSalonEngine(budgetCore));
 const reply = (text, finishReason = 'STOP') => ({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
 const okVerdict = { allowed: true, evidence_id: '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '',
   claims_registration: false, claims_availability: false, price_unrequested: false,
-  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false };
+  wrong_contact_name: false, recipient_assumed: false, claims_cancellation: false, shares_payment_or_contact: false, style_violation: false, name_implausible: false, fact_mismatch: false, closed_day: false };
 // Geração que não rende texto utilizável: o Gemini falhou e o adaptador cai no template técnico do Supabase.
 const noGeneration = [{ text: '', finishReason: 'MAX_TOKENS' }];
 const withEvidence = { ...okVerdict, evidence_id: 'event-old' };
@@ -1087,4 +1087,16 @@ test('nome completo da pessoa atendida na mensagem atual: registro não depende 
   // Checagens específicas continuam valendo.
   const implausible = await run({ nameInContents: true, currentText: 'Quero corte pra ' + name, verdict: { ...withEvidence, name_implausible: true }, repairs: ['Qual é o nome completo?'] });
   assert.notEqual(implausible.diagnostics.adapter_outcome, 'creation_allowed');
+});
+
+test('marcação em dia fechado ou feriado: se a reescrita falhar, o último recurso é o texto de dia fechado do cadastro', async () => {
+  const settings = { appointment_request: { closed_day_template: 'Nesse dia o salão não abre. Qual outro dia fica bom para você?',
+    review_handoff_template: 'Vou chamar alguém da equipe para continuar com você por aqui, tá bem?' }, price_rejection_template: priceFallback,
+    business_hours: { schedule: { segunda: { closed: true } }, holidays: ['11-20'] } };
+  const draft = 'Para o corte no dia 20 de novembro às 10:00, é a sua primeira vez?';
+  const verdict = body => ({ ...okVerdict, fact_mismatch: body.draft === draft || /20 de novembro/.test(body.draft || ''), closed_day: true });
+  const result = await run({ draft, currentText: 'Dá pra marcar dia 20 às 10?', verdict, settings, repairs: [draft] });
+  assert.equal(result.text, 'Nesse dia o salão não abre. Qual outro dia fica bom para você?');
+  const review = result.requests.find(item => JSON.stringify(item.body || {}).includes('Valide a resposta do salão'));
+  assert.ok(review.body.generationConfig.responseSchema.required.includes('closed_day'));
 });

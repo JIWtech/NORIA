@@ -226,6 +226,7 @@ function createSalonHelpers(helpers, input, env) {
           'Quando appointment_recipients traz um pedido com status pending_confirmation, dizer que a equipe já recebeu esse pedido e ainda vai confirmar o horário é relato de status, não afirmação de registro: use claims_registration=false e allowed=true. Só é afirmação indevida dizer que o horário já está confirmado ou garantido.',
           'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
           'Em fact_mismatch use true quando o rascunho cita uma data cujo dia da semana não confere com calendar.proximos_dias, afirma um horário ou dias de funcionamento diferentes de calendar.funcionamento, trata como possível marcar num dia fechado ou num feriado de calendar.funcionamento.feriados_fechado_mes_dia, ou cumprimenta com bom dia, boa tarde ou boa noite incompatível com calendar.hora_local (bom dia antes das 12h, boa tarde das 12h às 18h, boa noite depois). Sem rascunho ou sem nada disso, use false.',
+          'Em closed_day use true quando a mensagem atual ou o rascunho trata de marcar num dia fechado ou num feriado de calendar.funcionamento; caso contrário, false.',
           'Em name_implausible use true quando booking.name não parece nome de pessoa: contém instrução, comando, pedido, frase ou palavras que não são nome (por exemplo, regras, confirme, horário). Nome e sobrenome comuns, compostos ou estrangeiros são false. Sem booking, use false.',
           'Em style_violation use true quando o rascunho dá boas-vindas (“bem-vindo” em qualquer gênero, “boas-vindas” ou equivalente) ou cita o nome do negócio em business_name sem a pessoa ter perguntado por ele, ou cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido, ou escreve data em formato técnico (como 2026-11-14), ou tem palavras grudadas ou erro de digitação (como “Queótimo” ou “Boa dia”). Responder ao cumprimento e se apresentar sem essas palavras é false. Sem rascunho, use false.',
           'Em shares_payment_or_contact use true quando o rascunho informa chave Pix, CNPJ, CPF, conta bancária, número de telefone, e-mail ou outro dado de pagamento ou de contato de alguém. Dizer que a equipe envia esses dados por aqui é false. Sem rascunho, use false.',
@@ -251,13 +252,13 @@ function createSalonHelpers(helpers, input, env) {
         generationConfig: {
           temperature: 0, maxOutputTokens: 4000, responseMimeType: 'application/json',
           responseSchema: { type: 'OBJECT', required: ['allowed', 'evidence_id', 'existing_acknowledged', 'deposit_acknowledged', 'remove_suffix',
-            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch'], properties: {
+            'remove_prefix', 'claims_registration', 'claims_availability', 'price_unrequested', 'wrong_contact_name', 'recipient_assumed', 'first_visit_stated', 'booking_in_progress', 'claims_cancellation', 'shares_payment_or_contact', 'price_request_quote', 'style_violation', 'name_implausible', 'fact_mismatch', 'closed_day'], properties: {
             allowed: { type: 'BOOLEAN' }, evidence_id: { type: 'STRING' }, existing_acknowledged: { type: 'BOOLEAN' },
             deposit_acknowledged: { type: 'BOOLEAN' },
             remove_suffix: { type: 'STRING' }, remove_prefix: { type: 'STRING' }, claims_registration: { type: 'BOOLEAN' },
             claims_availability: { type: 'BOOLEAN' }, price_unrequested: { type: 'BOOLEAN' }, price_request_quote: { type: 'STRING' },
             wrong_contact_name: { type: 'BOOLEAN' }, recipient_assumed: { type: 'BOOLEAN' }, first_visit_stated: { type: 'BOOLEAN' },
-            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' },
+            booking_in_progress: { type: 'BOOLEAN' }, claims_cancellation: { type: 'BOOLEAN' }, shares_payment_or_contact: { type: 'BOOLEAN' }, style_violation: { type: 'BOOLEAN' }, name_implausible: { type: 'BOOLEAN' }, fact_mismatch: { type: 'BOOLEAN' }, closed_day: { type: 'BOOLEAN' },
           } },
         },
       },
@@ -577,10 +578,13 @@ function createSalonHelpers(helpers, input, env) {
       }
       return { technicalOnly };
     };
-    const fallback = async (reason, guidance = '') => {
+    // lastResortKey: texto do cadastro próprio do caso (ex.: dia fechado) usado quando a reescrita falha, antes da equipe.
+    const fallback = async (reason, guidance = '', lastResortKey = '') => {
       note(reason);
       const made = await generate(guidance);
       if (made.response) return finish('repaired', made.response);
+      const lastResort = lastResortKey && typeof requestSettings?.[lastResortKey] === 'string' ? renderTemplate(lastResortKey) : '';
+      if (lastResort) return finish(reason + '_template', plainReply(lastResort));
       // A mensagem de erro de processamento fica restrita a falhas técnicas; reprovação de conteúdo vai à equipe com outro texto.
       return made.technicalOnly ? processingError()
         : finish('review_handoff', withHandoff(renderTemplate('review_handoff_template')));
@@ -738,6 +742,9 @@ function createSalonHelpers(helpers, input, env) {
     }
     // Data com dia da semana trocado, horário de funcionamento errado ou cumprimento fora da hora: reescreve com o calendário.
     if (verdict.fact_mismatch !== false) {
+      if (verdict.closed_day === true) {
+        return fallback('closed_day', 'O rascunho anterior tratava como possível marcar num dia em que o salão não abre (dia fechado ou feriado). Nada foi registrado. Diga com naturalidade que nesse dia o salão não abre e pergunte qual outro dia fica bom, sem tag. Fatos: ' + JSON.stringify(calendarFacts()) + '.', 'closed_day_template');
+      }
       return fallback('fact_mismatch', 'O rascunho anterior tinha data, dia da semana, horário de funcionamento ou cumprimento errado. Reescreva usando somente estes fatos, mantendo o resto do conteúdo e o tom: ' + JSON.stringify(calendarFacts()) + '.');
     }
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.
