@@ -5455,6 +5455,13 @@ const SALON_REQUEST_TEMPLATE_DEFAULTS = {
   processing_error_template: 'Não consegui concluir isso por aqui agora. Vou pedir para a equipe conferir e continuar seu atendimento.',
 };
 
+// Texto do cadastro sem padrão do código: vazio quando o tenant não configurou (o chamador decide o recurso seguinte).
+function salonConfiguredTemplate(context, key) {
+  const configured = settingsFor(context)?.appointment_request?.[key];
+  const text = typeof configured === 'string' ? configured.trim() : '';
+  return text && !/[{}]/.test(text) ? text : '';
+}
+
 function salonLiteralTemplate(context, key) {
   const configured = settingsFor(context)?.appointment_request?.[key];
   const text = typeof configured === 'string' ? configured.trim() : '';
@@ -15033,10 +15040,13 @@ async function runTurn() {
         const revised = await callGemini(context, '', history, catalog, appointments,
           '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar, e nenhum pedido foi cancelado neste turno. Os pedidos de outras pessoas continuam como estão. Diga isso com naturalidade, sem afirmar que retirou, cancelou ou removeu algo, e pergunte se pode ajudar em mais alguma coisa. Não emita tag de agendamento.');
         // Uma segunda tentativa antes do texto de erro (o primeiro reparo às vezes volta com tag ou vazio).
-        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim());
+        // A reescrita que já desistiu (texto de erro do tenant) também não serve: segue para o recurso próprio do caso.
+        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim())
+          && cleanReplyText(text).trim() !== salonLiteralTemplate(context, 'processing_error_template');
         const second = usable(revised.text) ? revised : await callGemini(context, '', history, catalog, appointments,
           '\n\nCORREÇÃO OPERACIONAL: não há pedido pendente dessa pessoa para retirar e nada foi cancelado. Responda em uma frase curta, sem tag, sem dizer que retirou ou cancelou algo, e pergunte se pode ajudar em mais alguma coisa.');
-        responseText = usable(second.text) ? second.text : salonLiteralTemplate(context, 'processing_error_template');
+        responseText = usable(second.text) ? second.text
+          : salonConfiguredTemplate(context, 'no_pending_request_template') || salonLiteralTemplate(context, 'processing_error_template');
         preserveLiteralReply = !usable(second.text);
       } else if (contextualBooking && /APPOINTMENT_REQUEST_(?:CHANGED|NOT_OPEN|BUSY)/.test(code)) {
         const current = appointmentState((await loadAppointments(context.tenant.id, false, true)).rows);
@@ -15059,11 +15069,16 @@ async function runTurn() {
             ? 'falta o nome completo, com sobrenome, da pessoa que será atendida (' + (requestAction.customerName || 'nome informado') + '). Peça só o sobrenome ou o nome completo dessa pessoa, sem pedir o nome de quem escreve.'
             : 'o dia e o horário entendidos já passaram. Explique com naturalidade e pergunte qual dia e horário futuro a pessoa prefere (um dia da semana sem data é a próxima ocorrência futura).';
         const instruction = '\n\nCORREÇÃO OPERACIONAL: nada foi registrado: ' + reason + ' Não diga que registrou e não emita tag de agendamento.';
-        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim());
+        // A reescrita que já desistiu (texto de erro do tenant) também não serve: segue para o recurso próprio do caso.
+        const usable = text => !parseAppointmentRequestAction(text) && Boolean(cleanReplyText(text).trim())
+          && cleanReplyText(text).trim() !== salonLiteralTemplate(context, 'processing_error_template');
         let revised = await callGemini(context, '', history, catalog, appointments, instruction);
         if (!usable(revised.text)) revised = await callGemini(context, '', history, catalog, appointments, instruction + ' A tentativa anterior não pôde ser usada: escreva só uma mensagem curta, sem tag.');
         if (usable(revised.text)) responseText = revised.text;
-        else { responseText = retryText || salonLiteralTemplate(context, 'processing_error_template'); preserveLiteralReply = true; }
+        else {
+          const closedText = /outside_business_hours/.test(code) ? salonConfiguredTemplate(context, 'closed_day_template') : '';
+          responseText = closedText || retryText || salonLiteralTemplate(context, 'processing_error_template'); preserveLiteralReply = true;
+        }
       } else if (retryText) {
         responseText = retryText; preserveLiteralReply = true;
       } else {

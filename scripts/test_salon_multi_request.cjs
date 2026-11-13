@@ -394,3 +394,19 @@ test('fora do funcionamento: reescrita com tag ou vazia tenta de novo antes do t
   const r = await run({ request: contextual, extra: { business_hours: hours }, texts: ['Dia 20 às 10, Paulo Mendes'], response: [tag, tag, reply] });
   assert.equal(r.sentText, reply);
 });
+
+test('último recurso por caso: dia fechado e desistência sem pedido usam textos do cadastro, não a mensagem de erro', async () => {
+  const hours = { schedule: { segunda: { closed: true }, terca: { start: '09:00', end: '18:00' }, quarta: { start: '09:00', end: '18:00' },
+    quinta: { start: '09:00', end: '18:00' }, sexta: { start: '09:00', end: '18:00' }, sabado: { start: '09:00', end: '18:00' }, domingo: { closed: true } }, holidays: ['11-20'] };
+  const tag = 'Certo [ACAO: CRIAR_AGENDAMENTO|nome=Paulo Mendes|servicos=Corte|data=2099-11-20|hora=10:00|status=pending_confirmation]';
+  const closedText = 'Nesse dia o salão não abre. Qual outro dia fica bom para você?';
+  const closed = await run({ request: { ...contextual, closed_day_template: closedText }, extra: { business_hours: hours },
+    texts: ['Dia 20 às 10, Paulo Mendes'], response: [tag, tag, tag] });
+  assert.equal(closed.sentText, closedText);
+  const noneText = 'Não encontrei pedido pendente dessa pessoa por aqui. Posso ajudar em mais alguma coisa?';
+  const cancelTag = 'Retirei. [ACAO: CANCELAR_PEDIDO|pedido=x|nome=Fernanda Alves Costa]';
+  const none = await run({ request: { ...contextual, no_pending_request_template: noneText }, appointments: [second],
+    texts: ['Desisto da minha esposa'], response: [cancelTag, cancelTag, cancelTag] });
+  assert.equal(none.sentText, noneText);
+  assert.deepEqual(none.patched, []);
+});

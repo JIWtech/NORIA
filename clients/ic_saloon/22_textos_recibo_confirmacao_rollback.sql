@@ -2,7 +2,7 @@
 begin;
 
 update public.tenant_settings s
-set settings = jsonb_set(s.settings, '{appointment_request}', ((s.settings->'appointment_request') - 'templates_backup_v1') || jsonb_build_object(
+set settings = jsonb_set(s.settings, '{appointment_request}', ((s.settings->'appointment_request') - 'templates_backup_v1' - 'closed_day_template' - 'no_pending_request_template') || jsonb_build_object(
     'received_template', s.settings->'appointment_request'->'templates_backup_v1'->>'received_template',
     'confirmation_template', s.settings->'appointment_request'->'templates_backup_v1'->>'confirmation_template',
     'review_handoff_template', s.settings->'appointment_request'->'templates_backup_v1'->>'review_handoff_template'

@@ -34,6 +34,8 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   const hoursAfter = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.business_hours;
   assert.ok(hoursAfter.holidays.includes('11-20') && hoursAfter.schedule.segunda.closed === true);
   assert.doesNotMatch(after.review_handoff_template, /esse ponto/);
+  assert.match(after.closed_day_template, /não abre/);
+  assert.match(after.no_pending_request_template, /Não encontrei pedido pendente/);
   assert.equal(after.updated_template, OLD.updated_template);
   // Rodar de novo não sobrescreve a cópia guardada.
   await pg.exec(apply);
@@ -44,6 +46,8 @@ test('recibo sem o aviso de menores, confirmação com aviso leve, pontuação f
   assert.equal(back.confirmation_template, OLD.confirmation_template);
   assert.equal(back.review_handoff_template, OLD.review_handoff_template);
   assert.equal(back.templates_backup_v1, undefined);
+  assert.equal(back.closed_day_template, undefined);
+  assert.equal(back.no_pending_request_template, undefined);
   const hoursBack = (await pg.query('select settings from public.tenant_settings')).rows[0].settings.business_hours;
   assert.equal(hoursBack.holidays, undefined);
   assert.equal(hoursBack.schedule.segunda.closed, true);

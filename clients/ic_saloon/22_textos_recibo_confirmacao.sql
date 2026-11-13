@@ -3,6 +3,8 @@
 -- 2) a confirmação, enviada uma vez quando a equipe confirma, traz o aviso de forma leve;
 -- 3) frases terminam com pontuação;
 -- 4) texto de passar para a equipe mais natural (o anterior dizia "conferir esse ponto");
+-- 6) textos de último recurso por caso: dia fechado (closed_day_template) e desistência sem pedido aberto
+--    (no_pending_request_template), no lugar da mensagem de erro genérica;
 -- 5) feriados nacionais de data fixa em business_hours.holidays (MM-DD): o motor trata como dia fechado. A lista é do
 --    cadastro e pode ser ajustada; feriados de data móvel (Sexta-feira Santa) e locais não entram aqui.
 -- Guarda: só troca os textos que ainda estão exatamente como os atuais. A cópia anterior fica em
@@ -17,6 +19,8 @@ set settings = jsonb_set(s.settings, '{appointment_request}', (s.settings->'appo
       'review_handoff_template', s.settings->'appointment_request'->>'review_handoff_template'),
     'received_template', E'Prontinho, anotei aqui! {servicos} para {data}, às {hora} ✨\nAgora é só aguardar: a equipe confirma o horário com você por aqui.',
     'review_handoff_template', 'Vou chamar alguém da equipe para continuar com você por aqui, tá bem?',
+    'closed_day_template', 'Nesse dia o salão não abre. Qual outro dia fica bom para você?',
+    'no_pending_request_template', 'Não encontrei pedido pendente dessa pessoa por aqui. Posso ajudar em mais alguma coisa?',
     'confirmation_template', E'Oba, seu horário está confirmado! {servicos} para {data}, às {hora} 💜\nVamos te esperar com muito carinho. Se o atendimento for para alguém menor de idade, é só vir com o pai ou a mãe junto, tá?'
   )), updated_at = now()
 where s.tenant_id = '76aff8a0-0466-42b9-a80d-db186ff3d8bd'::uuid
