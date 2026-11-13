@@ -373,7 +373,7 @@ export function eventsToKanban(
   }
 
   const latestAppointmentsByConversation = new Map();
-  const extraPendingRequests = [];
+  const extraAppointments = [];
   for (const appointment of appointments) {
     if (['cancelled', 'canceled'].includes(appointment.status)) continue;
     const key = canonicalConversationKey(
@@ -386,9 +386,9 @@ export function eventsToKanban(
     const currentPriority = appointmentKanbanPriority(current?.status);
     const replaces = !current || priority > currentPriority
       || (priority === currentPriority && isMoreRecentRecord(appointment, current));
-    // Vários pedidos pendentes na mesma conversa (pessoas diferentes): cada um precisa do seu card para a equipe confirmar.
+    // Cada pedido pendente ou confirmado mantém seu cartão, mesmo quando a conversa está vinculada a outro agendamento.
     const displaced = replaces ? current : appointment;
-    if (displaced?.status === 'pending_confirmation') extraPendingRequests.push(displaced);
+    if (['pending_confirmation', 'confirmed'].includes(displaced?.status)) extraAppointments.push(displaced);
     if (replaces) latestAppointmentsByConversation.set(key, appointment);
   }
 
@@ -472,8 +472,8 @@ export function eventsToKanban(
     }
   }
 
-  // Pedidos pendentes extras da mesma conversa ficam sozinhos na coluna de confirmação, com o contato da conversa no título.
-  for (const appointment of extraPendingRequests) {
+  // Os demais agendamentos ficam na própria coluna, vinculados ao contato apenas para exibição e acesso ao chat.
+  for (const appointment of extraAppointments) {
     const appointmentCard = toAppointmentCard(appointment);
     const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
     if (!targetColumn) continue;
@@ -481,7 +481,7 @@ export function eventsToKanban(
     const conversationCard = eventCardsByConversation.get(key)?.card;
     targetColumn.cards.push(conversationCard
       ? detachedAppointmentCard(appointmentCard, conversationCard, targetColumn)
-      : { ...appointmentCard, targetColumnId: targetColumn.automationKey || targetColumn.id });
+      : { ...appointmentCard, detachedFromConversation: true, targetColumnId: targetColumn.automationKey || targetColumn.id });
   }
 
   if (appointmentCards.some((card) => card.targetColumnId === 'agendamentos') && !kanbanConfig?.columns?.length && !findKanbanColumn(columns, 'agendamentos')) {
@@ -501,6 +501,7 @@ export function eventsToKanban(
   ));
   for (const column of columns) {
     for (const card of column.cards) {
+      if (card.appointmentStatus === 'confirmed') continue;
       const own = card.appointmentStatus === 'pending_confirmation' ? card.appointmentMetadata?.slot_proposal : null;
       let proposal = own?.status === 'accepted'
         ? own

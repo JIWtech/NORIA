@@ -68,6 +68,23 @@ test('pedido novo depois da recusa: o selo da proposta antiga sai do cartão', (
   assert.equal(cardOf(eventsToKanban([inbound], 'ic_salon', [rejected, pending(hoursAgo(4))], config)).slotProposal.status, 'rejected');
 });
 
+test('dois confirmados no mesmo contato aparecem sem o selo da recusa anterior', () => {
+  const rejected = cancelled({ id: 'p', status: 'rejected', resolved_at: hoursAgo(3) });
+  const confirmed = (id, name, startsAt, updatedAt) => mapAppointment({
+    id, title: name, contact_name: name, status: 'confirmed', starts_at: startsAt,
+    channel_type: 'whatsapp', external_conversation_id: CHAT, updated_at: updatedAt,
+    metadata: { request_updated_at: hoursAgo(2) },
+  });
+  const first = confirmed('drenagem', 'Ana', '2026-11-14T16:00:00Z', hoursAgo(1));
+  const second = confirmed('mao', 'João', '2026-11-17T16:00:00Z', hoursAgo(0.9));
+  for (const appointments of [[rejected, first, second], [second, first, rejected]]) {
+    const columns = eventsToKanban([inbound], 'ic_salon', appointments, config);
+    const cards = columns.find(column => column.automationKey === 'agendamentos').cards;
+    assert.deepEqual(cards.map(card => card.appointmentId).sort(), ['drenagem', 'mao']);
+    assert.ok(cards.every(card => card.slotProposal === undefined));
+  }
+});
+
 test('pedido reaberto por aceite indica que veio de proposta', () => {
   const reopened = mapAppointment({
     id: 'ap-open', title: 'Corte - Ana', starts_at: '2026-11-21T13:00:00Z', status: 'pending_confirmation', contact_name: 'Ana', channel_type: 'whatsapp',
