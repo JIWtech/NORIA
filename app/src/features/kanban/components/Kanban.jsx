@@ -48,6 +48,7 @@ import { RescheduleInviteDialog } from '../../appointments/components/Reschedule
 import { AppointmentConfirmDialog } from '../../appointments/components/AppointmentConfirmDialog.jsx';
 import { appointmentFromKanbanCard, noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
 import { appointmentActionsFor } from '../../../services/appointments/appointmentActions.js';
+import { noticeState } from '../../appointments/components/cancellationFlow.js';
 import { AppointmentCancelDialog } from '../../appointments/components/AppointmentCancelDialog.jsx';
 import { AppointmentDetails } from './AppointmentDetails.jsx';
 import { KanbanCardMenu } from './KanbanCardMenu.jsx';
@@ -637,6 +638,10 @@ export function Kanban({
                       const cancelAppointment = card.appointmentId
                         ? appointmentActionsFor(appointmentFromKanbanCard(card), { now: appointmentNow }).includes('cancel')
                         : false;
+                      // Aviso de cancelamento com entrega incerta: o agendamento já está cancelado, mas o
+                      // operador ainda precisa conferir se a cliente recebeu o aviso.
+                      const checkCancellationNotice = card.appointmentId && card.appointmentStatus === 'cancelled'
+                        && noticeState(card.appointmentMetadata).canReconcile;
                       const menu = [];
 
                       if (hasChat && actionMode !== 'chat') {
@@ -661,6 +666,15 @@ export function Kanban({
                           Icon: Ban,
                           label: 'Cancelar agendamento',
                           description: 'Cancelar o agendamento e avisar a cliente',
+                          run: () => setCancellingCard(card),
+                        });
+                      }
+                      if (checkCancellationNotice) {
+                        menu.push({
+                          key: 'check-cancellation-notice',
+                          Icon: Ban,
+                          label: 'Conferir aviso de cancelamento',
+                          description: 'A entrega do aviso não foi comprovada: confira na conversa',
                           run: () => setCancellingCard(card),
                         });
                       }
@@ -769,7 +783,7 @@ export function Kanban({
                             </span>
                           )}
 
-                          {(actionMode || menu.length > 0 || canInvite || cancelAppointment) && (
+                          {(actionMode || menu.length > 0 || canInvite || cancelAppointment || checkCancellationNotice) && (
                             <footer className="kanban-card-footer">
                               {cancelAppointment && (
                                 <button
@@ -782,6 +796,19 @@ export function Kanban({
                                   }}
                                 >
                                   <Ban size={13} aria-hidden="true" /> Cancelar
+                                </button>
+                              )}
+                              {checkCancellationNotice && (
+                                <button
+                                  type="button"
+                                  className="kanban-card-cancel"
+                                  title="A entrega do aviso de cancelamento não foi comprovada: confira na conversa"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setCancellingCard(card);
+                                  }}
+                                >
+                                  <Ban size={13} aria-hidden="true" /> Conferir aviso
                                 </button>
                               )}
                               {canInvite && (inviteState === 'sent'

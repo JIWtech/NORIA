@@ -85,3 +85,26 @@ test('o botão aparece no card, sem abrir o diálogo sozinho', async () => {
   assert.match(button, /lucide-ban/, 'o botão mostra o ícone de cancelar');
   assert.doesNotMatch(html, /confirm-modal-panel/);
 });
+
+test('agendamento cancelado com aviso incerto oferece conferir o aviso', async () => {
+  const html = await render({
+    kanbanColumns: columnWith([{ ...APPOINTMENT_CARD, appointmentStatus: 'cancelled', appointmentMetadata: { services: ['Pé e Unha'], cancellation_notice_state: 'uncertain' } }]),
+  });
+  assert.match(html, /Conferir aviso/);
+  assert.doesNotMatch(html, />Cancelar</, 'não deve oferecer cancelar de novo um agendamento já cancelado');
+});
+
+test('agendamento cancelado com aviso já conferido não oferece nada', async () => {
+  const html = await render({
+    kanbanColumns: columnWith([{ ...APPOINTMENT_CARD, appointmentStatus: 'cancelled', appointmentMetadata: { services: ['Pé e Unha'], cancellation_notice_state: 'confirmed' } }]),
+  });
+  assert.doesNotMatch(html, /kanban-card-cancel/);
+});
+
+test('o botão de cancelar não empurra a ação principal do card para outra linha', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const css = readFileSync(fileURLToPath(new URL('../../src/styles/components/appointment-outcome.css', import.meta.url)), 'utf8');
+  const rule = css.slice(css.indexOf('.kanban-card-cancel'));
+  assert.match(rule.slice(0, rule.indexOf('}')), /grid-area:\s*2\s*\/\s*1/, 'o botão reserva a segunda linha do rodapé');
+});

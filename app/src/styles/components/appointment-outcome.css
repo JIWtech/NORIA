@@ -1,8 +1,11 @@
 /* Desfecho de agendamento ("Compareceu" / "Cliente não veio") e selo de sinal obrigatório.
    Só aparece em tenants com settings.appointment_outcome_tracking = true. */
 
-/* Cancelar o agendamento direto no card do Kanban. */
+/* Cancelar o agendamento direto no card do Kanban.
+   Fica na segunda linha do rodapé para não empurrar a ação principal do card. */
 .kanban-card-cancel {
+  grid-area: 2 / 1;
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   justify-content: center;
