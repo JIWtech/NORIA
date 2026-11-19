@@ -398,8 +398,19 @@ function createSalonHelpers(helpers, input, env) {
       const configuredName = result?.[0]?.settings?.business_facts?.name;
       businessName = typeof configuredName === 'string' ? configuredName.trim().slice(0, 120) : '';
       const configuredHours = result?.[0]?.settings?.business_hours;
+      // Feriados no formato do CORE (holiday + holiday_dates): horário próprio e próximas datas, para o revisor não comparar
+      // a resposta com o horário normal num feriado (mesma regra de tenantBusinessHoursStatus no motor).
+      const holiday = configuredHours?.holiday && typeof configuredHours.holiday === 'object' ? configuredHours.holiday : null;
+      const holidayHours = holiday ? (holiday.closed === true ? 'fechado'
+        : holiday.start && holiday.end ? String(holiday.start).trim() + ' às ' + String(holiday.end).trim() : null) : null;
+      const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+      const holidayDates = holidayHours && Array.isArray(configuredHours.holiday_dates)
+        ? configuredHours.holiday_dates.map(String).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today).sort().slice(0, 12)
+          .map(date => date.slice(8, 10) + '/' + date.slice(5, 7) + '/' + date.slice(0, 4))
+        : [];
       businessHours = configuredHours && typeof configuredHours === 'object'
-        ? { ...(configuredHours.schedule || {}), ...(Array.isArray(configuredHours.holidays) ? { feriados_fechado_mes_dia: configuredHours.holidays } : {}) }
+        ? { ...(configuredHours.schedule || {}), ...(Array.isArray(configuredHours.holidays) ? { feriados_fechado_mes_dia: configuredHours.holidays } : {}),
+          ...(holidayDates.length ? { feriados_horario: holidayHours, feriados_datas: holidayDates } : {}) }
         : null;
       const configuredJudge = result?.[0]?.settings?.review_model;
       judgeModel = typeof configuredJudge === 'string' && /^[a-z0-9][a-z0-9.-]{1,63}$/i.test(configuredJudge.trim()) ? configuredJudge.trim() : '';
@@ -875,4 +886,5 @@ function wrapSalonEngine(coreCode) {
     + 'return await (async function () {\n' + coreCode + '\n}).call({helpers: salonHelpers});\n';
 }
 
-module.exports = { wrapSalonEngine };
+// createSalonHelpers exportado só para os testes locais (o export do n8n embute o texto da função via wrapSalonEngine).
+module.exports = { wrapSalonEngine, createSalonHelpers };

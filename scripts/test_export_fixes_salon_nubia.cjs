@@ -19,7 +19,8 @@ function engineCode(file) {
   const workflow = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8'));
   const node = workflow.nodes.find(item => item.name === 'CORE | Motor conversacional');
   assert.ok(node?.parameters?.jsCode, 'nó do motor ausente em ' + file);
-  return node.parameters.jsCode;
+  // O export do Salon embute salon_engine.js com quebras CRLF; sem normalizar, os recortes por '\n}\n' falham.
+  return node.parameters.jsCode.replace(/\r\n/g, '\n');
 }
 
 // O motor do Salon (fonte e, depois de regenerado, o export) não corta saudação nem gera catálogo na prosa.
@@ -76,7 +77,8 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.equal(outside({ settings: {} }, '2030-01-13T10:00:00-03:00'), false, 'sem horário configurado não bloqueia');
     const save = slice(code, '\nasync function saveAppointmentRequest(', '\nfunction parseAppointmentCreationTag(');
     assert.match(save, /appointmentOutsideBusinessHours\(context, startsAt\)/);
-    assert.match(code, /\} else if \(\/outside_business_hours\/\.test\(code\)\) \{/);
+    // O Salon trata o erro num ramo combinado (com horário passado e nome completo) e texto próprio de dia fechado.
+    assert.match(code, /\} else if \(\/[^/\n]*\boutside_business_hours\b[^/\n]*\/\.test\(code\)\) \{/);
   });
 
   test(`[${label}] anúncio de origem entra como contexto no prompt padrão e no services_v1`, () => {
@@ -215,7 +217,8 @@ async function runSalonCreation({ limit }) {
   const jid = '5511999999999@s.whatsapp.net';
   // O nome completo só aparece no evento atual, ainda com ai_provider='buffer' durante o turno.
   const rows = [
-    { id: 'e1', message_text: 'oi quero corte amanhã 10h', ai_provider: 'rules' },
+    // Dia e hora ditos pela pessoa (o adaptador exige slot_stated desde 13/11: nunca registra horário não dito).
+    { id: 'e1', message_text: 'oi quero corte dia 01/12/2099 às 10h', ai_provider: 'rules' },
     { id: 'cur', message_text: 'Maria Souza Lima', ai_provider: 'buffer' },
   ];
   const evidenceQueries = [];
@@ -237,7 +240,13 @@ async function runSalonCreation({ limit }) {
         }
         // Revisor simulado confirma a fala atual como evidência; só pode citar IDs que o adaptador ofereceu como candidatos.
         const offered = JSON.stringify(options.body).includes('cur');
-        const verdict = { allowed: true, evidence_id: offered ? 'cur' : '', existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: false };
+        // Contrato atual do revisor: campos de risco precisam vir explicitamente false (na dúvida o adaptador não registra).
+        const verdict = { allowed: true, slot_stated: true, booking_in_progress: true, evidence_id: offered ? 'cur' : '',
+          existing_acknowledged: true, deposit_acknowledged: true, remove_suffix: '', remove_prefix: '', price_request_quote: '',
+          name_implausible: false, wrong_contact_name: false, recipient_assumed: false, style_violation: false,
+          shares_payment_or_contact: false, price_unrequested: false, fact_mismatch: false, claims_registration: false,
+          claims_cancellation: false, claims_availability: false, closed_day: false, skipped_registration: false,
+          wants_service_list: false, first_visit_stated: false };
         return { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(verdict) }] } }] };
       }
       throw Error('unexpected ' + address);
@@ -255,7 +264,8 @@ async function runSalonCreation({ limit }) {
 
 test('[salon] nome completo enviado só na mensagem atual (buffer) comprova o nome', async () => {
   const result = await runSalonCreation({ limit: 50 });
-  assert.match(result.text, /CRIAR_AGENDAMENTO/, 'esperava a tag de criação, veio: ' + result.text);
+  assert.match(result.text, /CRIAR_AGENDAMENTO/, 'esperava a tag de criação, veio: ' + result.text
+    + ' | diagnóstico: ' + JSON.stringify(result.diagnostics));
   const evidence = result.evidenceQueries.find(query => query.get('select') === 'id,message_text');
   assert.ok(evidence, 'consulta de evidência não executada');
   // Escopo preservado: tenant, conversa, direção e remetente continuam filtrados.
