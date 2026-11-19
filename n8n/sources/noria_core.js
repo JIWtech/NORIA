@@ -84,8 +84,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_19',
-  built_at: '2026-11-19T14:23:07.048Z',
-  core_sha256: '71b0d4926f295db26f083445acb00c4a35a99245d223a45cad5f91ad46bb383b',
+  built_at: '2026-11-19T18:08:36.431Z',
+  core_sha256: '4e37d1ce38f05cdfdc398c6c59ee78c52c37b008f3854ff655fd52973a75ba2c',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -344,7 +344,7 @@ function tenantBusinessHoursSource(context = {}) {
 
 // Horário de funcionamento como fatos citáveis (genérico, para qualquer tenant): um por dia e um resumo agrupado.
 // Sem horário configurado, nenhum fato: a IA não deve afirmar horário que o tenant não cadastrou.
-function tenantBusinessHoursFacts(context = {}) {
+function tenantBusinessHoursFacts(context = {}, now = Date.now()) {
   const raw = tenantBusinessHoursSource(context);
   if (!raw) return [];
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
@@ -368,7 +368,17 @@ function tenantBusinessHoursFacts(context = {}) {
       const span = group.from === group.to ? labels[group.from] : labels[group.from] + ' a ' + labels[group.to];
       return group.value === 'fechado' ? span + ': fechado' : group.value === '24 horas' ? span + ', 24 horas' : span + ', das ' + group.value;
     }).join('; ');
-  facts.push({ fact_id: 'business_hours.summary', value: summary, source });
+  // Feriados (business_hours.holiday + holiday_dates): horário próprio e as próximas datas cadastradas (hoje em diante).
+  const holiday = raw.holiday && typeof raw.holiday === 'object'
+    ? (raw.holiday.closed === true ? 'fechado' : raw.holiday.start && raw.holiday.end ? String(raw.holiday.start).trim() + ' às ' + String(raw.holiday.end).trim() : null)
+    : null;
+  const today = new Date(now).toISOString().slice(0, 10);
+  const upcoming = (Array.isArray(raw.holiday_dates) ? raw.holiday_dates : [])
+    .map(String).filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today).sort().slice(0, 12);
+  facts.push({ fact_id: 'business_hours.summary', value: holiday ? summary + '; feriados' + (holiday === 'fechado' ? ': fechado' : ', das ' + holiday) : summary, source });
+  if (holiday) facts.push({ fact_id: 'business_hours.holidays', value: holiday, source });
+  if (holiday && upcoming.length) facts.push({ fact_id: 'business_hours.holiday_dates',
+    value: upcoming.map(date => date.slice(8, 10) + '/' + date.slice(5, 7) + '/' + date.slice(0, 4)).join(', '), source });
   if (raw.lunch_start && raw.lunch_end) facts.push({ fact_id: 'business_hours.lunch', value: String(raw.lunch_start).trim() + ' às ' + String(raw.lunch_end).trim(), source });
   return facts;
 }
@@ -423,7 +433,14 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     };
   }
 
-  const todayHours = resolveTenantDayHours(rawBh, dayKey);
+  // Feriado cadastrado (business_hours.holiday_dates): vale o horário de feriado (business_hours.holiday) no lugar do dia da semana.
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(referenceDate);
+  const holidayHours = rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
+    && rawBh.holiday_dates.map(String).includes(localDate)
+    ? (rawBh.holiday.closed === true ? { closed: true }
+      : rawBh.holiday.start && rawBh.holiday.end ? { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() } : null)
+    : null;
+  const todayHours = holidayHours || resolveTenantDayHours(rawBh, dayKey);
   let isOpen = false;
   if (todayHours?.is_24h) {
     isOpen = true;

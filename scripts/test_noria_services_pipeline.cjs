@@ -638,6 +638,29 @@ test('horário de funcionamento: sem configuração não inventa fato; fato da E
     'composição e auditoria recebem o horário como fato');
 });
 
+test('horário de funcionamento: feriado com horário próprio vira fato e entra no resumo; datas futuras listadas', () => {
+  const { tenantBusinessHoursFacts } = hoursCore();
+  const now = Date.parse('2026-11-19T12:00:00Z');
+  const facts = tenantBusinessHoursFacts({ settings: { business_hours: { ...nubiaHours, holiday: { start: '09:00', end: '11:00' },
+    holiday_dates: ['2026-11-02', '2026-11-20', '2026-12-25', '2027-01-01'] } } }, now);
+  const byId = Object.fromEntries(facts.map(f => [f.fact_id, f.value]));
+  assert.equal(byId['business_hours.holidays'], '09:00 às 11:00');
+  assert.equal(byId['business_hours.holiday_dates'], '20/11/2026, 25/12/2026, 01/01/2027', 'só datas de hoje em diante');
+  assert.equal(byId['business_hours.summary'], 'segunda a sábado, das 08:00 às 18:00; domingo: fechado; feriados, das 09:00 às 11:00');
+  const closed = Object.fromEntries(tenantBusinessHoursFacts({ settings: { business_hours: { ...nubiaHours, holiday: { closed: true }, holiday_dates: ['2026-12-25'] } } }, now).map(f => [f.fact_id, f.value]));
+  assert.equal(closed['business_hours.holidays'], 'fechado');
+});
+
+test('aberto agora: em data de feriado vale o horário do feriado', () => {
+  const core = loadCore(['tenantBusinessHoursStatus', 'resolveTenantDayHours', 'normalizeText', 'tenantTimeZone'],
+    { settingsFor: context => context.settings?.settings || {} });
+  const context = { settings: { business_hours: { ...nubiaHours, holiday: { start: '09:00', end: '11:00' }, holiday_dates: ['2026-11-20'] } } };
+  // 20/11/2026 (sexta, feriado) 10:00 e 12:00 em São Paulo (UTC-3).
+  assert.equal(core.tenantBusinessHoursStatus(context, new Date('2026-11-20T13:00:00Z')).is_open, true);
+  assert.equal(core.tenantBusinessHoursStatus(context, new Date('2026-11-20T15:00:00Z')).is_open, false, 'fora do horário do feriado');
+  assert.equal(core.tenantBusinessHoursStatus(context, new Date('2026-11-19T15:00:00Z')).is_open, true, 'dia comum segue o horário normal');
+});
+
 test('auditoria: horário afirmado é aceito quando está no fato citado; horário fora do fato continua reprovado', () => {
   const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], AUDIT_CONSTS).servicesVerifySemanticReport;
   const facts = [{ fact_id: 'business_hours.summary', value: 'segunda a sábado, das 08:00 às 18:00; domingo: fechado' }];
