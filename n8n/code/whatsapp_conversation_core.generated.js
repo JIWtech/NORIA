@@ -84,9 +84,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_12',
-  built_at: '2026-11-12T20:17:40.542Z',
-  core_sha256: '06ccbb187eaa1a40ac97e788c8fa9d31f5053b5f51d75d731425a57964af5ffe',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_19',
+  built_at: '2026-11-19T14:23:07.048Z',
+  core_sha256: '71b0d4926f295db26f083445acb00c4a35a99245d223a45cad5f91ad46bb383b',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -335,6 +335,55 @@ function resolveTenantDayHours(bh = {}, dayKey = '') {
   return null;
 }
 
+// Fonte única do horário de funcionamento: coluna tenant_settings.business_hours, depois settings.business_hours,
+// depois business_facts.opening_hours. Usada para "aberto agora?" e para os fatos citáveis do horário.
+function tenantBusinessHoursSource(context = {}) {
+  const settings = settingsFor(context);
+  const filled = value => value && typeof value === 'object' && Object.keys(value).length ? value : null;
+  return filled(context.settings?.business_hours) || filled(settings.business_hours) || filled(settings.business_facts?.opening_hours);
+}
+
+// Horário de funcionamento como fatos citáveis (genérico, para qualquer tenant): um por dia e um resumo agrupado.
+// Sem horário configurado, nenhum fato: a IA não deve afirmar horário que o tenant não cadastrou.
+function tenantBusinessHoursFacts(context = {}) {
+  const raw = tenantBusinessHoursSource(context);
+  if (!raw) return [];
+  const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
+  const labels = { segunda: 'segunda', terca: 'terça', quarta: 'quarta', quinta: 'quinta', sexta: 'sexta', sabado: 'sábado', domingo: 'domingo' };
+  const text = hours => !hours ? null : hours.is_24h ? '24 horas' : hours.closed ? 'fechado'
+    : hours.start && hours.end ? hours.start + ' às ' + hours.end : null;
+  const perDay = days.map(day => ({ day, value: text(resolveTenantDayHours(raw, day)) }));
+  if (perDay.every(item => !item.value)) return [];
+  const source = 'tenant_settings.business_hours';
+  const facts = perDay.filter(item => item.value).map(item => ({ fact_id: 'business_hours.' + item.day, value: item.value, source }));
+  // Resumo: dias consecutivos com o mesmo horário viram uma faixa ("segunda a sexta, das 09:00 às 18:00").
+  const groups = [];
+  for (const item of perDay.filter(entry => entry.value)) {
+    const last = groups[groups.length - 1];
+    if (last && last.value === item.value && days.indexOf(item.day) === days.indexOf(last.to) + 1) last.to = item.day;
+    else groups.push({ from: item.day, to: item.day, value: item.value });
+  }
+  const summary = groups.length === 1 && groups[0].value === '24 horas' && groups[0].from === 'segunda' && groups[0].to === 'domingo'
+    ? 'todos os dias, 24 horas'
+    : groups.map(group => {
+      const span = group.from === group.to ? labels[group.from] : labels[group.from] + ' a ' + labels[group.to];
+      return group.value === 'fechado' ? span + ': fechado' : group.value === '24 horas' ? span + ', 24 horas' : span + ', das ' + group.value;
+    }).join('; ');
+  facts.push({ fact_id: 'business_hours.summary', value: summary, source });
+  if (raw.lunch_start && raw.lunch_end) facts.push({ fact_id: 'business_hours.lunch', value: String(raw.lunch_start).trim() + ' às ' + String(raw.lunch_end).trim(), source });
+  return facts;
+}
+
+// Acrescenta o horário à decisão usada na composição e na auditoria (cópia; a decisão verificada não muda).
+// Fato da EXT com o mesmo fact_id prevalece.
+function servicesDecisionWithBusinessHours(decision, context) {
+  const known = new Set((decision.facts || []).map(fact => fact.fact_id));
+  const hours = tenantBusinessHoursFacts(context).filter(fact => !known.has(fact.fact_id));
+  return hours.length ? { ...decision, facts: [...(decision.facts || []), ...hours] } : decision;
+}
+
+// Autocontida de propósito: scripts e a projeção do build extraem esta função isoladamente (mesma ordem de fontes
+// de tenantBusinessHoursSource).
 function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
   const timeZone = tenantTimeZone(context);
   const settings = settingsFor(context);
@@ -5565,6 +5614,9 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
   const factValue = new Map((decision.facts || []).map(fact => [fact.fact_id, String(fact.value)]));
   const blockText = new Map((blocks || []).map(block => [block.key, norm(block.text)]));
   const amountsIn = text => [...String(text).matchAll(/R\$\s*(\d+(?:[.,]\d{2})?)/g)].map(match => Number(match[1].replace(',', '.')).toFixed(2));
+  // "8h", "08h30" e "08:00" viram HH:MM.
+  const timesIn = text => new Set([...String(text || '').matchAll(/\b([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)(?!\d)/g)]
+    .map(match => match[1].padStart(2, '0') + ':' + (match[2] || match[3] || '00')));
   const knownAmounts = new Set([...factValue.values()].map(Number).filter(Number.isFinite).map(n => n.toFixed(2)));
   for (const item of report.assertions) {
     if (!item || !SERVICES_ASSERTION_CATEGORIES.includes(item.category) || !SERVICES_SUPPORT_KINDS.includes(item.support) || typeof item.reference !== 'string'
@@ -5594,14 +5646,17 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     }
     const blockAmounts = item.support === 'block' ? new Set(amountsIn(blocks.find(block => block.key === ref)?.text || '')) : new Set();
     if (amountsIn(item.text).some(amount => !knownAmounts.has(amount) && !blockAmounts.has(amount))) failures.push('AUDIT_ASSERTED_AMOUNT_NOT_IN_AUTHORITY');
-    for (const match of String(item.text).matchAll(/\b([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)(?!\d)/g)) {
-      if (!timeAllowed(item, match[1].padStart(2, '0') + ':' + (match[2] || match[3] || '00'))) failures.push('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY');
+    // Horário que está no próprio fato ou bloco citado (ex.: horário de funcionamento "08:00 às 18:00") é sustentado por ele.
+    const authorityTimes = item.support === 'fact' ? timesIn(factValue.get(item.reference))
+      : item.support === 'block' ? timesIn(blocks.find(block => block.key === item.reference)?.text) : new Set();
+    for (const time of timesIn(item.text)) {
+      if (!timeAllowed(item, time) && !authorityTimes.has(time)) failures.push('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY');
     }
   }
   return { status: failures.length ? 'rejected' : 'approved', failures: [...new Set(failures)], assertions: report.assertions.length };
 }
 
-async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false, customerMessages = [] }) {
+async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false, customerMessages = [], attachedBlockKeys = [] }) {
   const str = { type: 'STRING' };
   const schema = { type: 'OBJECT', properties: {
     assertions: { type: 'ARRAY', items: { type: 'OBJECT', properties: { text: str, category: { type: 'STRING', enum: SERVICES_ASSERTION_CATEGORIES },
@@ -5610,10 +5665,14 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
     covers_entire_reply: { type: 'BOOLEAN' }, opening_repeated: { type: 'BOOLEAN' }, addresses_customer_requests: { type: 'BOOLEAN' } }, required: ['assertions', 'covers_entire_reply', 'opening_repeated', 'addresses_customer_requests'] };
   const keys = new Set((decision.approved_blocks || []).map(block => block.key));
   const receipt = ['created', 'recovered'].includes(execution.reservation?.status) ? execution.reservation.appointment : null;
+  // Blocos aprovados vão na MESMA mensagem, logo depois do texto (ex.: menu de preços). A cliente recebe os dois; a cobertura
+  // dos pedidos precisa enxergá-los, senão "qual o valor?" respondido pelo menu é tido como sem resposta.
+  const attachedBlocks = attachedBlockKeys.filter(key => keys.has(key))
+    .map(key => ({ key, text: String(blocks.find(block => block.key === key)?.text || '') })).filter(block => block.text);
   let generated;
   try {
     generated = await servicesGeminiJson(context, 'services_semantic_audit', {
-      reply, has_recent_business_message: hasRecentBusiness, customer_messages: customerMessages,
+      reply, attached_blocks: attachedBlocks, has_recent_business_message: hasRecentBusiness, customer_messages: customerMessages,
       authorities: {
         facts: decision.facts || [], approved_blocks: blocks.filter(block => keys.has(block.key)),
         availability: proof ? { date: proof.date, available_starts: proof.available_starts } : null,
@@ -5629,6 +5688,7 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
       'Perguntas, saudações, pedidos de dados e ofertas de ajuda sem conteúdo factual são conversational. Não avalie o tom. covers_entire_reply só é true se você considerou a resposta inteira.',
       'opening_repeated é true somente se has_recent_business_message=true e a resposta começa novamente com cumprimento, saudação ou apresentação de abertura; vocativo breve no meio da resposta não é abertura.',
       'addresses_customer_requests é true somente se a resposta trata de TODOS os pedidos e perguntas de customer_messages (a mensagem atual pode ter vários itens, por exemplo saudação e pedido de agendamento). É false se algum pedido ou pergunta ficou sem resposta nem próximo passo; uma saudação respondida sozinha, quando há um pedido junto, é false.',
+      'attached_blocks são textos já aprovados que seguem na MESMA mensagem, logo depois de reply. Considere reply + attached_blocks para decidir addresses_customer_requests (um preço ou uma explicação que está no bloco anexado responde o pedido). Não liste em assertions o conteúdo de attached_blocks: eles já são autoridade aprovada; audite só o texto de reply.',
       'A lista nunca fica vazia: se a resposta não tiver afirmação factual, devolva um item conversational com o texto dela.',
       'reservation é SOMENTE a afirmação de que uma reserva foi criada, confirmada ou garantida (exige reservation_receipt). Pedido encaminhado à equipe, "a equipe conclui/confirma a reserva", orientação de como agendar e promessa de retorno NÃO são reservation: são handoff (support handoff_execution) ou, se explicam uma regra do negócio, service/conditions sustentados por fact ou block. Se a resposta disser que a reserva ainda NÃO foi feita, use reservation com polarity denies.',
       'polarity é denies quando o item nega algo (por exemplo, um horário indisponível) e affirms nos demais casos. Um trecho que nega um horário e oferece outro vira dois itens.',
@@ -5746,7 +5806,8 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
       const current = openingWords(reply);
       return Boolean(current) && (history || []).filter(row => row.direction === 'outbound' && row.message_text).slice(-4).some(row => openingWords(row.message_text) === current);
     };
-    const auditProseOnce = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness, customerMessages: turn.messages.map(item => item.text).filter(Boolean) });
+    const auditProseOnce = () => servicesSemanticAudit(context, { reply: composed.value.reply, decision, execution, proof, semantic, blocks, hasRecentBusiness,
+      customerMessages: turn.messages.map(item => item.text).filter(Boolean), attachedBlockKeys: composed.value.block_keys || [] });
     const auditProse = async () => {
       const result = await auditProseOnce();
       if (result.status === 'approved' && hasRecentBusiness && repeatsRecentOpening(composed.value.reply)) {
@@ -5779,6 +5840,13 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
     }
   }
   return { composed, audit };
+}
+
+// Respostas reprovadas pela auditoria, truncadas, para o diagnóstico registrar se a IA errou ou se o auditor foi severo demais.
+function servicesRejectedCandidates(error) {
+  const candidates = Array.isArray(error?.rejected_candidates) ? error.rejected_candidates : [];
+  return candidates.slice(0, 3).map(item => ({ reply: String(item?.reply || '').slice(0, 500),
+    failures: (Array.isArray(item?.failures) ? item.failures : []).map(String).slice(0, 10) }));
 }
 
 async function runServicesTurnFinalize(context, pipeline, history, event, control) {
@@ -5841,7 +5909,7 @@ async function runServicesTurnFinalize(context, pipeline, history, event, contro
   if (handoff && !reservationDone && !paymentForwarded) { event.stage = 'Atendimento humano'; event.service = 'atendimento_humano'; }
   execution.handoff.executed = handoff;
   // 3. Composition and audit: the final text reflects what really happened and is verified before it can be delivered.
-  let text, composed = null, audit = { status: 'skipped', failures: [] }, compositionError = null;
+  let text, composed = null, audit = { status: 'skipped', failures: [] }, compositionError = null, rejectedCandidates = [];
   const blocks = servicesApprovedBlocks(context, decision);
   const settings = settingsFor(context);
   const commandAck = servicesPaymentCommand(context) && paymentForwarded ? String(settings.payment_signal_ack_message || settings.payment?.ack_message || '').trim() : '';
@@ -5852,12 +5920,13 @@ async function runServicesTurnFinalize(context, pipeline, history, event, contro
       event.ai_provider = 'payment_signal'; event.handoff = true; handoff = true;
       event.raw_payload = { ...(event.raw_payload || {}), payment_signal: { appointment_update: execution.payment_forward, pending_confirmation_message: paymentSignalConfirmationMessage(context) } };
     } else if (decision.status !== 'ok') throw new Error('SERVICES_DECISION_REFUSED');
-    else ({ composed, audit } = await servicesComposeAudited(context, { decision, execution, blocks, proof, history }));
+    else ({ composed, audit } = await servicesComposeAudited(context, { decision: servicesDecisionWithBusinessHours(decision, context), execution, blocks, proof, history }));
     if (!commandAck) text = [cleanReplyText(composed.value.reply), ...composed.value.block_keys.map(blockKey => blocks.find(block => block.key === blockKey).text)].filter(Boolean).join('\n\n');
     if (!text.trim()) throw new Error('SERVICES_EMPTY_REPLY');
   } catch (error) {
     // Neutral contingency (shared operational message): it asserts no availability, payment or booking. Receipts stay persisted.
     compositionError = String(error?.message || error).slice(0, 200);
+    rejectedCandidates = servicesRejectedCandidates(error);
     text = sessionHandoffMessage(context); handoff = true; execution.handoff.executed = true; composed = null;
     if (!(reservationDone || paymentForwarded)) { event.stage = 'Atendimento humano'; event.service = 'atendimento_humano'; }
   }
@@ -5868,7 +5937,8 @@ async function runServicesTurnFinalize(context, pipeline, history, event, contro
     contract: pipeline.contract, decision_contract: decision.contract, decision_provenance: decision.provenance, decision_status: decision.status,
     request_id: identity.request_id, session_id: identity.session_id, turn_token: identity.turn_token, idempotency_key: key,
     reason_codes: decision.reason_codes || [], evidence_used: decision.evidence_used || [], follow_up: allowed.follow_up,
-    execution, audit, composition_error: compositionError } };
+    execution, audit, composition_error: compositionError,
+    ...(rejectedCandidates.length ? { rejected_candidates: servicesRejectedCandidates({ rejected_candidates: rejectedCandidates }) } : {}) } };
   // 4. Persistence and delivery follow the existing lifecycle: begin -> provider -> confirm; uncertain deliveries are never resent.
   await saveEvent(event);
   const sent = await sendChannelMessage(context, text, event);

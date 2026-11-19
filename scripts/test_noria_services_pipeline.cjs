@@ -553,6 +553,102 @@ test('compositor: recebe opening como dado (true na primeira resposta da empresa
   assert.equal((await composeCapture({ decision, history: [{ direction: 'outbound', message_text: 'x', ai_provider: 'buffer' }] })).payload.opening, true, 'buffer não conta como resposta da empresa');
 });
 
+// NB Bronze 12–19/11: "qual o valor?" respondido com texto curto + bloco do menu de preços era reprovado por
+// AUDIT_REQUEST_NOT_COVERED, porque o auditor de cobertura só via o texto e não o bloco anexado à mesma mensagem.
+test('auditoria de cobertura: recebe os blocos anexados à mensagem e a instrução de considerá-los só para a cobertura', async () => {
+  let payload = null; let rules = [];
+  const { servicesSemanticAudit } = loadCore(['servicesSemanticAudit', 'servicesVerifySemanticReport'], { ...AUDIT_CONSTS,
+    servicesGeminiJson: async (_c, _n, p, _s, instructions) => { payload = p; rules = instructions;
+      return { value: { assertions: [{ text: 'Temos várias opções', category: 'conversational', support: 'none', reference: '', quote: '', polarity: 'affirms' }],
+        covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true }, model: 'm' }; } });
+  const menu = { key: 'menu_precos', text: 'MENU • Bronze Clássico — R$ 99,99' };
+  const result = await servicesSemanticAudit({}, { reply: 'Oie! Temos várias opções:', decision: { facts: [], approved_blocks: [{ key: 'menu_precos' }] },
+    execution: { handoff: { executed: false } }, proof: null, semantic: {}, blocks: [menu], customerMessages: ['Qual o valor do bronze?'], attachedBlockKeys: ['menu_precos'] });
+  assert.equal(result.status, 'approved');
+  assert.deepEqual(payload.attached_blocks, [{ key: 'menu_precos', text: menu.text }], 'o auditor vê o que a cliente vai receber');
+  const line = rules.find(text => text.startsWith('attached_blocks'));
+  assert.ok(line && line.includes('addresses_customer_requests'), 'instrução: blocos anexados contam para a cobertura');
+  assert.match(line, /não liste em assertions/i, 'instrução: afirmações dos blocos anexados não entram em assertions');
+});
+
+test('composição: o auditor semântico recebe as chaves dos blocos anexados pela composição atual', async () => {
+  const seen = [];
+  const core = loadCore(['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys'], { ...COMPOSE_CONSTS,
+    inputJson: { semantic_intent: { slots: {} } }, turn: { messages: [{ text: 'Qual o valor?' }] },
+    servicesComposeReply: async () => ({ value: { reply: 'Temos várias opções:', block_keys: ['prep'], claims: [] }, model: 'm', usage: {} }),
+    servicesSemanticAudit: async (_c, args) => { seen.push(args); return { status: 'approved', failures: [], assertions: 1 }; } });
+  await core.servicesComposeAudited({}, { decision: { services: [{ service_id: 's1' }], facts: [], approved_blocks: [{ key: 'prep', purpose: 'preparation', applies_to_service_ids: ['s1'] }] },
+    execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+    blocks: [{ key: 'prep', text: 'texto do bloco' }], proof: null, history: [] });
+  assert.deepEqual(seen[0].attachedBlockKeys, ['prep']);
+  assert.deepEqual(seen[0].customerMessages, ['Qual o valor?']);
+});
+
+test('contingência: as respostas reprovadas ficam registradas (truncadas) para diagnóstico', () => {
+  const { servicesRejectedCandidates } = loadCore(['servicesRejectedCandidates'], {});
+  const error = Object.assign(new Error('SERVICES_AUDIT_REJECTED:X'), { rejected_candidates: [{ reply: 'a'.repeat(900), failures: ['X'] }, { reply: 'b', failures: ['Y', 'Z'] }] });
+  const out = servicesRejectedCandidates(error);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].reply.length, 500);
+  assert.deepEqual(out[1], { reply: 'b', failures: ['Y', 'Z'] });
+  assert.deepEqual(servicesRejectedCandidates(new Error('outro')), []);
+  assert.match(coreCode, /rejected_candidates: servicesRejectedCandidates\(/, 'o evento da contingência registra as candidatas');
+});
+
+// Horário de funcionamento (tenant_settings.business_hours) vira fato citável: antes a IA só sabia se estava aberto agora e
+// "atendem até que horas?" ia para a contingência (AUDIT_UNSUPPORTED_ASSERTION:schedule).
+const hoursCore = () => loadCore(['tenantBusinessHoursSource', 'tenantBusinessHoursFacts', 'servicesDecisionWithBusinessHours', 'resolveTenantDayHours', 'normalizeText'],
+  { settingsFor: context => context.settings?.settings || {} });
+const nubiaHours = { start: '08:00', end: '18:00', days: ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'], timezone: 'America/Sao_Paulo' };
+
+test('horário de funcionamento: vira fatos por dia e um resumo agrupado', () => {
+  const { tenantBusinessHoursFacts } = hoursCore();
+  const facts = tenantBusinessHoursFacts({ settings: { business_hours: nubiaHours } });
+  const byId = Object.fromEntries(facts.map(f => [f.fact_id, f.value]));
+  assert.equal(byId['business_hours.summary'], 'segunda a sábado, das 08:00 às 18:00; domingo: fechado');
+  assert.equal(byId['business_hours.segunda'], '08:00 às 18:00');
+  assert.equal(byId['business_hours.domingo'], 'fechado');
+  assert.ok(facts.every(f => f.source === 'tenant_settings.business_hours'));
+});
+
+test('horário de funcionamento: dias com horários diferentes, almoço e 24h', () => {
+  const { tenantBusinessHoursFacts } = hoursCore();
+  const schedule = { segunda: { start: '09:00', end: '18:00' }, terca: { start: '09:00', end: '18:00' }, quarta: { start: '09:00', end: '18:00' },
+    quinta: { start: '09:00', end: '18:00' }, sexta: { start: '09:00', end: '18:00' }, sabado: { start: '09:00', end: '13:00' }, domingo: { closed: true } };
+  const facts = tenantBusinessHoursFacts({ settings: { business_hours: { schedule, lunch_start: '12:00', lunch_end: '13:00' } } });
+  const byId = Object.fromEntries(facts.map(f => [f.fact_id, f.value]));
+  assert.equal(byId['business_hours.summary'], 'segunda a sexta, das 09:00 às 18:00; sábado, das 09:00 às 13:00; domingo: fechado');
+  assert.equal(byId['business_hours.lunch'], '12:00 às 13:00');
+  const allDay = Object.fromEntries(tenantBusinessHoursFacts({ settings: { business_hours: { is_24h: true } } }).map(f => [f.fact_id, f.value]));
+  assert.equal(allDay['business_hours.summary'], 'todos os dias, 24 horas');
+});
+
+test('horário de funcionamento: sem configuração não inventa fato; fato da EXT com o mesmo id prevalece', () => {
+  const { tenantBusinessHoursFacts, servicesDecisionWithBusinessHours } = hoursCore();
+  assert.deepEqual(tenantBusinessHoursFacts({ settings: {} }), []);
+  assert.deepEqual(tenantBusinessHoursFacts({ settings: { business_hours: {} } }), []);
+  const context = { settings: { business_hours: nubiaHours } };
+  const decision = { facts: [{ fact_id: 'business_hours.summary', value: 'da EXT', source: 'ext' }, { fact_id: 'service.x.price', value: '10.00', source: 'c' }] };
+  const out = servicesDecisionWithBusinessHours(decision, context);
+  assert.equal(out.facts.filter(f => f.fact_id === 'business_hours.summary').length, 1);
+  assert.equal(out.facts.find(f => f.fact_id === 'business_hours.summary').value, 'da EXT');
+  assert.ok(out.facts.some(f => f.fact_id === 'business_hours.sabado'));
+  assert.equal(decision.facts.length, 2, 'a decisão verificada original não é alterada');
+  assert.match(coreCode, /servicesComposeAudited\(context, \{ decision: servicesDecisionWithBusinessHours\(decision, context\)/,
+    'composição e auditoria recebem o horário como fato');
+});
+
+test('auditoria: horário afirmado é aceito quando está no fato citado; horário fora do fato continua reprovado', () => {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const facts = [{ fact_id: 'business_hours.summary', value: 'segunda a sábado, das 08:00 às 18:00; domingo: fechado' }];
+  const base = { decision: { facts, approved_blocks: [] }, execution: { handoff: { executed: false } }, proof: null, semantic: { slots: {} }, blocks: [] };
+  const report = text => ({ covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true, assertions: [
+    { text, category: 'schedule', support: 'fact', reference: 'business_hours.summary', quote: facts[0].value, polarity: 'affirms' }] });
+  assert.equal(verify(report('Atendemos de segunda a sábado, das 08:00 às 18:00'), base).status, 'approved');
+  assert.equal(verify(report('Atendemos de segunda a sábado, das 8h às 18h'), base).status, 'approved', 'formato 8h equivale a 08:00');
+  assert.ok(verify(report('Atendemos de segunda a sábado, das 08:00 às 20:00'), base).failures.includes('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY'));
+});
+
 // Orquestração composição + auditoria com o compositor e o auditor semântico simulados (sem Gemini).
 function composedFlow({ compositions, semanticReports }) {
   const calls = { compose: [], semantic: 0 };
