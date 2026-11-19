@@ -362,7 +362,15 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     };
   }
 
-  const todayHours = resolveTenantDayHours(rawBh, dayKey);
+  // Feriado cadastrado (business_hours.holiday_dates): vale o horário de feriado (business_hours.holiday) no lugar do dia da semana.
+  // Mesma regra do CORE compartilhado (n8n/sources/noria_core.js).
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(referenceDate);
+  const holidayHours = rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
+    && rawBh.holiday_dates.map(String).includes(localDate)
+    ? (rawBh.holiday.closed === true ? { closed: true }
+      : rawBh.holiday.start && rawBh.holiday.end ? { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() } : null)
+    : null;
+  const todayHours = holidayHours || resolveTenantDayHours(rawBh, dayKey);
   let isOpen = false;
   if (todayHours?.is_24h) {
     isOpen = true;
