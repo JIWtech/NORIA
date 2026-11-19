@@ -87,19 +87,6 @@ function profilePictureFromPayload(payload) {
     data.profilePictureUrl, data.profilePicUrl, data.avatarUrl, contact.profilePictureUrl, contact.profilePicUrl];
   return candidates.find((value) => /^https:\/\//i.test(String(value || '').trim())) || null;
 }
-function tenantEnvSuffix(value) { return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '_'); }
-function avatarFresh(value, ttlMs) {
-  const timestamp = Date.parse(value || '');
-  return Number.isFinite(timestamp) && Date.now() - timestamp < ttlMs;
-}
-function noPhotoResponse(response) {
-  const payload = objectValue(response);
-  const status = Number(payload.status || payload.statusCode || 0);
-  if ([401, 403, 404].includes(status)) return true;
-  const message = String(payload.message || payload.error || payload.reason || '').toLowerCase();
-  return /no[ _-]?(profile[ _-]?)?picture|not found|privacy|private|sem foto|foto privada/.test(message)
-    || payload.profilePictureUrl === null || payload.profilePicUrl === null;
-}
 
 const input = $json;
 const supabaseUrl = String(env('SUPABASE_URL')).replace(/\/$/, '');
@@ -110,8 +97,6 @@ const handle = normalizeWhatsappHandle(input.remoteJid);
 const phone = String(input.phone || (/@lid$/i.test(handle) ? '' : handle.split('@')[0]) || '').replace(/\D/g, '');
 const candidateName = String(input.contactName || '').trim();
 const now = new Date().toISOString();
-const photoTtlMs = 14 * 24 * 60 * 60 * 1000;
-const noPhotoTtlMs = 24 * 60 * 60 * 1000;
 let sync = { status: 'skipped', avatarUrl: null, source: 'unresolved' };
 let isOwnerSaved = false;
 let ownerSavedSource = null;
@@ -254,53 +239,10 @@ async function syncWhatsappContact() {
       sync = { status: hasDuplicates ? 'updated_historical_duplicate' : 'updated', avatarUrl: webhookAvatar, source: 'webhook', contactId: contact.id, tenantId };
       return;
     }
-    if (cachedAvatar && avatarFresh(contact.avatar_fetched_at, photoTtlMs)) {
-      sync = { status: hasDuplicates ? 'updated_historical_duplicate' : 'updated', avatarUrl: cachedAvatar, source: 'cache', contactId: contact.id, tenantId };
-      return;
-    }
-    metadata = objectValue(contact.metadata);
-    if (!cachedAvatar && avatarFresh(metadata.whatsapp_avatar_negative_fetched_at, noPhotoTtlMs)) {
-      sync = { status: hasDuplicates ? 'updated_historical_duplicate' : 'updated', avatarUrl: null, source: 'negative_cache', contactId: contact.id, tenantId };
-      return;
-    }
-    const suffix = tenantEnvSuffix(input.tenant_slug);
-    const baseUrl = String(env(`EVOLUTION_API_URL_${suffix}`)).replace(/\/$/, '');
-    const apiKey = env(`EVOLUTION_API_KEY_${suffix}`);
-    const instance = String(input.instance || env(`EVOLUTION_INSTANCE_${suffix}`)).trim();
-    if (!baseUrl || !apiKey || !instance) {
-      sync = { status: 'updated', avatarUrl: cachedAvatar || null, source: 'provider_not_configured', contactId: contact.id, tenantId };
-      return;
-    }
-    let response;
-    try {
-      response = await request.call(this, {
-        method: 'POST', url: `${baseUrl}/chat/fetchProfilePictureUrl/${encodeURIComponent(instance)}`,
-        headers: { apikey: apiKey, 'Content-Type': 'application/json' }, body: { number: handle },
-      });
-    } catch {
-      // Transient provider failures deliberately do not touch avatar_fetched_at.
-      sync = { status: 'updated', avatarUrl: cachedAvatar || null, source: 'evolution_error', contactId: contact.id, tenantId };
-      return;
-    }
-    const avatarUrl = profilePictureFromPayload(response);
-    if (avatarUrl) {
-      await request.call(this, {
-        method: 'PATCH', url: `${supabaseUrl}/rest/v1/contacts?id=eq.${encodeURIComponent(contact.id)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
-        headers, body: { avatar_url: avatarUrl, avatar_fetched_at: now },
-      }).catch(() => {});
-      sync = { status: 'updated', avatarUrl, source: 'evolution', contactId: contact.id, tenantId };
-      return;
-    }
-    if (noPhotoResponse(response)) {
-      await request.call(this, {
-        method: 'PATCH', url: `${supabaseUrl}/rest/v1/contacts?id=eq.${encodeURIComponent(contact.id)}&tenant_id=eq.${encodeURIComponent(tenantId)}`,
-        headers, body: { avatar_url: null, avatar_fetched_at: now, metadata: { ...metadata, whatsapp_avatar_negative_fetched_at: now } },
-      }).catch(() => {});
-      sync = { status: 'updated', avatarUrl: null, source: 'negative_cache', contactId: contact.id, tenantId };
-      return;
-    }
-    // A malformed/unknown provider payload is not proof of no photo.
-    sync = { status: 'updated', avatarUrl: cachedAvatar || null, source: 'evolution_unconfirmed', contactId: contact.id, tenantId };
+    // A foto é renovada fora do caminho da mensagem pelo worker "NORIA UTIL | WhatsApp | Fotos de Perfil"
+    // (n8n/code/whatsapp_avatar_refresh.js). Aqui só repassamos a foto já cadastrada: nenhuma chamada extra à Evolution.
+    sync = { status: hasDuplicates ? 'updated_historical_duplicate' : 'updated', avatarUrl: cachedAvatar || null,
+      source: cachedAvatar ? 'cache' : 'none', contactId: contact.id, tenantId };
   } catch {
     // Contacts and profile pictures are enrichment only: message persistence and
     // customer response must proceed even when this integration is unavailable.

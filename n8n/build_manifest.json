@@ -36,6 +36,7 @@
     "n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json",
     "n8n/workflows/NORIA-EXT-Genesis-Automoveis-Politica-Comercial--fXGorIlPbyf9Qtsp.json",
     "n8n/workflows/NORIA-EXT-NORIA-Politica--sLxNG9o2falquchd.json",
+    "n8n/workflows/NORIA-UTIL-WhatsApp-Fotos-de-Perfil--rvAsu0RdGTk98sWq.json",
     "clients/ic_saloon/salon_engine.js",
     "n8n/code/whatsapp_conversation_core.generated.js",
     "n8n/code/whatsapp_sales.js",
@@ -43,6 +44,7 @@
     "n8n/code/whatsapp_follow_up_dispatch.js",
     "n8n/code/broadcast_campaign_worker.js",
     "n8n/code/whatsapp_sync_contact.js",
+    "n8n/code/whatsapp_avatar_refresh.js",
     "n8n/code/command_router.js",
     "scripts/turn_queue_operational_bridge.cjs"
   ]

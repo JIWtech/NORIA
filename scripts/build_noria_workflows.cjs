@@ -30,9 +30,11 @@ const WORKFLOW_FILES = {
   nubiaPolicy: 'NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json',
   genesis: 'NORIA-EXT-Genesis-Automoveis-Politica-Comercial--fXGorIlPbyf9Qtsp.json',
   noriaExt: 'NORIA-EXT-NORIA-Politica--sLxNG9o2falquchd.json',
+  avatarRefresh: 'NORIA-UTIL-WhatsApp-Fotos-de-Perfil--rvAsu0RdGTk98sWq.json',
 };
 const WORKFLOW_IDS = { engine: 'mlKNPv862H2g3Gap', router: '3N5oN6sxtir9lFrA', salon: 'yxdKP0PeskDMUFSo',
-  nubiaServices: '6jSiEH2ugboYSack', nubiaPolicy: 'vCDXJLqIBCZJRTVv', genesis: 'fXGorIlPbyf9Qtsp', noriaExt: 'sLxNG9o2falquchd' };
+  nubiaServices: '6jSiEH2ugboYSack', nubiaPolicy: 'vCDXJLqIBCZJRTVv', genesis: 'fXGorIlPbyf9Qtsp', noriaExt: 'sLxNG9o2falquchd',
+  avatarRefresh: 'rvAsu0RdGTk98sWq' };
 const { wrapSalonEngine } = require('../clients/ic_saloon/conversation_adapter.cjs');
 const { configuredSalonId, isWorkflowId, applySalonRoute } = require('../clients/ic_saloon/conversation_route.cjs');
 
@@ -560,6 +562,12 @@ saveWorkflow('noriaExt', noriaExtWorkflow);
   if (!syncContactNode || syncContactNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_SYNC_CONTACT_NODE');
   new AsyncFunction('$json', '$env', syncContactCode);
   syncContactNode.parameters.jsCode = syncContactCode;
+  // O contexto também é projetado da fonte testada, para a limpeza da busca de fotos chegar ao export.
+  const prepareContextNode = workflow.nodes.find(n => n.name === 'Preparar Contexto JIW');
+  if (!prepareContextNode || prepareContextNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_PREPARE_CONTEXT_NODE');
+  const prepareContextCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_prepare_context.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+  new AsyncFunction('$json', '$env', prepareContextCode);
+  prepareContextNode.parameters.jsCode = prepareContextCode;
   const broadcastNode = workflow.nodes.find(n => n.name === 'Processar Disparos');
   if (!broadcastNode || broadcastNode.type !== 'n8n-nodes-base.code') throw new Error('MISSING_BROADCAST_DISPATCH_NODE');
   new AsyncFunction('$json', '$env', broadcastWorkerCode);
@@ -583,6 +591,33 @@ saveWorkflow('noriaExt', noriaExtWorkflow);
   saveWorkflow('router', workflow);
   // Projeção do motor de fase única, usada pelos testes locais (o nó do sub-workflow usa o cabeçalho de fase acima).
   writeOut('n8n/code/whatsapp_conversation_core.generated.js', "const NORIA_NODE_PHASE = 'single';\n" + coreCode);
+}
+
+// 4b. NORIA UTIL | WhatsApp | Fotos de Perfil: worker multi-tenant que renova as fotos fora do caminho da mensagem.
+// Substitui o utilitário legado (só Gênesis, manual) no mesmo ID. A estrutura é montada aqui, não herdada do export.
+const AVATAR_REFRESH_MINUTES = 30;
+const avatarRefreshCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_avatar_refresh.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+new AsyncFunction('$json', '$env', avatarRefreshCode);
+{
+  const workflow = loadWorkflow('avatarRefresh');
+  if (workflow.id && workflow.id !== WORKFLOW_IDS.avatarRefresh) throw new Error('AVATAR_REFRESH_WORKFLOW_ID_MISMATCH');
+  const worker = 'Renovar Fotos de Perfil';
+  workflow.name = 'NORIA UTIL | WhatsApp | Fotos de Perfil';
+  workflow.nodes = [
+    { parameters: { rule: { interval: [{ field: 'minutes', minutesInterval: AVATAR_REFRESH_MINUTES }] } },
+      id: 'a7e1c0de-0001-4f00-9000-000000000001', name: 'A cada 30 minutos', type: 'n8n-nodes-base.scheduleTrigger', typeVersion: 1.2, position: [0, 0] },
+    { parameters: {}, id: 'a7e1c0de-0002-4f00-9000-000000000002', name: 'Executar manualmente', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 200] },
+    { parameters: { jsCode: avatarRefreshCode }, id: 'a7e1c0de-0003-4f00-9000-000000000003', name: worker,
+      type: 'n8n-nodes-base.code', typeVersion: 2, position: [260, 100] },
+  ];
+  workflow.connections = {
+    'A cada 30 minutos': { main: [[{ node: worker, type: 'main', index: 0 }]] },
+    'Executar manualmente': { main: [[{ node: worker, type: 'main', index: 0 }]] },
+  };
+  applyLeanExecutionSettings(workflow);
+  // Teto de segurança acima do orçamento interno de 40 s do worker.
+  workflow.settings = { ...workflow.settings, executionOrder: 'v1', executionTimeout: 120 };
+  saveWorkflow('avatarRefresh', workflow);
 }
 
 // 5. Generate whatsapp_sales.js projection
@@ -639,6 +674,7 @@ const manifest = {
     'n8n/code/whatsapp_follow_up_dispatch.js',
     'n8n/code/broadcast_campaign_worker.js',
     'n8n/code/whatsapp_sync_contact.js',
+    'n8n/code/whatsapp_avatar_refresh.js',
     'n8n/code/command_router.js',
     'scripts/turn_queue_operational_bridge.cjs',
   ],

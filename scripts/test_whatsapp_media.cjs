@@ -163,31 +163,19 @@ test('webhook avatar skips Evolution and is persisted as a completed fetch', asy
   assert.equal(result.calls.some((call) => call.url.includes('/chat/fetchProfilePictureUrl/')), false);
   assert.ok(result.calls.some((call) => call.body?.avatar_url === 'https://cdn.example/webhook.jpg' && call.body?.avatar_fetched_at));
 });
-test('Evolution success records a long-lived avatar cache while transient errors do not', async () => {
-  const success = await syncContact({}, {
-    contacts: [{ id: 'contact-1', name: null, phone: null, external_handle: '5521992988071@s.whatsapp.net', source_channel: 'whatsapp', avatar_url: null, avatar_fetched_at: null, metadata: {} }],
-    environment: { ...env, EVOLUTION_API_URL_LOJA: 'https://evolution.example', EVOLUTION_API_KEY_LOJA: 'test', EVOLUTION_INSTANCE_LOJA: 'loja' },
-    evolution: { profilePictureUrl: 'https://cdn.example/evolution.jpg' },
-  });
-  assert.equal(success.json.contact_sync.source, 'evolution');
-  assert.ok(success.calls.some((call) => call.body?.avatar_url === 'https://cdn.example/evolution.jpg' && call.body?.avatar_fetched_at));
-  const failed = await syncContact({}, {
-    contacts: [{ id: 'contact-2', name: null, phone: null, external_handle: '5521992988071@s.whatsapp.net', source_channel: 'whatsapp', avatar_url: null, avatar_fetched_at: null, metadata: {} }],
-    environment: { ...env, EVOLUTION_API_URL_LOJA: 'https://evolution.example', EVOLUTION_API_KEY_LOJA: 'test', EVOLUTION_INSTANCE_LOJA: 'loja' },
-    failEvolution: true,
-  });
-  assert.equal(failed.json.contact_sync.source, 'evolution_error');
-  assert.equal(failed.calls.some((call) => call.body?.avatar_fetched_at), false);
-});
-test('a confirmed no-photo response writes the short explicit negative cache', async () => {
-  const result = await syncContact({}, {
-    contacts: [{ id: 'contact-1', name: null, phone: null, external_handle: '5521992988071@s.whatsapp.net', source_channel: 'whatsapp', avatar_url: null, avatar_fetched_at: null, metadata: {} }],
-    environment: { ...env, EVOLUTION_API_URL_LOJA: 'https://evolution.example', EVOLUTION_API_KEY_LOJA: 'test', EVOLUTION_INSTANCE_LOJA: 'loja' },
-    evolution: { profilePictureUrl: null },
-  });
-  const negative = result.calls.find((call) => call.body?.metadata?.whatsapp_avatar_negative_fetched_at);
-  assert.equal(result.json.contact_sync.source, 'negative_cache');
-  assert.ok(negative?.body?.avatar_fetched_at);
+test('o CORE nunca busca foto na Evolution: usa a foto já cadastrada e deixa a renovação para o worker de fotos', async () => {
+  const evolutionEnv = { ...env, EVOLUTION_API_URL_LOJA: 'https://evolution.example', EVOLUTION_API_KEY_LOJA: 'test', EVOLUTION_INSTANCE_LOJA: 'loja' };
+  for (const avatar of [null, 'https://pps.whatsapp.net/cached.jpg']) {
+    const result = await syncContact({}, {
+      contacts: [{ id: 'contact-1', name: null, phone: null, external_handle: '5521992988071@s.whatsapp.net', source_channel: 'whatsapp', avatar_url: avatar, avatar_fetched_at: null, metadata: {} }],
+      environment: evolutionEnv,
+    });
+    assert.equal(result.calls.some((call) => call.url.includes('/chat/fetchProfilePictureUrl/')), false);
+    assert.equal(result.calls.some((call) => 'avatar_url' in (call.body || {}) || 'avatar_fetched_at' in (call.body || {})), false, 'sem gravação de foto');
+    assert.equal(result.json.contact_sync.source, avatar ? 'cache' : 'none');
+    assert.equal(result.json.avatarUrl, avatar);
+  }
+  assert.doesNotMatch(syncContactCode, /fetchProfilePictureUrl|EVOLUTION_API_URL|whatsapp_avatar_negative_fetched_at/);
 });
 test('resend recovers category from inbound history even when previous send selected nothing', async () => {
   const result = await context('manda de novo', { history: [{ direction: 'inbound', message_text: 'pulseiras', raw_payload: {} }] });
