@@ -81,7 +81,7 @@
   padding: 0;
   margin-left: 4px;
   flex-shrink: 0;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .search-clear-btn:hover {
@@ -163,8 +163,8 @@
   top: calc(100% + 8px);
   right: 0;
   min-width: 220px;
-  background: var(--surface-elevated);
-  border: 1px solid var(--line-strong);
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
   padding: 6px;
@@ -172,7 +172,8 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  animation: smoothPageFadeIn 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+  animation: noriaPopoverIn var(--motion-base) var(--ease-out);
 }
 
 .filter-primary-section,
@@ -221,7 +222,7 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .filter-menu-item:hover {
@@ -320,7 +321,7 @@
   font-weight: 500;
   cursor: pointer;
   text-align: center;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .filter-clear-all-btn:hover {
@@ -351,7 +352,7 @@
   gap: 6px;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .chip:hover {
@@ -409,7 +410,7 @@
   gap: 4px;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
   user-select: none;
 }
 
@@ -485,7 +486,7 @@
   border: 1px solid var(--line-strong);
   color: var(--text);
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .filter-tag-chip:hover {
@@ -1589,7 +1590,7 @@
 .composer {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  background: #0f172a;
+  background: var(--surface);
   padding: 10px 18px 12px;
   display: flex;
   flex-direction: column;
@@ -1624,7 +1625,7 @@
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
   padding: 0;
 }
 
@@ -1699,7 +1700,7 @@
   color: var(--surface-sunken);
   border: 1px solid var(--brand);
   cursor: pointer;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
 }
 
 .composer-send-btn:hover:not(:disabled) {
@@ -1784,7 +1785,7 @@
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
   flex-shrink: 0;
 }
 
@@ -1798,8 +1799,8 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 18px;
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
   border-radius: 10px;
   padding: 6px;
   display: flex;
@@ -1856,8 +1857,8 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 54px;
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
   border-radius: 12px;
   padding: 10px;
   width: 290px;
@@ -1888,7 +1889,7 @@
   border-radius: 5px;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .emoji-cat-btn:hover {
@@ -2023,7 +2024,7 @@
   background: rgba(244, 63, 94, 0.1);
   color: #fda4af;
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .recording-cancel-btn:hover {
@@ -2044,7 +2045,7 @@
   background: var(--brand);
   color: var(--surface-sunken);
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .recording-finish-btn:hover {

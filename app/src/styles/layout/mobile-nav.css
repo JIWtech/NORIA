@@ -86,7 +86,7 @@
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
-  transition: all 120ms ease;
+  transition: var(--transition-interactive);
 }
 
 .close-drawer-btn:hover {
@@ -118,7 +118,7 @@
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
   width: 100%;
 }
 

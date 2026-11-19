@@ -107,7 +107,7 @@
     color: var(--text);
     cursor: pointer;
     flex-shrink: 0;
-    transition: all 120ms ease;
+    transition: var(--transition-interactive);
   }
 
   .mobile-menu-btn:hover {

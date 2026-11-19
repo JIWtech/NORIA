@@ -101,7 +101,7 @@
   color: var(--text);
   border: 1px solid var(--line);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: var(--transition-interactive);
   text-decoration: none;
 }
 

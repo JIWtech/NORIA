@@ -75,7 +75,7 @@
   background: transparent;
   width: 100%;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: var(--transition-interactive);
 }
 
 .nav-item:hover {

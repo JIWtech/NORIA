@@ -11,6 +11,7 @@ if (import.meta.hot) {
 import '@fontsource-variable/manrope';
 import './styles/base/tokens.css';
 import './styles/base/reset.css';
+import './styles/base/motion.css';
 import './styles/layout/shell-sidebar.css';
 
 import './styles/layout/topbar.css';

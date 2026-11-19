@@ -670,12 +670,14 @@
   height: 100%;
   background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.25) 50%, transparent 100%);
   transform: skewX(-20deg);
-  transition: left 500ms ease;
+  /* Desloca por transform (composição) em vez de animar left (reflow) */
+  transition: transform 500ms ease;
   pointer-events: none;
 }
 
 .auth-submit-btn:hover:not(:disabled) .auth-submit-shine {
-  left: 160%;
+  /* 260% da largura do botão = 520% da largura do brilho (50%) */
+  transform: translateX(520%) skewX(-20deg);
 }
 
 .auth-submit-btn:hover:not(:disabled) {

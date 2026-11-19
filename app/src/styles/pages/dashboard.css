@@ -611,7 +611,7 @@
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
-  transition: all 160ms ease;
+  transition: var(--transition-interactive);
   white-space: nowrap;
 }
 
@@ -697,7 +697,7 @@
   justify-content: flex-end;
   overflow: hidden;
   position: relative;
-  transition: all 160ms ease;
+  transition: var(--transition-interactive);
 }
 
 .chart-bar-slot:hover .bar-chute,
@@ -1664,12 +1664,13 @@
   right: 0;
   height: 2px;
   opacity: 0.75;
-  transition: opacity 0.25s ease, height 0.25s ease, box-shadow 0.25s ease;
+  transform-origin: top;
+  transition: opacity var(--motion-slow) var(--ease-standard), transform var(--motion-slow) var(--ease-out), box-shadow var(--motion-slow) var(--ease-standard);
 }
 
 .dashboard-metric-card:hover .metric-card-accent-bar {
   opacity: 1;
-  height: 3px;
+  transform: scaleY(1.5);
   box-shadow: 0 0 12px var(--card-accent);
 }
 
@@ -2149,7 +2150,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: var(--transition-interactive);
 }
 
 .recent-open-btn:hover {
@@ -2223,7 +2224,7 @@
   padding: 4px 10px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: var(--transition-interactive);
 }
 
 .period-toggle-btn:hover {

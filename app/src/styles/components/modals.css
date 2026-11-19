@@ -82,7 +82,7 @@
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
 }
 
 .assign-modal-close-btn:hover {
@@ -228,7 +228,7 @@
   color: var(--brand);
   border: 1px solid rgba(0, 224, 255, 0.25);
   cursor: pointer;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
 }
 
 .assign-empty-cta-btn:hover {
@@ -296,7 +296,7 @@
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: var(--transition-interactive);
 }
 
 .modal-close-btn:hover {
@@ -676,7 +676,7 @@
   color: #050911;
   border: none;
   cursor: pointer;
-  transition: all 140ms ease;
+  transition: var(--transition-interactive);
   box-shadow: 0 2px 8px rgba(0, 224, 255, 0.22);
   white-space: nowrap;
 }

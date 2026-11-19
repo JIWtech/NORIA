@@ -442,6 +442,7 @@
   gap: 2px;
   padding-top: 5px;
   border-top: 1px solid var(--line);
+  animation: noriaPopoverIn var(--motion-fast) var(--ease-out);
 }
 
 .kanban-card-menu-actions[hidden] {

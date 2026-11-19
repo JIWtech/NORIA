@@ -35,6 +35,34 @@
   --red: #f87171;
   --green: #34d399;
 
+  /* Aliases de compatibilidade: nomes usados por alguns módulos antigos.
+     Sem eles, o navegador caía em fallbacks claros ou na cor herdada. */
+  --text-muted: var(--muted);
+  --border: var(--line);
+  --border-color: var(--line);
+  --line-subtle: rgba(242, 244, 247, 0.05);
+  --danger: var(--red);
+
+  /* Superfície de menus, dropdowns e popovers: a mesma dos painéis,
+     separada do fundo pela borda e pela sombra */
+  --menu-surface: var(--surface);
+  --menu-border: var(--line-strong);
+
+  /* Movimento: durações curtas e curva de desaceleração única */
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  /* Transição padrão de controles: só propriedades baratas de pintar/compor */
+  --transition-interactive:
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-out);
+
   /* Shadows */
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);

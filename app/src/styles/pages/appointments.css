@@ -397,28 +397,34 @@
 .appointment-form-panel .textarea-label textarea,
 .appointment-form-panel .appointment-select {
   min-width: 0;
-  height: 40px;
-  border-radius: 8px;
-  background: rgba(5, 14, 29, 0.9);
-  border-color: color-mix(in srgb, var(--line) 88%, var(--brand));
+  height: var(--control-height);
+  border-radius: var(--radius-sm);
+}
+
+/* Campos de texto com o mesmo visual do NoriaSelect (fundo, borda e hover do sistema).
+   Os selects não são sobrescritos aqui: usam o estilo padrão de noria-select.css. */
+.appointment-form-panel .form-grid input,
+.appointment-form-panel .form-grid select,
+.appointment-form-panel .textarea-label textarea {
+  background: var(--surface);
+  border: 1px solid var(--line);
   color: var(--text);
+  transition: var(--transition-interactive);
 }
 
 .appointment-form-panel .form-grid input:hover,
 .appointment-form-panel .form-grid select:hover,
-.appointment-form-panel .textarea-label textarea:hover,
-.appointment-form-panel .appointment-select:hover {
-  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+.appointment-form-panel .textarea-label textarea:hover {
+  background: var(--surface-soft);
+  border-color: var(--line-strong);
 }
 
 .appointment-form-panel .form-grid input:focus,
 .appointment-form-panel .form-grid select:focus,
-.appointment-form-panel .textarea-label textarea:focus,
-.appointment-form-panel .appointment-select:focus-visible,
-.appointment-form-panel .appointment-select[data-state="open"] {
+.appointment-form-panel .textarea-label textarea:focus {
   outline: none;
   border-color: var(--brand);
-  box-shadow: 0 0 0 2px rgba(0, 224, 255, 0.1);
+  box-shadow: 0 0 0 1px var(--brand), 0 0 12px var(--brand-glow);
 }
 
 .appointment-form-panel input[type="date"],
@@ -427,7 +433,8 @@
 }
 
 .appointment-form-panel input::-webkit-calendar-picker-indicator {
-  filter: invert(75%) sepia(75%) saturate(950%) hue-rotate(140deg);
+  /* Ícone do calendário no tom secundário, como os chevrons dos selects */
+  filter: invert(62%) sepia(12%) saturate(500%) hue-rotate(180deg);
   cursor: pointer;
 }
 
@@ -453,11 +460,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.appointment-form-panel .appointment-select .noria-select-icon,
-.appointment-form-panel .appointment-select .noria-select-chevron {
-  color: var(--brand);
 }
 
 .appointment-form-panel .textarea-label textarea {
@@ -815,8 +817,8 @@
 }
 
 .noria-select-group + .noria-select-group {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid var(--line);
 }
 
@@ -860,9 +862,10 @@
 }
 
 .noria-select-content.appointment-conversation-select-content .noria-select-item {
-  min-height: 40px;
+  min-height: 36px;
   height: auto;
-  padding: 8px 12px;
+  /* Espaço à direita para o check, que fica posicionado no canto */
+  padding: 7px 34px 7px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -877,7 +880,7 @@
 
 .noria-select-content.appointment-conversation-select-content .noria-select-item:hover,
 .noria-select-content.appointment-conversation-select-content .noria-select-item[data-highlighted] {
-  background: var(--surface-hover);
+  background: var(--surface-soft);
   color: var(--text);
   outline: none;
 }
@@ -1087,5 +1090,198 @@
   .no-show-dialog-footer > button,
   .appointment-edit-dialog .confirm-modal-footer > button {
     flex: 1 1 100%;
+  }
+}
+
+/* ==========================================================================
+   Card da agenda — refinamento
+   Cor por status (faixa lateral, selo e horário), meta enxuta e ações leves.
+   Fica no fim do arquivo para prevalecer sobre as camadas anteriores.
+   ========================================================================== */
+.appointments-page .appointment-agenda-card {
+  --appt-tone: var(--brand);
+  position: relative;
+  overflow: hidden;
+  padding: 14px 14px 12px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  box-shadow: none;
+  transition: var(--transition-interactive);
+}
+
+.appointments-page .appointment-agenda-card[data-status="confirmed"],
+.appointments-page .appointment-agenda-card[data-status="confirmado"],
+.appointments-page .appointment-agenda-card[data-status="completed"],
+.appointments-page .appointment-agenda-card[data-status="done"],
+.appointments-page .appointment-agenda-card[data-status="concluido"] {
+  --appt-tone: var(--green);
+}
+
+.appointments-page .appointment-agenda-card[data-status="pending_payment"],
+.appointments-page .appointment-agenda-card[data-status="payment_reported"],
+.appointments-page .appointment-agenda-card[data-status="aguardando_verificacao"],
+.appointments-page .appointment-agenda-card[data-status="pending_confirmation"] {
+  --appt-tone: var(--amber);
+}
+
+.appointments-page .appointment-agenda-card[data-status="cancelled"],
+.appointments-page .appointment-agenda-card[data-status="cancelado"],
+.appointments-page .appointment-agenda-card[data-status="no_show"] {
+  --appt-tone: var(--red);
+}
+
+/* Faixa lateral com a cor do status */
+.appointments-page .appointment-agenda-card::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--appt-tone);
+  opacity: 0.85;
+}
+
+.appointments-page .appointment-agenda-card:hover {
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--surface-soft) 55%, var(--surface-hover));
+  transform: translateY(-1px);
+}
+
+.appointments-page .appointment-agenda-card:is([data-status="cancelled"], [data-status="cancelado"]) {
+  opacity: 0.72;
+}
+
+.appointments-page .appointment-agenda-card .appointment-card-content {
+  gap: 8px;
+}
+
+.appointments-page .appointment-agenda-card .appointment-card-heading {
+  align-items: flex-start;
+}
+
+.appointments-page .appointment-agenda-card .appointment-card-title-row {
+  align-items: center;
+  gap: 12px;
+}
+
+/* Horário em destaque com o tom do status */
+.appointments-page .appointment-agenda-card .appointment-time {
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--appt-tone) 28%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--appt-tone) 10%, transparent);
+}
+
+.appointments-page .appointment-agenda-card .appointment-time strong {
+  color: var(--appt-tone);
+  font-variant-numeric: tabular-nums;
+}
+
+.appointments-page .appointment-agenda-card .appointment-time span {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.appointments-page .appointment-agenda-main strong {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.appointments-page .appointment-agenda-main span {
+  color: var(--text);
+}
+
+/* Selo de status: pílula translúcida com ponto na cor do status */
+.appointments-page .appointment-agenda-card .appointment-card-heading .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--appt-tone) 35%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--appt-tone) 12%, transparent);
+  color: var(--appt-tone);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.appointments-page .appointment-agenda-card .appointment-card-heading .badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Meta: data, profissional, canal e unidade com contraste alto para leitura */
+.appointments-page .appointment-agenda-card .appointment-agenda-meta {
+  gap: 6px 14px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.appointments-page .appointment-agenda-card .appointment-agenda-meta svg,
+.appointments-page .appointment-agenda-card .appointment-location-meta svg {
+  color: var(--text);
+}
+
+.appointments-page .appointment-agenda-card .appointment-agenda-meta .appointment-channel-meta svg {
+  color: inherit;
+}
+
+.appointments-page .appointment-agenda-card .appointment-location-meta {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.appointments-page .appointment-agenda-card .appointment-card-notes {
+  margin: 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+  opacity: 1;
+}
+
+/* Ações num rodapé separado, com botões legíveis */
+.appointments-page .appointment-agenda-card .appointment-agenda-actions {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.appointments-page .appointment-agenda-card .appointment-action-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.appointments-page .appointment-agenda-card .appointment-action-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+@media (max-width: 768px) {
+  .appointments-page .appointment-agenda-card .appointment-action-button {
+    min-height: 40px;
   }
 }

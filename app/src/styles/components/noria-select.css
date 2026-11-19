@@ -37,6 +37,12 @@
   box-shadow: 0 0 0 1px var(--brand), 0 0 12px var(--brand-glow);
 }
 
+/* Sem valor escolhido: placeholder no tom secundário, como nos inputs */
+.noria-select-trigger[data-placeholder] .noria-select-value-wrap {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .noria-select-icon {
   display: inline-flex;
   align-items: center;
@@ -73,17 +79,19 @@
 }
 
 /* Dropdown Content */
+/* Mesma superfície dos painéis e popovers do sistema (ex.: notificações),
+   em vez do azul mais claro de --surface-raised, que destoava do tema. */
 .noria-select-content {
-  background: var(--surface-raised);
-  border: 1px solid var(--line-strong);
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  padding: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 5px;
   min-width: var(--radix-select-trigger-width, 190px);
   max-width: 280px;
   z-index: 1050;
   overflow: hidden;
-  animation: noriaSelectOpen 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: noriaSelectOpen var(--motion-base) var(--ease-out);
 }
 
 @keyframes noriaSelectOpen {
@@ -115,33 +123,34 @@
   gap: 2px;
 }
 
+/* Itens em peso normal; o check fica à direita, sem recuo vazio à esquerda */
 .noria-select-item {
-  height: 38px;
+  height: 36px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
+  padding: 0 34px 0 var(--space-3);
   border-radius: 6px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: var(--text);
   cursor: pointer;
   outline: none;
   user-select: none;
   position: relative;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
 .noria-select-item[data-highlighted] {
-  background: var(--surface-hover);
+  background: var(--surface-soft);
   color: var(--text);
   outline: none;
 }
 
 .noria-select-item[data-state="checked"] {
   font-weight: 600;
-  color: var(--text);
-  background: rgba(0, 224, 255, 0.06);
+  color: var(--brand);
+  background: var(--brand-soft);
 }
 
 .noria-select-item[data-disabled] {
@@ -150,12 +159,16 @@
 }
 
 .noria-select-item-indicator-box {
+  position: absolute;
+  top: 50%;
+  right: 10px;
   width: 16px;
   height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transform: translateY(-50%);
 }
 
 .noria-select-item-indicator {

@@ -11,6 +11,7 @@
   max-width: calc(100vw - 24px); max-height: min(608px, calc(100dvh - 90px)); overflow: hidden;
   display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 15px;
   background: var(--surface); color: var(--text); box-shadow: 0 20px 60px #0007; font-family: var(--font-sans);
+  transform-origin: top right; animation: noriaPopoverIn var(--motion-base) var(--ease-out);
 }
 .notification-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px 10px; }
 .notification-heading-text { min-width: 0; }
@@ -91,7 +92,8 @@
 .notification-clear.is-active { color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); }
 .notification-clear-menu {
   position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; min-width: 214px; padding: 5px;
-  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 11px; box-shadow: 0 14px 36px #0009;
+  background: var(--surface-soft); border: 1px solid var(--menu-border); border-radius: 11px; box-shadow: 0 14px 36px #0009;
+  transform-origin: top right; animation: noriaPopoverIn var(--motion-fast) var(--ease-out);
 }
 .notification-clear-menu button {
   display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 8px 9px; border: 0; border-radius: 8px;

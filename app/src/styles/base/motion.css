@@ -1,0 +1,67 @@
+/* ==========================================================================
+   NORIA — Movimento
+   Entradas curtas com opacity/transform (compostas na GPU, sem reflow).
+   Durações e curvas vêm de tokens.css (--motion-*, --ease-*).
+   ========================================================================== */
+
+/* Entrada de página: fade curto apenas em opacity (sem transform para evitar engasgo no mount). */
+.dashboard-page,
+.dashboard-page-container,
+.conversation-layout,
+.kanban-page,
+.funnel-page,
+.page-grid,
+.appointments-page,
+.bc-page,
+.settings-page {
+  animation: smoothPageFadeIn var(--motion-fast) var(--ease-out);
+}
+
+@keyframes smoothPageFadeIn {
+  from {
+    opacity: 0.86;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* Entrada de menus, dropdowns e popovers ancorados abaixo do gatilho */
+@keyframes noriaPopoverIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Tooltip do gráfico do Dashboard (keyframe era referenciado e não existia) */
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Acessibilidade: quem pede menos movimento recebe trocas instantâneas.
+   Fica aqui para cobrir também módulos com @keyframes sem tratamento próprio. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

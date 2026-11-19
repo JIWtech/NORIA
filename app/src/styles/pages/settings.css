@@ -453,7 +453,7 @@
   cursor: pointer;
   line-height: 1.2;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: var(--transition-interactive);
 }
 
 .settings-kpi-more-btn:hover {
@@ -480,7 +480,7 @@
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: #09121f;
+  background: var(--menu-surface);
   border: 1px solid color-mix(in srgb, var(--line-strong) 75%, var(--brand));
   border-radius: 10px;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(0, 224, 255, 0.15);
