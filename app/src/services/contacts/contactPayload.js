@@ -1,5 +1,5 @@
 import { asObject } from '../../utils/asObject.js';
-import { normalizeAvatarUrl } from './contactIdentity.js';
+import { avatarUrlExpired, normalizeAvatarUrl } from './contactIdentity.js';
 
 export function extractPayloadAvatar(event) {
   if (!event) return null;
@@ -13,10 +13,12 @@ export function extractPayloadAvatar(event) {
     || payload.profilePictureUrl
     || null
   );
-  return normalizeAvatarUrl(candidate);
+  // Foto antiga gravada no payload da mensagem: se já venceu, não serve mais.
+  return avatarUrlExpired(candidate) ? null : normalizeAvatarUrl(candidate);
 }
 
 export function extractAvatarUrlFromEvent(event) {
   if (!event) return null;
-  return extractPayloadAvatar(event) || normalizeAvatarUrl(event.avatar_url) || null;
+  const directoryAvatar = avatarUrlExpired(event.avatar_url) ? null : normalizeAvatarUrl(event.avatar_url);
+  return directoryAvatar || extractPayloadAvatar(event) || null;
 }

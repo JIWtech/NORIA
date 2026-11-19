@@ -10,7 +10,7 @@ import { getUsefulTrustedContactName, isUsefulContactName } from '../contacts/co
 import { conversationPhoneFallback } from '../contacts/contactPhones.js';
 import { extractAvatarUrlFromEvent, extractPayloadAvatar } from '../contacts/contactPayload.js';
 import { resolveConversationDisplayName } from '../contacts/contactDisplayName.js';
-import { normalizeAvatarUrl } from '../contacts/contactIdentity.js';
+import { avatarUrlExpired, normalizeAvatarUrl } from '../contacts/contactIdentity.js';
 import { isSentAppointmentReply, normalizeAudioTranscription, normalizeLocation, normalizeStage, resolveConversationOwnerDetails, resolveEventMessagePreview, resolveEventVisibleText, resolveOutboundTimelineAuthor } from './conversationPresentation.js';
 import { visibleAgentName } from '../agents/agentNames.js';
 import { isConversationWaitingForFollowUp } from '../timeline/conversationFilters.js';
@@ -136,8 +136,12 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
 
     // Se o evento cronológico trouxer avatar válido no payload, atualiza;
     // evento posterior sem avatar NUNCA apaga avatar já conhecido.
+    // O cadastro do contato (event.avatar_url, aplicado pelo diretório) é a fonte mais atual e vence o payload.
     const candidatePayloadAvatar = extractPayloadAvatar(event);
-    if (candidatePayloadAvatar) {
+    const directoryAvatar = avatarUrlExpired(event.avatar_url) ? null : normalizeAvatarUrl(event.avatar_url);
+    if (directoryAvatar) {
+      conversation.avatarUrl = directoryAvatar;
+    } else if (candidatePayloadAvatar) {
       conversation.avatarUrl = candidatePayloadAvatar;
     } else if (!conversation.avatarUrl && event.avatar_url) {
       conversation.avatarUrl = normalizeAvatarUrl(event.avatar_url) || conversation.avatarUrl;

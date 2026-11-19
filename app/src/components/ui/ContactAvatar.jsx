@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserRound } from 'lucide-react';
 import { normalizeAvatarUrl } from '../../dataService';
+import { avatarUrlExpired } from '../../services/contacts/contactIdentity.js';
 import { buildContactAvatarClasses } from '../../features/conversations/utils/chatTimelineHelpers';
 import { getChannelClass } from './ChannelIcon';
 
@@ -15,7 +16,8 @@ export function getInitials(name) {
 
 export function ContactAvatar({ name, avatarUrl, className = '' }) {
   const [failed, setFailed] = useState(false);
-  const validUrl = normalizeAvatarUrl(avatarUrl);
+  // Link do WhatsApp já vencido só geraria uma requisição com erro: mostra as iniciais direto.
+  const validUrl = avatarUrlExpired(avatarUrl) ? null : normalizeAvatarUrl(avatarUrl);
 
   useEffect(() => {
     setFailed(false);
