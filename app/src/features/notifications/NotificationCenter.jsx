@@ -7,6 +7,7 @@ import { useOperatorNotifications } from './useOperatorNotifications.js';
 import { useNotificationSound } from './useNotificationSound.js';
 import { NotificationPanel } from './NotificationPanel.jsx';
 import { NotificationToasts } from './NotificationToasts.jsx';
+import { attachAvatars } from './notificationSituations.js';
 
 const EMPTY = [];
 const pages = { leads: 'kanban', appointments: 'agendamentos', campaigns: 'disparos', conversations: 'conversas', attention: 'conversas' };
@@ -60,7 +61,8 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
       && !(item.kind === 'handoff' && handoffs.some(other => sameConversation(item, other)))
       && !(item.kind === 'team-review' && tracked.some(other => other.kind === 'team-review' && sameConversation(item, other)))
       && !(item.appointmentId && currentAppointments.get(item.appointmentId) === item.appointmentStatus))];
-    return applyDismissed(applyClearedBefore(reconcileNotifications(merged, { appointments, conversations, ready: dataReady, now }), activity.clearedAt), activity.dismissedKeys);
+    return attachAvatars(applyDismissed(applyClearedBefore(reconcileNotifications(merged, { appointments, conversations, ready: dataReady, now }), activity.clearedAt), activity.dismissedKeys),
+      { conversations, kanbanColumns });
   }, [activity.clearedAt, activity.dismissedKeys, dataReady, tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
 
   const unread = items.filter(item => !item.remote && item.unread).length + (inbox.unread || 0);

@@ -1,15 +1,15 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import {
-  AlertCircle, Bell, Bot, CalendarCheck, CalendarClock, CalendarDays, CalendarX, Check, CheckCheck,
+  AlertCircle, Bell, BellOff, Bot, CalendarCheck, CalendarClock, CalendarDays, CalendarX, Check, CheckCheck,
   ChevronDown, ChevronRight, CircleCheck, Flame, Headset, MessageCircle, MessageSquareReply, Paperclip,
   Receipt, RefreshCw, RotateCcw, Send, Settings2, TrendingUp, UserRoundCheck, UserRoundPlus, UsersRound,
   Trash2, Volume2, VolumeX, Wifi, X,
 } from 'lucide-react';
-import { findNotificationConversation } from './operatorEvents.js';
 import { ContactAvatar } from '../../components/ui/ContactAvatar.jsx';
 import { ChannelIcon } from '../../components/ui/ChannelIcon.jsx';
 import { dismissKey } from './operatorEvents.js';
-import { isUsefulContactName } from '../../services/contacts/contactNames.js';
+import { buildNotificationDigest } from './notificationDigest.js';
+import { situationOf } from './notificationSituations.js';
 import './notifications.css';
 
 const categories = {
@@ -57,49 +57,53 @@ const appointmentIcons = {
   done: eventIcons.closed,
 };
 const timeFormat = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
-const dateFormat = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short' });
+const channelOf = channel => {
+  const type = String(channel || '').toLowerCase();
+  return type.includes('insta') ? 'instagram' : type.includes('telegram') ? 'telegram' : 'whatsapp';
+};
+const visualOf = item => {
+  const visual = appointmentIcons[item.appointmentStatus] || eventIcons[item.kind] || categories[item.category];
+  return { Icon: visual?.icon || Bell, tone: item.overdue ? 'urgent' : visual?.tone || 'default' };
+};
 
-function dayLabel(date, today, yesterday) {
-  if (date.toDateString() === today.toDateString()) return 'Hoje';
-  if (date.toDateString() === yesterday.toDateString()) return 'Ontem';
-  return dateFormat.format(date);
+// Há quanto tempo a pendência espera: "agora", "12 min", "3 h", "2 d".
+export function waitingLabel(createdAt, now = Date.now()) {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(createdAt)) / 60_000));
+  if (!Number.isFinite(minutes) || minutes < 1) return 'agora';
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} h`;
+  return `${Math.floor(minutes / 1440)} d`;
 }
 
-function groupByDay(items, conversations) {
-  const days = new Map();
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  for (const item of [...items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))) {
-    const date = new Date(item.createdAt);
-    if (!Number.isFinite(date.getTime())) continue;
-    const dayKey = date.toDateString();
-    if (!days.has(dayKey)) days.set(dayKey, { key: dayKey, label: dayLabel(date, today, yesterday), groups: new Map(), count: 0 });
-    const conversation = findNotificationConversation(item, conversations);
-    const contact = conversation?.contact || (isUsefulContactName(item.contact) ? item.contact : '');
-    const thread = conversation?.id || (item.chatId && `${item.channel || 'whatsapp'}:${item.chatId}`);
-    const key = !item.pending && thread ? JSON.stringify([thread, item.kind || item.category, item.appointmentStatus]) : item.id;
-    const day = days.get(dayKey);
-    const { groups } = day;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({ item, date, conversation, contact });
-    day.count += 1;
+const situationIcons = {
+  headset: Headset, receipt: Receipt, calendar: CalendarDays, message: MessageCircle, bot: Bot, user: UserRoundCheck,
+  check: CircleCheck, kanban: TrendingUp, alert: AlertCircle, bell: Bell,
+};
+
+// Foto do cliente com anel e selo na cor da situação; sem cliente, um quadrado com o ícone da situação.
+function Avatar({ item, conversation, contact, situation }) {
+  const { Icon } = visualOf(item);
+  if (!conversation && !contact) {
+    return <span className="notification-entry-icon" data-tone={situation.key}><Icon size={16} strokeWidth={2.1} aria-hidden="true" /></span>;
   }
-  return [...days.values()];
+  return <span className="notification-entry-avatar" data-tone={situation.key} data-channel={item.kind === 'message' ? channelOf(item.channel) : undefined}>
+    <ContactAvatar name={contact || conversation?.contact} avatarUrl={conversation?.avatarUrl || item.avatarUrl} />
+    <span className="notification-entry-badge" aria-hidden="true">
+      {item.kind === 'message' ? <ChannelIcon channel={item.channel} size={11} /> : <Icon size={11} strokeWidth={2.4} />}
+    </span>
+  </span>;
+}
+
+function SituationTag({ situation }) {
+  const Icon = situationIcons[situation.icon] || Bell;
+  return <span className="notification-tag"><Icon size={11} strokeWidth={2.5} aria-hidden="true" />{situation.label}</span>;
 }
 
 export function NotificationPanel({ tenantName, items, conversations = [], unread, inbox, sound, onMarkRead, onMarkAll, onClearAll, onClearSelected,
   actionFor, onSettings, simulation = false, showPending = true }) {
   const [open, setOpen] = useState(simulation);
   const [filter, setFilter] = useState('all');
-  const [category, setCategory] = useState('all');
   const [expanded, setExpanded] = useState(() => new Set());
-  const [clearMenu, setClearMenu] = useState(false);
-  const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState(() => new Set());
-  const clearable = items.filter(item => !item.pending).length;
-  const channelOf = channel => { const type = String(channel || '').toLowerCase(); return type.includes('insta') ? 'instagram' : type.includes('telegram') ? 'telegram' : 'whatsapp'; };
-  const leaveSelection = () => { setSelecting(false); setSelected(new Set()); };
   const root = useRef(null);
   const bell = useRef(null);
   const closeButton = useRef(null);
@@ -124,17 +128,13 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
 
   const pendingCount = items.filter(item => item.pending).length;
   const activeFilter = filter === 'pending' && !showPending ? 'all' : filter;
-  const tabItems = items.filter(item => (activeFilter !== 'unread' || item.unread) && (activeFilter !== 'pending' || item.pending));
-  const visibleCategories = new Set(tabItems.map(item => item.category));
-  const showTypes = visibleCategories.size > 1;
-  const selectedCategory = showTypes && visibleCategories.has(category) ? category : 'all';
-  const filtered = tabItems.filter(item => selectedCategory === 'all' || item.category === selectedCategory);
-  const days = open ? groupByDay(filtered, conversations) : [];
+  const filtered = items.filter(item => (activeFilter !== 'unread' || item.unread) && (activeFilter !== 'pending' || item.pending));
+  const digest = open ? buildNotificationDigest(filtered, conversations) : { needsAction: [], activity: [] };
+  const isEmpty = !digest.needsAction.length && !digest.activity.length;
   const syncError = inbox.error && !inbox.accessLimited;
-  const emptyTitle = selectedCategory !== 'all' ? 'Nenhum aviso deste tipo'
-    : activeFilter === 'unread' ? 'Nenhum aviso não lido'
-      : activeFilter === 'pending' ? 'Nenhuma pendência por aqui'
-        : inbox.accessLimited ? 'Nenhum aviso disponível' : 'Tudo em dia por aqui';
+  const emptyState = activeFilter === 'unread' ? ['Nada novo por aqui', 'Você já viu todos os avisos.']
+    : activeFilter === 'pending' ? ['Nenhuma pendência', 'Nenhum cliente esperando a equipe e nada para confirmar.']
+      : inbox.accessLimited ? ['Nenhum aviso disponível', ''] : ['Tudo em dia', 'Transferências, pedidos e pagamentos aparecem aqui.'];
 
   const toggle = key => setExpanded(previous => {
     const next = new Set(previous);
@@ -142,6 +142,89 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
     else next.add(key);
     return next;
   });
+  // Limpar fica no cabeçalho de cada dia e esconde só a atividade informativa dele; pendências nunca somem por limpeza.
+  const clearDay = day => onClearSelected?.(day.threads.flatMap(thread => thread.entries.map(entry => entry.item)));
+
+  // A linha inteira abre o destino (conversa, card ou página) e marca o que estava não lido.
+  const openRow = (targets, item, conversation) => {
+    const syncBlocked = Boolean(inbox.syncing || inbox.error);
+    for (const target of targets) if (target.unread && !(target.remote && syncBlocked)) onMarkRead(target);
+    const action = actionFor?.(item, conversation);
+    if (!action) return;
+    action.run();
+    if (!simulation) close();
+  };
+  const rowProps = (targets, item, conversation, label) => ({
+    role: 'button', tabIndex: 0, 'aria-label': label,
+    onClick: () => openRow(targets, item, conversation),
+    onKeyDown: event => {
+      if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      openRow(targets, item, conversation);
+    },
+  });
+
+  const renderPending = ({ item, date, conversation, contact }) => {
+    const situation = situationOf(item);
+    const action = actionFor?.(item, conversation);
+    return <li key={item.id} data-situation={situation.key} className={`notification-entry notification-task ${item.overdue ? 'is-overdue' : ''} ${item.unread ? 'is-unread' : ''}`}>
+      <div className="notification-row" {...rowProps([item], item, conversation, `${situation.label}: ${contact || item.title}. ${action?.label || ''}`)}>
+        <Avatar item={item} conversation={conversation} contact={contact} situation={situation} />
+        <div className="notification-entry-body">
+          <div className="notification-entry-line">
+            <h4>{contact || item.title}</h4>
+            <span className={`notification-wait ${item.overdue ? 'overdue' : ''}`} title={`Desde ${timeFormat.format(date)}`}>
+              {(() => {
+                const wait = waitingLabel(item.createdAt);
+                const since = wait === 'agora' ? 'agora' : `há ${wait}`;
+                return item.overdue ? `Atrasada · ${since}` : since;
+              })()}
+            </span>
+          </div>
+          <p className="notification-desc"><SituationTag situation={situation} /><span className="notification-event">{contact ? item.title : item.description}</span></p>
+        </div>
+      </div>
+    </li>;
+  };
+
+  const renderThread = (day, thread) => {
+    const { item, date, conversation, contact } = thread.latest;
+    const situation = situationOf(item);
+    const key = `${day.key}:${thread.key}`;
+    const isExpanded = expanded.has(key);
+    const more = thread.entries.length - 1;
+    const targets = thread.entries.map(entry => entry.item);
+    return <li key={thread.key} data-situation={situation.key} className={`notification-entry notification-thread ${thread.unread ? 'is-unread' : ''}`}>
+      <div className="notification-row" {...rowProps(targets, item, conversation, `${situation.label}: ${contact || item.title}, ${item.title}`)}>
+        <Avatar item={item} conversation={conversation} contact={contact} situation={situation} />
+        <div className="notification-entry-body">
+          <div className="notification-entry-line">
+            <h4>{contact || item.title}</h4>
+            {thread.unread > 0 && <span className="notification-unread-dot" aria-label="Não lida" />}
+            <time dateTime={item.createdAt}>{timeFormat.format(date)}</time>
+          </div>
+          <p className="notification-desc" title={item.description}>
+            <SituationTag situation={situation} />
+            <span className="notification-event">{contact ? item.title : item.description}</span>
+            {more > 0 && <button type="button" className="notification-group-toggle" aria-expanded={isExpanded}
+              onClick={event => { event.stopPropagation(); toggle(key); }}>
+              {isExpanded ? 'ocultar' : `+${more}`}<ChevronDown size={12} aria-hidden="true" />
+            </button>}
+          </p>
+        </div>
+      </div>
+      {isExpanded && <ol className="notification-timeline">
+        {thread.entries.map(entry => {
+          const entrySituation = situationOf(entry.item);
+          return <li key={entry.item.id} data-situation={entrySituation.key} className={entry.item.unread ? 'is-unread' : ''}>
+            <span className="notification-timeline-dot" aria-hidden="true" />
+            <span className="notification-timeline-title">{entry.item.title}</span>
+            <time dateTime={entry.item.createdAt}>{timeFormat.format(entry.date)}</time>
+          </li>;
+        })}
+      </ol>}
+    </li>;
+  };
 
   return (
     <div className="notification-center" ref={root}>
@@ -149,7 +232,7 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
         aria-label={`Central de notificações, ${unread} não lidas`} aria-expanded={open} aria-controls={open ? panelId : undefined}
         aria-haspopup="dialog" title="Notificações" onClick={() => setOpen(value => !value)}>
         <Bell size={18} aria-hidden="true" />
-        {unread > 0 && <span className="notification-badge" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
+        {unread > 0 && <span className={`notification-badge ${pendingCount ? 'has-pending' : ''}`} aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
       </button>
       <span className="notification-sr-only" role="status" aria-live="polite">{unread > 0 ? `${unread} notificações não lidas` : ''}</span>
       {open && <section id={panelId} role="dialog" aria-labelledby={titleId} className="notification-popover">
@@ -163,21 +246,6 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
               aria-label="Marcar todas como lidas" title="Marcar todas como lidas" disabled={Boolean(inbox.syncing && inbox.unread)}>
               <CheckCheck size={17} aria-hidden="true" />
             </button>}
-            {onClearAll && items.length > 0 && <div className="notification-clear-wrap">
-              <button type="button" className={`icon-button notification-clear ${clearMenu || selecting ? 'is-active' : ''}`}
-                aria-haspopup="menu" aria-expanded={clearMenu} aria-label="Limpar notificações" title="Limpar notificações"
-                onClick={() => (selecting ? leaveSelection() : setClearMenu(value => !value))}>
-                {selecting ? <X size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
-              </button>
-              {clearMenu && <div className="notification-clear-menu" role="menu">
-                <button type="button" role="menuitem" disabled={!clearable} onClick={() => { onClearAll(); setClearMenu(false); }}>
-                  <Trash2 size={14} aria-hidden="true" /><span>Limpar todas<small>As pendências ficam</small></span>
-                </button>
-                <button type="button" role="menuitem" onClick={() => { setClearMenu(false); setSelecting(true); }}>
-                  <Check size={14} aria-hidden="true" /><span>Selecionar para limpar<small>Escolha uma por uma</small></span>
-                </button>
-              </div>}
-            </div>}
             {sound && <button type="button" className="icon-button" onClick={sound.toggle} aria-pressed={sound.enabled}
               aria-label="Som de notificações" title={sound.enabled ? 'Silenciar notificações' : 'Ativar som de notificações'}>
               {sound.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
@@ -190,125 +258,42 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
           </div>
         </header>
         <div className="notification-filters" role="group" aria-label="Filtrar notificações">
-          {[['all', 'Todas', 0], ['unread', 'Não lidas', unread], ...(showPending ? [['pending', 'Pendentes', pendingCount]] : [])].map(([value, label, count]) =>
-            <button key={value} type="button" aria-pressed={activeFilter === value}
-              onClick={() => { setFilter(value); setCategory('all'); }}>
+          {[['all', 'Tudo', 0], ...(showPending ? [['pending', 'Para agir', pendingCount]] : []), ['unread', 'Não lidas', unread]].map(([value, label, count]) =>
+            <button key={value} type="button" aria-pressed={activeFilter === value} data-kind={value}
+              onClick={() => setFilter(value)}>
               {label}{count > 0 && <span>{count > 99 ? '99+' : count}</span>}
             </button>)}
-          {showTypes && <select value={selectedCategory} onChange={event => setCategory(event.target.value)} aria-label="Tipo de notificação">
-            <option value="all">Tipo</option>
-            {Object.entries(categories).filter(([value]) => visibleCategories.has(value))
-              .map(([value, { label }]) => <option key={value} value={value}>{label}</option>)}
-          </select>}
         </div>
         <div className="notification-scroll" key={activeFilter} role="region" aria-label="Lista de notificações"
-          tabIndex={days.length ? 0 : undefined} aria-busy={Boolean(inbox.loading)}>
+          tabIndex={isEmpty ? undefined : 0} aria-busy={Boolean(inbox.loading)}>
           {syncError && <div className="notification-sync-note" role="status">
             <AlertCircle size={16} aria-hidden="true" /><span>{inbox.error}</span>
             <button className="icon-button" type="button" disabled={inbox.syncing} onClick={inbox.refresh}
               aria-label="Atualizar histórico de notificações"><RefreshCw size={15} /></button>
           </div>}
           {inbox.loading && !items.length && <p className="notification-message" role="status">Buscando seus avisos…</p>}
-          {!days.length && !inbox.loading && !syncError && <div className="notification-empty">
-            <span className="notification-empty-icon"><Bell size={19} aria-hidden="true" /></span>
-            <strong>{emptyTitle}</strong>
-            {activeFilter === 'all' && selectedCategory === 'all' && !inbox.accessLimited && <p>Novas atividades aparecem aqui.</p>}
+          {isEmpty && !inbox.loading && !syncError && <div className="notification-empty">
+            <span className="notification-empty-icon">{activeFilter === 'all' ? <CircleCheck size={19} aria-hidden="true" /> : <BellOff size={19} aria-hidden="true" />}</span>
+            <strong>{emptyState[0]}</strong>
+            {emptyState[1] && <p>{emptyState[1]}</p>}
           </div>}
-          {days.map(day => <section key={day.key} aria-label={day.label}>
+          {digest.needsAction.length > 0 && <section className="notification-section is-action" aria-label="Precisa de você">
+            <h3 className="notification-date-group">Precisa de você<span>{digest.needsAction.length}</span></h3>
+            <ul className="notification-list">{digest.needsAction.map(renderPending)}</ul>
+          </section>}
+          {digest.activity.map(day => <section key={day.key} className="notification-section" aria-label={day.label}>
             <h3 className="notification-date-group">{day.label}
-              <span>{day.count} {day.count === 1 ? 'aviso' : 'avisos'}</span>
+              <span className="notification-day-count">{day.count} {day.count === 1 ? 'evento' : 'eventos'}</span>
+              {onClearSelected && <button type="button" className="notification-day-clear" onClick={() => clearDay(day)}
+                aria-label={`Limpar atividade de ${day.label.toLowerCase()}`}>Limpar</button>}
             </h3>
-            <ul className="notification-list">
-              {[...day.groups].map(([key, group]) => {
-                const groupKey = `${day.key}:${key}`;
-                const isExpanded = expanded.has(groupKey);
-                return <li key={key} className="notification-group">
-                  <ul className="notification-list">
-                    {(isExpanded ? group : group.slice(0, 1)).map(({ item, date, conversation, contact }) => {
-                      const targets = isExpanded ? [item] : group.map(entry => entry.item);
-                      const checked = targets.every(target => selected.has(dismissKey(target)));
-                      const toggleSelected = () => setSelected(current => {
-                        const next = new Set(current);
-                        for (const target of targets) { if (checked) next.delete(dismissKey(target)); else next.add(dismissKey(target)); }
-                        return next;
-                      });
-                      const categoryStyle = categories[item.category];
-                      const visual = appointmentIcons[item.appointmentStatus] || eventIcons[item.kind] || categoryStyle;
-                      const Icon = visual?.icon || Bell;
-                      const tone = item.overdue ? 'urgent' : visual?.tone || 'default';
-                      const action = actionFor?.(item, conversation);
-                      const readDisabled = Boolean(item.remote && (inbox.syncing || inbox.error));
-                      return <li key={item.id} className={`notification-entry ${item.unread ? 'is-unread' : ''} ${selecting ? 'is-selecting' : ''} ${selecting && checked ? 'is-selected' : ''}`}>
-                        {selecting && <label className="notification-select">
-                          <input type="checkbox" checked={checked} onChange={toggleSelected}
-                            aria-label={`Selecionar: ${item.title}${!isExpanded && group.length > 1 ? ` e mais ${group.length - 1} semelhantes` : ''}`} />
-                        </label>}
-                        {conversation || contact
-                          ? <span className="notification-entry-avatar" data-tone={tone} data-channel={item.kind === 'message' ? channelOf(item.channel) : undefined}>
-                            <ContactAvatar name={contact || conversation?.contact} avatarUrl={conversation?.avatarUrl} />
-                            <span className="notification-entry-badge" aria-hidden="true">
-                              {item.kind === 'message' ? <ChannelIcon channel={item.channel} size={11} /> : <Icon size={11} strokeWidth={2.4} />}
-                            </span>
-                          </span>
-                          : <span className="notification-entry-icon" data-tone={tone}>
-                            <Icon size={20} strokeWidth={2.1} aria-hidden="true" />
-                          </span>}
-                        <div className="notification-entry-body">
-                          <div className="notification-entry-line">
-                            <h4>{item.title}</h4>
-                            {item.unread && <span className="notification-unread-dot" aria-label="Não lida" />}
-                            <time dateTime={item.createdAt}>{timeFormat.format(date)}</time>
-                          </div>
-                          <p className="notification-desc" title={[contact, item.description].filter(Boolean).join(' · ')}>
-                            {contact && <strong>{contact}{item.description ? ' · ' : ''}</strong>}{item.description}
-                          </p>
-                          <div className="notification-meta">
-                            <span>{categoryStyle?.label}</span>
-                            {item.pending && <span className={`notification-state ${item.overdue ? 'overdue' : ''}`}>{item.overdue ? 'Atrasada' : 'Pendente'}</span>}
-                            {item.resolved && <span className="notification-state resolved">{item.resolutionLabel || 'Resolvida'}</span>}
-                            <div className="notification-entry-actions">
-                              {item.unread && <button type="button" className="notification-action-btn" disabled={readDisabled}
-                                aria-label={`Marcar como lida: ${item.title}`} title="Marcar como lida" onClick={() => onMarkRead(item)}>
-                                <Check size={15} aria-hidden="true" />
-                              </button>}
-                              {action && <button type="button" className="notification-action-btn primary" onClick={() => {
-                                if (item.unread && !readDisabled) onMarkRead(item);
-                                action.run();
-                                if (!simulation) close();
-                              }}>{action.label}<ChevronRight size={13} aria-hidden="true" /></button>}
-                            </div>
-                          </div>
-                        </div>
-                      </li>;
-                    })}
-                  </ul>
-                  {group.length > 1 && <button type="button" className="notification-group-toggle" aria-expanded={isExpanded}
-                    onClick={() => toggle(groupKey)}>
-                    <ChevronDown size={14} aria-hidden="true" />
-                    {isExpanded ? 'Mostrar menos' : `Ver mais ${group.length - 1} ${group.length === 2 ? 'aviso semelhante' : 'avisos semelhantes'}`}
-                  </button>}
-                </li>;
-              })}
-            </ul>
+            <ul className="notification-list">{day.threads.map(thread => renderThread(day, thread))}</ul>
           </section>)}
           {inbox.hasMore && <button className="notification-more secondary-button" type="button"
             disabled={inbox.syncing} onClick={inbox.loadMore}>Ver avisos anteriores</button>}
           {inbox.isOlderPage && <button className="notification-more secondary-button" type="button"
             disabled={inbox.syncing} onClick={inbox.showLatest}>Voltar aos recentes</button>}
         </div>
-        {selecting && <div className="notification-selection-bar" role="region" aria-label="Limpar selecionadas">
-          <span>{selected.size ? `${selected.size} ${selected.size === 1 ? 'selecionada' : 'selecionadas'}` : 'Marque os avisos que quer limpar'}</span>
-          <div>
-            <button type="button" className="secondary-button" onClick={() => {
-              const all = new Set(filtered.map(dismissKey));
-              setSelected(current => (current.size >= all.size ? new Set() : all));
-            }}>{selected.size >= filtered.length && filtered.length ? 'Desmarcar todas' : 'Marcar todas'}</button>
-            <button type="button" className="primary-button" disabled={!selected.size} onClick={() => {
-              onClearSelected(filtered.filter(entry => selected.has(dismissKey(entry))));
-              leaveSelection();
-            }}>Limpar selecionadas</button>
-          </div>
-        </div>}
       </section>}
     </div>
   );

@@ -22,13 +22,11 @@ test('dispensar um aviso esconde só ele; se o aviso voltar atualizado, reaparec
   assert.equal(applyDismissed([a, b], new Set()).length, 2);
 });
 
-test('o painel tem o menu Limpar todas e Selecionar para limpar, e a seleção uma por uma', () => {
+test('o painel limpa por dia direto no cabeçalho, sem menu de lixeira nem modo de seleção', () => {
   const panel = read('NotificationPanel.jsx');
-  assert.ok(panel.includes('Limpar todas<small>As pendências ficam'));
-  assert.ok(panel.includes('Selecionar para limpar<small>Escolha uma por uma'));
-  assert.ok(panel.includes('type="checkbox" checked={checked} onChange={toggleSelected}'));
-  assert.ok(panel.includes('onClearSelected(filtered.filter('));
-  assert.ok(panel.includes('Limpar selecionadas'));
+  assert.ok(panel.includes('className="notification-day-clear" onClick={() => clearDay(day)}'));
+  assert.ok(panel.includes('onClearSelected?.(day.threads.flatMap('), 'limpa todos os eventos agrupados do dia');
+  assert.ok(!panel.includes('notification-clear-menu') && !panel.includes('type="checkbox"') && !panel.includes('Trash2 size'));
   const center = read('NotificationCenter.jsx');
   assert.ok(center.includes('onClearAll={clearAll} onClearSelected={clearSelected}'));
   assert.ok(center.includes('activity.dismissItems(selected)'));

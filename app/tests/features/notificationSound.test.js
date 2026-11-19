@@ -36,7 +36,7 @@ test('aviso remoto de pendência resolvida ou já respondida não toca; o que ag
 
 test('o painel mostra a foto do cliente com um selo do tipo do aviso', () => {
   const panel = fs.readFileSync(new URL('../../src/features/notifications/NotificationPanel.jsx', import.meta.url), 'utf8');
-  assert.match(panel, /<ContactAvatar name=\{contact \|\| conversation\?\.contact\} avatarUrl=\{conversation\?\.avatarUrl\}/);
+  assert.match(panel, /<ContactAvatar name=\{contact \|\| conversation\?\.contact\} avatarUrl=\{conversation\?\.avatarUrl \|\| item\.avatarUrl\}/, 'sem conversa carregada, a foto vem do card do Kanban');
   assert.match(panel, /notification-entry-badge/);
   assert.match(panel, /notification-entry-icon/, 'avisos sem cliente (conexão, campanha) mantêm o ícone quadrado');
 });

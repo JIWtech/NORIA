@@ -169,3 +169,119 @@
   .notification-filters button, .notification-filters select { padding-inline: 6px; }
 }
 
+
+/* Redesign 2026-11: "Precisa de você" no topo e atividade com uma linha por contato e dia. */
+.notification-badge.has-pending { background: var(--amber); }
+.notification-filters button[data-kind='pending'] span { color: var(--amber); }
+.notification-section.is-action .notification-date-group { color: var(--amber); background: color-mix(in srgb, var(--amber) 9%, var(--surface)); }
+.notification-section.is-action .notification-date-group span { color: var(--amber); font-weight: 700; }
+.notification-entry { align-items: center; gap: 10px; padding: 8px 12px 8px 14px; position: relative; }
+.notification-entry.is-unread { background: transparent; }
+.notification-entry.is-unread::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand);
+}
+.notification-task { border-left: 0; }
+.notification-task.is-overdue::before, .notification-task::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--amber);
+}
+.notification-task.is-overdue::before { background: var(--red); }
+.notification-thread { display: block; padding: 0; }
+.notification-thread-main { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 14px; }
+.notification-entry:hover, .notification-entry:focus-within { background: color-mix(in srgb, var(--text) 4%, var(--surface)); }
+.notification-entry-avatar, .notification-entry-icon { flex-basis: 32px; width: 32px; height: 32px; }
+.notification-entry-avatar .conversation-avatar { width: 32px; height: 32px; min-width: 32px; min-height: 32px; max-width: 32px; max-height: 32px; font-size: 11px; }
+.notification-entry-icon { border-radius: 9px; }
+.notification-entry-line h4 { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.notification-desc { -webkit-line-clamp: 1; margin: 1px 0 0; }
+.notification-desc strong, .notification-event { color: var(--text); font-weight: 600; }
+.notification-thread:not(.is-unread) .notification-event { color: color-mix(in srgb, var(--text) 75%, var(--muted)); font-weight: 500; }
+.notification-desc .notification-state { margin-left: 6px; font-size: 11px; }
+.notification-wait { margin-left: auto; flex: none; padding: 1px 7px; border-radius: 999px; font: 650 11px/1.5 var(--font-sans);
+  color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); font-variant-numeric: tabular-nums; }
+.notification-wait.overdue { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.notification-entry-actions { margin-left: 0; flex: none; gap: 4px; }
+.notification-action-btn.icon { width: 26px; justify-content: center; border-radius: 7px; opacity: 0; transition: opacity 120ms ease; }
+.notification-entry:is(:hover, :focus-within) .notification-action-btn.icon { opacity: 1; }
+.notification-action-btn.icon:hover:not(:disabled) { background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--brand); }
+.notification-task .notification-action-btn.primary {
+  padding: 4px 9px; border-radius: 8px; background: color-mix(in srgb, var(--brand) 14%, transparent); color: var(--brand);
+}
+.notification-task .notification-action-btn.primary:hover { background: var(--brand); color: #0b1220; }
+.notification-thread .notification-action-btn.primary { width: 26px; justify-content: center; border-radius: 7px; color: var(--muted); }
+.notification-thread .notification-action-btn.primary:hover { color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); }
+.notification-group-toggle { margin: 2px 0 0; padding: 0; min-height: 18px; font-size: 11px; color: var(--muted); }
+.notification-group-toggle:hover { color: var(--brand); }
+.notification-timeline { list-style: none; margin: 0 12px 8px 56px; padding: 2px 0 2px 12px; border-left: 1px solid var(--line-strong); }
+.notification-timeline li { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: var(--muted); }
+.notification-timeline li.is-unread { color: var(--text); }
+.notification-timeline-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notification-timeline time { font-size: 11px; font-variant-numeric: tabular-nums; }
+.notification-timeline-icon { --notification-accent: var(--brand); display: grid; place-items: center; flex: none; width: 18px; height: 18px; margin-left: -22px;
+  border-radius: 50%; color: var(--notification-accent); background: color-mix(in srgb, var(--notification-accent) 16%, var(--surface)); }
+.notification-timeline-icon[data-tone='agenda'] { --notification-accent: #b6a9ff; }
+.notification-timeline-icon[data-tone='positive'] { --notification-accent: var(--green); }
+.notification-timeline-icon[data-tone='attention'] { --notification-accent: var(--amber); }
+.notification-timeline-icon[data-tone='urgent'] { --notification-accent: var(--red); }
+.notification-empty { padding: 34px 16px 36px; }
+.notification-empty-icon { color: var(--green); background: color-mix(in srgb, var(--green) 12%, var(--surface)); border-radius: 50%; width: 40px; height: 40px; }
+@media (hover: none) { .notification-action-btn.icon { opacity: 1; } }
+
+/* Identidade por situação: uma cor por caso, repetida no anel da foto, no selo, na etiqueta e na faixa lateral. */
+.notification-entry { --sit: var(--muted); padding: 0; display: block; }
+.notification-entry[data-situation='waiting-team'] { --sit: #f87171; }
+.notification-entry[data-situation='payment'] { --sit: #fbbf24; }
+.notification-entry[data-situation='agenda'] { --sit: #a78bfa; }
+.notification-entry[data-situation='message'] { --sit: #34d399; }
+.notification-entry[data-situation='ai'] { --sit: #38bdf8; }
+.notification-entry[data-situation='assigned'] { --sit: #60a5fa; }
+.notification-entry[data-situation='done'] { --sit: #94a3b8; }
+.notification-entry[data-situation='kanban'] { --sit: #22d3ee; }
+.notification-entry[data-situation='problem'] { --sit: #fb923c; }
+.notification-row { display: flex; align-items: center; gap: 11px; padding: 9px 14px; cursor: pointer; outline: none; border-radius: 0; }
+.notification-row:hover { background: color-mix(in srgb, var(--sit) 7%, var(--surface)); }
+.notification-row:focus-visible { box-shadow: inset 0 0 0 2px var(--brand); }
+.notification-entry:hover, .notification-entry:focus-within { background: transparent; }
+.notification-entry.is-unread::before, .notification-task::before, .notification-task.is-overdue::before { background: var(--sit); top: 9px; bottom: 9px; }
+.notification-thread:not(.is-unread) .notification-row { opacity: .78; }
+.notification-thread:not(.is-unread) .notification-row:hover { opacity: 1; }
+.notification-entry-avatar, .notification-entry-icon { --notification-accent: var(--sit) !important; flex: 0 0 38px; width: 38px; height: 38px; }
+.notification-entry-avatar .conversation-avatar {
+  width: 38px; height: 38px; min-width: 38px; min-height: 38px; max-width: 38px; max-height: 38px;
+  border: 2px solid var(--sit); box-shadow: 0 0 0 2px var(--surface); font-size: 12px;
+}
+.notification-entry-badge { width: 19px; height: 19px; background: var(--sit); color: #0b1220; right: -5px; bottom: -4px; }
+.notification-entry-icon { color: var(--sit); background: color-mix(in srgb, var(--sit) 16%, var(--surface)); border-color: color-mix(in srgb, var(--sit) 40%, var(--surface)); border-radius: 11px; }
+.notification-entry-line h4 { font-size: 13.5px; }
+.notification-desc { display: flex; align-items: center; gap: 7px; margin-top: 3px; -webkit-line-clamp: unset; }
+.notification-tag {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 1px 7px 1px 6px; border-radius: 6px;
+  font: 700 10.5px/1.6 var(--font-sans); letter-spacing: .1px; color: var(--sit);
+  background: color-mix(in srgb, var(--sit) 15%, transparent); border: 1px solid color-mix(in srgb, var(--sit) 28%, transparent);
+}
+.notification-event { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-weight: 500; }
+.notification-thread.is-unread .notification-event, .notification-task .notification-event { color: var(--text); }
+.notification-task.is-overdue .notification-tag { color: #fff; background: var(--sit); border-color: var(--sit); }
+.notification-group-toggle { flex: none; display: inline-flex; gap: 1px; margin: 0 0 0 auto; padding: 0 6px; min-height: 18px; border-radius: 6px;
+  color: var(--muted); background: var(--surface-soft); font: 650 10.5px/1.6 var(--font-sans); }
+.notification-group-toggle:hover { color: var(--text); }
+.notification-timeline { margin: -2px 14px 9px 63px; padding: 2px 0 2px 12px; }
+.notification-timeline li { --sit: var(--muted); }
+.notification-timeline li[data-situation='waiting-team'] { --sit: #f87171; }
+.notification-timeline li[data-situation='payment'] { --sit: #fbbf24; }
+.notification-timeline li[data-situation='agenda'] { --sit: #a78bfa; }
+.notification-timeline li[data-situation='message'] { --sit: #34d399; }
+.notification-timeline li[data-situation='ai'] { --sit: #38bdf8; }
+.notification-timeline li[data-situation='assigned'] { --sit: #60a5fa; }
+.notification-timeline li[data-situation='kanban'] { --sit: #22d3ee; }
+.notification-timeline li[data-situation='problem'] { --sit: #fb923c; }
+.notification-timeline-dot { flex: none; width: 8px; height: 8px; margin-left: -16.5px; border-radius: 50%; background: var(--sit); box-shadow: 0 0 0 3px var(--surface); }
+.notification-wait { font-size: 10.5px; }
+.notification-select { flex-basis: 20px; }
+
+/* Limpar por dia: ação de texto no cabeçalho da seção, sem menu nem modo de seleção. */
+.notification-date-group .notification-day-count { margin-left: auto; }
+.notification-day-clear {
+  margin-left: 10px; padding: 1px 7px; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--muted); font: 650 11px/1.5 var(--font-sans); transition: color 120ms ease, background-color 120ms ease;
+}
+.notification-day-clear:hover { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }

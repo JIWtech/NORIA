@@ -70,6 +70,11 @@ export function NotificationDemo() {
         <NotificationPanel tenantName="Noria" simulation items={items} unread={items.filter(item => item.unread).length}
           inbox={{}} sound={{ enabled: sound, toggle: () => setSound(previous => !previous) }}
           onSettings={() => setStatus('Configurações selecionadas.')}
+          onClearSelected={cleared => {
+            const ids = new Set(cleared.map(item => item.id));
+            setItems(previous => previous.filter(row => !ids.has(row.id)));
+            setStatus(`${cleared.length} avisos limpos.`);
+          }}
           onMarkRead={item => setItems(previous => previous.map(row => row.id === item.id ? { ...row, unread: false } : row))}
           onMarkAll={() => setItems(previous => previous.map(row => ({ ...row, unread: false })))}
           actionFor={item => item.pending ? {
