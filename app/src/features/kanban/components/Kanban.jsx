@@ -2,6 +2,7 @@ import { userFacingError } from '../../../utils/userFacingError.js';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   AlertCircle,
+  Ban,
   CalendarCheck,
   CalendarClock,
   CheckCircle2,
@@ -46,6 +47,9 @@ import { NoShowMessageDialog } from '../../appointments/components/NoShowMessage
 import { RescheduleInviteDialog } from '../../appointments/components/RescheduleInviteDialog.jsx';
 import { AppointmentConfirmDialog } from '../../appointments/components/AppointmentConfirmDialog.jsx';
 import { appointmentFromKanbanCard, noShowMessageConfig } from '../../../services/appointments/noShowMessage.js';
+import { appointmentActionsFor } from '../../../services/appointments/appointmentActions.js';
+import { noticeState } from '../../appointments/components/cancellationFlow.js';
+import { AppointmentCancelDialog } from '../../appointments/components/AppointmentCancelDialog.jsx';
 import { AppointmentDetails } from './AppointmentDetails.jsx';
 import { KanbanCardMenu } from './KanbanCardMenu.jsx';
 import { kanbanColumnPresentation } from '../../../services/kanban/kanbanColumnPresentation.js';
@@ -100,6 +104,7 @@ export function Kanban({
   const [noShowTarget, setNoShowTarget] = useState(null);
   const [rescheduleTarget, setRescheduleTarget] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
+  const [cancellingCard, setCancellingCard] = useState(null);
   const [kanbanActionStatus, setKanbanActionStatus] = useState('');
   // Recurso por tenant (settings.appointment_outcome_tracking): os demais clientes não veem nada novo.
   const outcomeTracking = isOutcomeTrackingEnabled(tenantSettings);
@@ -629,6 +634,14 @@ export function Kanban({
                       const preview = formatConversationPreview(card.subtitle);
                       // Card nascido de agendamento: status primeiro, depois cliente e horário em destaque.
                       const isBookingCard = String(card.id || '').startsWith('appointment-') && Boolean(card.appointmentContactName || card.appointmentWhen);
+                      // Cancelamento direto no card: a mesma regra da tela de Agendamentos (appointmentActionsFor).
+                      const cancelAppointment = card.appointmentId
+                        ? appointmentActionsFor(appointmentFromKanbanCard(card), { now: appointmentNow }).includes('cancel')
+                        : false;
+                      // Aviso de cancelamento com entrega incerta: o agendamento já está cancelado, mas o
+                      // operador ainda precisa conferir se a cliente recebeu o aviso.
+                      const checkCancellationNotice = card.appointmentId && card.appointmentStatus === 'cancelled'
+                        && noticeState(card.appointmentMetadata).canReconcile;
                       const menu = [];
 
                       if (hasChat && actionMode !== 'chat') {
@@ -646,6 +659,24 @@ export function Kanban({
                             run: () => handleMarkOutcome(card, outcome),
                           });
                         }
+                      }
+                      if (cancelAppointment) {
+                        menu.push({
+                          key: 'cancel-appointment',
+                          Icon: Ban,
+                          label: 'Cancelar agendamento',
+                          description: 'Cancelar o agendamento e avisar a cliente',
+                          run: () => setCancellingCard(card),
+                        });
+                      }
+                      if (checkCancellationNotice) {
+                        menu.push({
+                          key: 'check-cancellation-notice',
+                          Icon: Ban,
+                          label: 'Conferir aviso de cancelamento',
+                          description: 'A entrega do aviso não foi comprovada: confira na conversa',
+                          run: () => setCancellingCard(card),
+                        });
                       }
                       if (link) {
                         menu.push(
@@ -752,8 +783,34 @@ export function Kanban({
                             </span>
                           )}
 
-                          {(actionMode || menu.length > 0 || canInvite) && (
+                          {(actionMode || menu.length > 0 || canInvite || cancelAppointment || checkCancellationNotice) && (
                             <footer className="kanban-card-footer">
+                              {cancelAppointment && (
+                                <button
+                                  type="button"
+                                  className="kanban-card-cancel"
+                                  title="Cancelar este agendamento e avisar a cliente"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setCancellingCard(card);
+                                  }}
+                                >
+                                  <Ban size={13} aria-hidden="true" /> Cancelar
+                                </button>
+                              )}
+                              {checkCancellationNotice && (
+                                <button
+                                  type="button"
+                                  className="kanban-card-cancel"
+                                  title="A entrega do aviso de cancelamento não foi comprovada: confira na conversa"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setCancellingCard(card);
+                                  }}
+                                >
+                                  <Ban size={13} aria-hidden="true" /> Conferir aviso
+                                </button>
+                              )}
                               {canInvite && (inviteState === 'sent'
                                 ? <span>Convite enviado</span>
                                 : <button type="button" className="kanban-card-primary" onClick={() => setRescheduleTarget(appointmentFromKanbanCard(card))}>
@@ -826,6 +883,18 @@ export function Kanban({
           onClose={() => setRescheduleTarget(null)}
           onDone={async message => {
             setRescheduleTarget(null);
+            setKanbanActionStatus(message);
+            await onChanged?.();
+          }}
+        />
+      )}
+      {cancellingCard && (
+        <AppointmentCancelDialog
+          appointment={appointmentFromKanbanCard(cancellingCard)}
+          tenantSlug={tenantSlug}
+          onClose={() => setCancellingCard(null)}
+          onDone={async (message) => {
+            setCancellingCard(null);
             setKanbanActionStatus(message);
             await onChanged?.();
           }}
