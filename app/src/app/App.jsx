@@ -1,5 +1,5 @@
 import { userFacingError } from '../utils/userFacingError.js';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2,
   CalendarDays,
@@ -314,20 +314,34 @@ function App() {
     await signOut();
   };
 
-  const handleOpenChatFromKanban = (conversationId) => {
-    setInitialConversationId(conversationId);
-    setActive('conversas');
-  };
+  const handleSelectPage = useCallback((nextPage) => {
+    startTransition(() => {
+      setActive((current) => (current === nextPage ? current : nextPage));
+    });
+  }, []);
 
-  const handleOpenAppointmentFromKanban = (card) => {
+  const handleCloseMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  const handleOpenMobileNav = useCallback(() => setMobileNavOpen(true), []);
+
+  const handleOpenChatFromKanban = useCallback((conversationId) => {
+    setInitialConversationId(conversationId);
+    startTransition(() => setActive('conversas'));
+  }, []);
+
+  const handleOpenAppointmentFromKanban = useCallback((card) => {
     setPrefilledAppointment({
       contactName: card.title || '',
       title: card.service || card.subtitle || 'Bronzeamento',
       notes: `Agendamento via Kanban (${card.stage || 'Qualificação'})`,
       selectedConversationId: card.externalConversationId || '',
     });
-    setActive('agendamentos');
-  };
+    startTransition(() => setActive('agendamentos'));
+  }, []);
+
+  const handleOpenNotificationCard = useCallback((cardId) => {
+    setNotificationCard({ scopeKey, cardId });
+    startTransition(() => setActive('kanban'));
+  }, [scopeKey]);
 
   const handleMoveKanbanCard = async (card, targetColumnKey, targetColObj = null) => {
     const currentColumn = String(card.targetColumnId || card.stage || '');
@@ -1164,8 +1178,8 @@ function App() {
         active={active}
         menu={menu}
         mobileNavOpen={mobileNavOpen}
-        onCloseMobileNav={() => setMobileNavOpen(false)}
-        onSelectPage={setActive}
+        onCloseMobileNav={handleCloseMobileNav}
+        onSelectPage={handleSelectPage}
         selectedTenant={selectedTenant}
       />
 
@@ -1181,7 +1195,7 @@ function App() {
           loading={loading}
           menu={menu}
           mobileNavOpen={mobileNavOpen}
-          onOpenMobileNav={() => setMobileNavOpen(true)}
+          onOpenMobileNav={handleOpenMobileNav}
           refreshData={refreshData}
           selectedTenant={selectedTenant}
           setTenantSlug={setTenantSlug}
@@ -1192,12 +1206,9 @@ function App() {
           notificationConversationViewRef={conversationViewRef}
           notificationAppointments={appData.appointments}
           notificationKanbanColumns={appData.kanbanColumns}
-          onOpenNotificationPage={setActive}
+          onOpenNotificationPage={handleSelectPage}
           onOpenNotificationConversation={handleOpenChatFromKanban}
-          onOpenNotificationCard={cardId => {
-            setNotificationCard({ scopeKey, cardId });
-            setActive('kanban');
-          }}
+          onOpenNotificationCard={handleOpenNotificationCard}
         />
 
         {active === 'dashboard' && (

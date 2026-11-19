@@ -85,6 +85,17 @@ import { ConversationComposer } from './ConversationComposer.jsx';
 
 const MOBILE_CONVERSATIONS_QUERY = '(max-width: 800px)';
 const LATEST_MESSAGES_THRESHOLD = 120;
+const FULL_HISTORY_CACHE_LIMIT = 30;
+const fullHistoryCache = new Map();
+
+function rememberFullHistory(historyKey, messages) {
+  if (fullHistoryCache.has(historyKey)) fullHistoryCache.delete(historyKey);
+  fullHistoryCache.set(historyKey, messages);
+  if (fullHistoryCache.size > FULL_HISTORY_CACHE_LIMIT) {
+    const oldestKey = fullHistoryCache.keys().next().value;
+    fullHistoryCache.delete(oldestKey);
+  }
+}
 
 export function Conversations({
   allowedChannels = CHANNEL_OPTIONS.map(c => c.id),
@@ -429,8 +440,8 @@ export function Conversations({
   const headerTags = conversationListTags(headerSubtitleInfo, matchingKanbanCard, headerStageColumn);
   const headerStageChip = conversationStageChip(headerTags.column);
 
-  const [fullHistoryByChat, setFullHistoryByChat] = useState({});
-  const loadedChatHistoryRef = useRef(new Set());
+  const [fullHistoryByChat, setFullHistoryByChat] = useState(() => Object.fromEntries(fullHistoryCache));
+  const loadedChatHistoryRef = useRef(new Set(fullHistoryCache.keys()));
 
   useEffect(() => {
     const extId = selected?.externalConversationId;
@@ -442,6 +453,7 @@ export function Conversations({
       try {
         const fullMessages = await loadConversationFullHistory(tenantSlug, extId);
         if (!cancelled && Array.isArray(fullMessages) && fullMessages.length > 0) {
+          rememberFullHistory(historyKey, fullMessages);
           setFullHistoryByChat((prev) => ({
             ...prev,
             [historyKey]: fullMessages,

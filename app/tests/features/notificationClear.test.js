@@ -27,6 +27,10 @@ test('o painel limpa por dia direto no cabeçalho, sem menu de lixeira nem modo 
   assert.ok(panel.includes('className="notification-day-clear" onClick={() => clearDay(day)}'));
   assert.ok(panel.includes('onClearSelected?.(day.threads.flatMap('), 'limpa todos os eventos agrupados do dia');
   assert.ok(!panel.includes('notification-clear-menu') && !panel.includes('type="checkbox"') && !panel.includes('Trash2 size'));
+  // "Precisa de você" também pode ser limpo (pendência dispensada volta sozinha se a conversa mudar de novo).
+  assert.ok(panel.includes('onClick={() => onClearSelected(digest.needsAction.map(entry => entry.item))}'));
+  // O cabeçalho mostra só "Notificações", sem o nome do tenant.
+  assert.ok(!panel.includes("{tenantName || 'Sua equipe'}"));
   const center = read('NotificationCenter.jsx');
   assert.ok(center.includes('onClearAll={clearAll} onClearSelected={clearSelected}'));
   assert.ok(center.includes('activity.dismissItems(selected)'));

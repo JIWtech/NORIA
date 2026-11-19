@@ -8,13 +8,17 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
 const origin = 'http://127.0.0.1:5186';
 const user = { id: '00000000-0000-4000-8000-000000000001', email: 'fixture@example.invalid', role: 'authenticated' };
-const tenants = ['alpha', 'beta'].map((slug, i) => ({ id: `00000000-0000-4000-8000-00000000000${i + 2}`, slug, name: `Empresa ${slug}`, status: 'active' }));
+const tenants = ['alpha', 'beta', 'gamma'].map((slug, i) => ({ id: `00000000-0000-4000-8000-00000000000${i + 2}`, slug, name: `Empresa ${slug}`, status: 'active' }));
 const encode = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
 const token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: user.id, exp: Math.floor(Date.now() / 1000) + 3600, role: 'authenticated' })}.fixture`;
-const events = Object.fromEntries(tenants.map((t) => [t.slug, [{ id: `event-${t.slug}`, tenant_id: t.id, tenant_slug: t.slug,
+const events = Object.fromEntries(tenants.filter((t) => t.slug !== 'gamma').map((t) => [t.slug, [{ id: `event-${t.slug}`, tenant_id: t.id, tenant_slug: t.slug,
   channel_type: 'whatsapp', external_conversation_id: t.slug === 'alpha' ? '5511999990000@s.whatsapp.net' : '5511999990001@s.whatsapp.net',
   contact_name: `Cliente ${t.slug}`, created_at: new Date().toISOString(), direction: 'inbound', sender_type: 'contact',
   message_text: `Mensagem ${t.slug}`, raw_payload: {}, stage: 'Qualificação' }]]));
+// Tenant grande: 130 conversas na mesma etapa, para conferir a janela de 50 cards por coluna do Kanban.
+events.gamma = Array.from({ length: 130 }, (_, index) => ({ id: `event-gamma-${index}`, tenant_id: tenants[2].id, tenant_slug: 'gamma',
+  channel_type: 'whatsapp', external_conversation_id: `55119888${String(index).padStart(5, '0')}@s.whatsapp.net`, contact_name: `Contato gamma ${index}`,
+  created_at: new Date(Date.now() - index * 60000).toISOString(), direction: 'inbound', sender_type: 'contact', message_text: `Mensagem gamma ${index}`, raw_payload: {}, stage: 'Qualificação' }));
 const campaigns = Object.fromEntries(tenants.map((t) => [t.id, [{ id: `campaign-${t.slug}`, tenant_id: t.id, name: `Campanha ${t.slug}`, status: 'draft', total_recipients: 0 }]]));
 
 (async () => {
@@ -79,7 +83,9 @@ const campaigns = Object.fromEntries(tenants.map((t) => [t.id, [{ id: `campaign-
       const url = new URL(request.url());
       if (url.origin === origin) return route.continue();
       if (url.hostname !== 'panel-preview.supabase.co') return route.abort();
-      const table = url.pathname.split('/').at(-1);
+      // A versão leve da lista de conversas (conversation_latest_events_light) conta como a mesma leitura de heads.
+      const rawTable = url.pathname.split('/').at(-1);
+      const table = rawTable === 'conversation_latest_events_light' ? 'conversation_latest_events' : rawTable;
       counts[table] = (counts[table] || 0) + 1;
       const slug = url.searchParams.get('tenant_slug')?.replace('eq.', '') || url.searchParams.get('slug')?.replace('eq.', '') || 'alpha';
       const tenantId = url.searchParams.get('tenant_id')?.replace('eq.', '') || tenants[0].id;
@@ -171,6 +177,20 @@ const campaigns = Object.fromEntries(tenants.map((t) => [t.id, [{ id: `campaign-
     await page.getByRole('option', { name: 'Empresa beta' }).click();
     await page.getByText('Cliente beta', { exact: true }).first().waitFor();
     assert.equal(await page.getByText('Cliente alpha', { exact: true }).count(), 0, 'troca de empresa deve isolar conversas');
+    // Kanban com 130 conversas: a coluna desenha 50 cards, mostra o restante e carrega mais ao rolar até o fim.
+    await page.getByRole('combobox', { name: 'Selecionar empresa' }).click();
+    await page.getByRole('option', { name: 'Empresa gamma' }).click();
+    await page.locator('.sidebar').getByRole('button', { name: 'Kanban', exact: true }).click();
+    const showMore = page.locator('.kanban-show-more').first();
+    await showMore.waitFor();
+    const column = page.locator('.column-cards-container').filter({ has: showMore });
+    const drawn = () => column.locator('.kanban-card:not(.kanban-card-skeleton)').count();
+    assert.equal(await drawn(), 50, 'coluna grande desenha só 50 cards');
+    assert.equal(await page.locator('.kanban-column, section, div').filter({ has: showMore }).locator('.column-count-badge').first().innerText(), '50 de 130');
+    assert.match(await showMore.innerText(), /Mostrar mais 50 de 80/);
+    await showMore.scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelectorAll('.kanban-card:not(.kanban-card-skeleton)').length >= 100);
+    assert.equal(await drawn(), 100, 'ao rolar até o fim carrega mais 50');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Abrir navegação' }).click();
     await page.getByRole('dialog', { name: 'Navegação principal' }).getByRole('button', { name: 'Agendamentos', exact: true }).click();

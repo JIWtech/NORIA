@@ -28,12 +28,17 @@ test('lista menor que a página e limite inválido', () => {
 });
 
 test('páginas padrão e uso no Kanban e na lista de conversas', () => {
-  assert.equal(KANBAN_CARDS_PAGE, 40);
+  assert.equal(KANBAN_CARDS_PAGE, 50);
   assert.equal(CONVERSATIONS_PAGE, 60);
   const kanban = fs.readFileSync(new URL('../../src/features/kanban/components/Kanban.jsx', import.meta.url), 'utf8');
   assert.match(kanban, /windowItems\(column\.cards, cardLimits\[column\.id\] \|\| KANBAN_CARDS_PAGE, focusedCardId\)/);
-  assert.match(kanban, /Mostrar mais/);
+  assert.match(kanban, /<KanbanLoadMore hidden=\{hidden\}/);
+  assert.match(kanban, /`\$\{shown\} de \$\{column\.cards\.length\}`/, 'contador da coluna cortada mostra "50 de 349"');
   assert.match(kanban, /olderConversations\.toggle/);
+  // Coluna carrega mais sozinha ao rolar até o fim; o botão continua como alternativa (teclado, navegador sem observer).
+  const loadMore = fs.readFileSync(new URL('../../src/features/kanban/components/KanbanLoadMore.jsx', import.meta.url), 'utf8');
+  assert.match(loadMore, /IntersectionObserver/);
+  assert.match(loadMore, /Mostrar mais/);
   const sidebar = fs.readFileSync(new URL('../../src/features/conversations/components/ConversationSidebar.jsx', import.meta.url), 'utf8');
   assert.match(sidebar, /windowItems\(filteredConversations, conversationLimit, selectedConversationId\)/);
   assert.match(sidebar, /IntersectionObserver/);

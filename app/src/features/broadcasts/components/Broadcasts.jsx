@@ -20,7 +20,9 @@ import {
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
 import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
+import { ListLoadMore } from '../../../components/ui/ListLoadMore.jsx';
 import { NoriaSelect } from '../../../components/NoriaSelect';
+import { BROADCAST_CONTACTS_PAGE, windowItems } from '../../../utils/renderWindow.js';
 import {
   createBroadcastCampaign,
   upsertBroadcastContacts,
@@ -50,6 +52,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const [messageText, setMessageText] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [contactSearch, setContactSearch] = useState('');
+  const [contactLimit, setContactLimit] = useState(BROADCAST_CONTACTS_PAGE);
   const [stageFilter, setStageFilter] = useState('');
   const [busy, setBusy] = useState(false);
   const [consentConfirmed, setConsentConfirmed] = useState(false);
@@ -96,6 +99,10 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       return `${name} ${phone}`.toLocaleLowerCase('pt-BR').includes(query);
     });
   }, [allContacts, contactSearch]);
+  const { visible: renderedContacts, hidden: hiddenContacts } = useMemo(
+    () => windowItems(visibleContacts, contactLimit),
+    [visibleContacts, contactLimit],
+  );
   const allVisibleSelected = visibleContacts.length > 0 && visibleContacts.every((contact) => selected.has(contact.key || contactKey(contact)));
 
   async function importFile(file) {
@@ -454,14 +461,14 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           </div>}
 
           <div className="bc-list-bar">
-            <label className="bc-search"><Search size={15} aria-hidden="true" /><input value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="Buscar por nome ou telefone" aria-label="Buscar contatos" /></label>
+            <label className="bc-search"><Search size={15} aria-hidden="true" /><input value={contactSearch} onChange={(event) => { setContactSearch(event.target.value); setContactLimit(BROADCAST_CONTACTS_PAGE); }} placeholder="Buscar por nome ou telefone" aria-label="Buscar contatos" /></label>
             <button type="button" className="bc-text-btn" onClick={toggleAllVisibleContacts} disabled={!visibleContacts.length}>{allVisibleSelected ? 'Desmarcar todos' : 'Selecionar todos'}</button>
             {selectedContacts.length > 0 && <button type="button" className="bc-text-btn is-muted" onClick={clearSelectedContacts}>Limpar</button>}
           </div>
 
           <ul className="bc-list">
             {!ready ? [1, 2, 3, 4].map((i) => <li className="bc-row" key={i}><SkeletonBlock width="16px" height="16px" style={{ borderRadius: '4px' }} /><SkeletonBlock width="30px" height="30px" style={{ borderRadius: '50%' }} /><div style={{ flex: 1 }}><SkeletonLine width="120px" /><SkeletonLine width="90px" style={{ marginTop: '4px' }} /></div></li>) : <>
-              {visibleContacts.map((contact) => {
+              {renderedContacts.map((contact) => {
                 const key = contact.key || contactKey(contact);
                 const name = displayContactName(contact);
                 const phone = displayContactPhone(contact);
@@ -474,6 +481,15 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                   <span className={`bc-channel-badge bc-tone-${channelTone(channel)}`} title={channel}><ChannelIcon channel={channel} size={15} /></span>
                 </label></li>;
               })}
+              {hiddenContacts > 0 && (
+                <li className="bc-load-more-row">
+                  <ListLoadMore
+                    hidden={hiddenContacts}
+                    pageSize={BROADCAST_CONTACTS_PAGE}
+                    onLoadMore={() => setContactLimit((limit) => limit + BROADCAST_CONTACTS_PAGE)}
+                  />
+                </li>
+              )}
               {!visibleContacts.length && <li className="bc-empty">
                 <span className="bc-empty-icon" aria-hidden="true"><UsersRound size={20} /></span>
                 <strong>{allContacts.length ? 'Nenhum contato encontrado' : 'Nenhum contato ainda'}</strong>

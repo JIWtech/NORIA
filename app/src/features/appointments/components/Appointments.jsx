@@ -19,7 +19,9 @@ import { PanelTitle } from '../../../components/ui/PanelTitle';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
 import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
+import { ListLoadMore } from '../../../components/ui/ListLoadMore.jsx';
 import { NoriaSelect } from '../../../components/NoriaSelect';
+import { APPOINTMENTS_SECTION_PAGE, windowItems } from '../../../utils/renderWindow.js';
 import {
   loadAppointmentAvailability,
   loadAppointmentScheduling,
@@ -39,16 +41,19 @@ import { noticeState } from './cancellationFlow.js';
 import { AppointmentConfirmDialog } from './AppointmentConfirmDialog.jsx';
 import { NoShowMessageDialog } from './NoShowMessageDialog.jsx';
 
+const schedulingCacheByTenant = new Map();
+
 export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false, tenantSettings = null }) {
   const [outcomeBusyId, setOutcomeBusyId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sectionLimits, setSectionLimits] = useState({});
   const [editing, setEditing] = useState(null);
   const [cancelling, setCancelling] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [noShowTarget, setNoShowTarget] = useState(null);
   const timeZone = tenantSettings?.timezone || undefined;
   const depositIndex = useDepositRequired(outcomeTracking ? tenantSlug : '', appointments);
-  const [schedule, setSchedule] = useState(null);
+  const [schedule, setSchedule] = useState(() => schedulingCacheByTenant.get(tenantSlug) || null);
   const [unitId, setUnitId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [localDate, setLocalDate] = useState('');
@@ -69,9 +74,18 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     let active = true;
     setCancelling(null);
     setConfirmation(null);
-    setSchedule(null); setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime('');
+    setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime('');
     requestId.current = crypto.randomUUID();
-    loadAppointmentScheduling(tenantSlug).then(value => { if (active) setSchedule(value); })
+    const cached = schedulingCacheByTenant.get(tenantSlug);
+    if (cached) {
+      setSchedule(cached);
+      return () => { active = false; };
+    }
+    setSchedule(null);
+    loadAppointmentScheduling(tenantSlug).then(value => {
+      schedulingCacheByTenant.set(tenantSlug, value);
+      if (active) setSchedule(value);
+    })
       .catch(() => { if (active) setStatus('Nao foi possivel carregar a agenda. Atualize a pagina antes de reservar.'); });
     return () => { active = false; };
   }, [tenantSlug]);
@@ -274,13 +288,19 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
             </div>
           ) : (
             <>
-              {sections.map((section) => section.items.length > 0 && (
+              {sections.map((section) => {
+                if (!section.items.length) return null;
+                const { visible: visibleAppointments, hidden: hiddenAppointments } = windowItems(
+                  section.items,
+                  sectionLimits[section.key] || APPOINTMENTS_SECTION_PAGE,
+                );
+                return (
                 <details className="appointment-day appointment-section" key={section.key} data-section={section.key} open={!section.collapsed || Boolean(searchQuery.trim())}>
                   <summary className="appointment-section-summary">
                     <h3>{section.title}</h3>
                     <span className="appointment-section-count">{section.items.length}</span>
                   </summary>
-                  {section.items.map((appointment) => {
+                  {visibleAppointments.map((appointment) => {
                     const item = appointmentAgendaItem(appointment, { timeZone });
                     const actions = appointmentActionsFor(appointment, { outcomeTracking, now: appointmentNow });
                     const outcomes = actions.filter((action) => action === 'attended' || action === 'no_show');
@@ -357,8 +377,17 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                       </article>
                     );
                   })}
+                  <ListLoadMore
+                    hidden={hiddenAppointments}
+                    pageSize={APPOINTMENTS_SECTION_PAGE}
+                    onLoadMore={() => setSectionLimits((current) => ({
+                      ...current,
+                      [section.key]: (current[section.key] || APPOINTMENTS_SECTION_PAGE) + APPOINTMENTS_SECTION_PAGE,
+                    }))}
+                  />
                 </details>
-              ))}
+                );
+              })}
               {appointments.length > 0 && !visibleCount && <EmptyState title="Nenhum agendamento encontrado" text="Nenhum agendamento com esse nome." compact />}
               {!appointments.length && <EmptyState title="Nenhum agendamento" text="Crie um agendamento para acompanhar seus próximos atendimentos." compact />}
             </>

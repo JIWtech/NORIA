@@ -759,6 +759,10 @@
   user-select: none;
 }
 
+.kanban-scroll-drag-surface.is-drag-scrolling .kanban-card {
+  pointer-events: none;
+}
+
 .kanban-stage-shortcut {
   --stage-accent: var(--brand);
   --stage-tint: rgba(0, 224, 255, 0.08);
@@ -863,7 +867,9 @@
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-behavior: smooth;
+  /* Contém os dois eixos: a roda é tratada por um ouvinte passivo (sem preventDefault)
+     e não pode rolar a página junto com o quadro. */
+  overscroll-behavior: contain;
   scrollbar-width: none;
   padding: 0 2px 8px;
 }
@@ -887,6 +893,7 @@
   max-width: var(--kanban-column-width);
   height: 100%;
   overflow: hidden;
+  contain: layout style paint;
   box-sizing: border-box;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
@@ -985,6 +992,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -1020,11 +1028,15 @@
   flex: 0 0 auto;
   flex-direction: column;
   gap: 8px;
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  transition: border-color 120ms ease, transform 120ms ease;
   position: relative;
   box-sizing: border-box;
   box-shadow: 0 2px 6px rgba(3, 7, 18, 0.22);
   min-width: 0;
+  cursor: default;
+  /* Só isolamento de layout. Pular a pintura com altura estimada fazia a barra de rolagem
+     da coluna saltar (cards de ~115px a ~260px); a janela de 50 cards já limita o custo. */
+  contain: layout style;
 }
 
 .kanban-card.is-channel-exiting {

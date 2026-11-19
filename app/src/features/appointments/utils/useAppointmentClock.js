@@ -6,7 +6,7 @@ export function useAppointmentClock(enabled = true) {
     if (!enabled) return;
     const update = () => setNow(Date.now());
     update();
-    const timer = window.setInterval(update, 15000);
+    const timer = window.setInterval(update, 60000);
     document.addEventListener('visibilitychange', update);
     return () => {
       window.clearInterval(timer);

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from './useNotifications.js';
 import { humanReplyStatus } from './notificationService.js';
 import { findNotificationConversation, notificationMakesSound, applyClearedBefore, applyDismissed, notificationScope, reconcileNotifications } from './operatorEvents.js';
@@ -12,7 +12,7 @@ import { attachAvatars } from './notificationSituations.js';
 const EMPTY = [];
 const pages = { leads: 'kanban', appointments: 'agendamentos', campaigns: 'disparos', conversations: 'conversas', attention: 'conversas' };
 
-export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, role, settings, dataReady = true,
+export const NotificationCenter = memo(function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, role, settings, dataReady = true,
   conversationViewRef, conversations = EMPTY, appointments = EMPTY, kanbanColumns = EMPTY, onOpenConversation, onOpenPage, onOpenCard }) {
   const inbox = useNotifications(tenantId, userId);
   const activity = useOperatorNotifications({ tenantId, tenantSlug, userId, conversationViewRef, appointments, kanbanColumns });
@@ -110,4 +110,4 @@ export function NotificationCenter({ tenantId, tenantSlug, userId, tenantName, r
     showPending={canOperateNotifications(role) || items.some(item => item.pending)}
     onSettings={onOpenPage ? () => onOpenPage('configuracoes') : undefined} />
   </>;
-}
+});

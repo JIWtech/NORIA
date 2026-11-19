@@ -239,7 +239,7 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
         <header className="notification-heading">
           <div className="notification-heading-text">
             <h2 id={titleId}>Notificações</h2>
-            <p>{tenantName || 'Sua equipe'}{simulation && <span> · Simulação local</span>}</p>
+            {simulation && <p><span>Simulação local</span></p>}
           </div>
           <div className="notification-tools">
             {unread > 0 && <button type="button" className="icon-button" onClick={onMarkAll}
@@ -278,7 +278,12 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
             {emptyState[1] && <p>{emptyState[1]}</p>}
           </div>}
           {digest.needsAction.length > 0 && <section className="notification-section is-action" aria-label="Precisa de você">
-            <h3 className="notification-date-group">Precisa de você<span>{digest.needsAction.length}</span></h3>
+            <h3 className="notification-date-group">Precisa de você
+              <span className="notification-day-count">{digest.needsAction.length}</span>
+              {onClearSelected && <button type="button" className="notification-day-clear"
+                onClick={() => onClearSelected(digest.needsAction.map(entry => entry.item))}
+                aria-label="Limpar avisos de Precisa de você">Limpar</button>}
+            </h3>
             <ul className="notification-list">{digest.needsAction.map(renderPending)}</ul>
           </section>}
           {digest.activity.map(day => <section key={day.key} className="notification-section" aria-label={day.label}>

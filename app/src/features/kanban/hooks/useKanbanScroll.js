@@ -1,5 +1,41 @@
 import { useEffect, useRef } from 'react';
 
+// Pausa sem eventos de roda que encerra um gesto. A inércia da roda livre e do trackpad
+// manda eventos seguidos por mais de 1s; só uma pausa real inicia um gesto novo.
+export const WHEEL_GESTURE_IDLE_MS = 280;
+
+export function createWheelGesture() {
+  return { lastEventAt: -Infinity, lockedVertical: false };
+}
+
+// Decide para onde vai cada evento de roda:
+// - 'vertical': a coluna sob o cursor ainda rola nessa direção (o navegador cuida);
+// - 'hold': o gesto começou rolando a coluna e ela chegou ao fim; o restante do gesto é ignorado;
+// - 'horizontal': o quadro rola para o lado.
+export function resolveWheelIntent(gesture, { now, canScrollColumn }) {
+  if (now - gesture.lastEventAt > WHEEL_GESTURE_IDLE_MS) gesture.lockedVertical = false;
+  gesture.lastEventAt = now;
+  if (canScrollColumn) {
+    gesture.lockedVertical = true;
+    return 'vertical';
+  }
+  return gesture.lockedVertical ? 'hold' : 'horizontal';
+}
+
+// Velocidade (px/s) da rolagem vertical de uma coluna durante o arraste de um card:
+// negativa perto do topo, positiva perto da base, zero no meio ou fora da coluna.
+export function verticalEdgeSpeed(rect, y, { edge = 72, min = 160, max = 900 } = {}) {
+  if (y < rect.top || y > rect.bottom) return 0;
+  const zone = Math.min(edge, (rect.bottom - rect.top) / 3);
+  const fromTop = y - rect.top;
+  const fromBottom = rect.bottom - y;
+  if (fromTop >= zone && fromBottom >= zone) return 0;
+  const toTop = fromTop < fromBottom;
+  const ratio = 1 - Math.min(1, (toTop ? fromTop : fromBottom) / zone);
+  const speed = min + (max - min) * ratio * ratio;
+  return toTop ? -speed : speed;
+}
+
 export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTargets = false } = {}) {
   const dragStateRef = useRef({
     pointerId: null,
@@ -35,12 +71,15 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
     };
 
     const handlePointerDown = (event) => {
-      if (event.pointerType !== 'mouse' || event.button !== 0 || state.pointerId !== null) return;
+      const isPrimary = event.button === 0;
+      const isMiddle = event.button === 1;
+      if (event.pointerType !== 'mouse' || (!isPrimary && !isMiddle) || state.pointerId !== null) return;
       // A new press starts a new gesture. It must never inherit click
       // suppression left by a drag that did not emit a residual click.
       state.suppressClick = false;
       window.clearTimeout(state.suppressTimer);
-      if (blockInteractiveTargets && event.target.closest?.(interactiveSelector)) return;
+      // Botão do meio permite rolar o quadro mesmo sobre cards arrastáveis; botão esquerdo respeita alvos interativos.
+      if (isPrimary && blockInteractiveTargets && event.target.closest?.(interactiveSelector)) return;
       if (container.scrollWidth <= container.clientWidth) return;
 
       state.pointerId = event.pointerId;
@@ -50,6 +89,7 @@ export function useHorizontalMouseDragScroll(containerRef, { blockInteractiveTar
       state.targetScrollLeft = container.scrollLeft;
       state.originalScrollBehavior = container.style.scrollBehavior;
       state.dragging = false;
+      if (isMiddle) event.preventDefault();
       // O corpo do card rola o quadro e não recebe foco por clique do mouse.
       if (event.target.closest?.('.kanban-card')) event.preventDefault();
     };
@@ -130,6 +170,9 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
   const scrollStateRef = useRef({
     frameId: null,
     speed: 0,
+    // Rolagem vertical da coluna sob o cursor (arrastar perto do topo ou da base).
+    vSpeed: 0,
+    vContainer: null,
     originalScrollBehavior: null,
     lastCoords: null,
     lastHoveredColId: null,
@@ -142,11 +185,18 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
 
     const state = scrollStateRef.current;
     const EDGE_ZONE = 110;
-    const MIN_SPEED = 2.5;
-    const MAX_SPEED = 18;
+    // Velocidades em px/s para comportamento idêntico em 60Hz, 120Hz e 144Hz.
+    const MIN_SPEED_PX_S = 180;
+    const MAX_SPEED_PX_S = 1100;
+    const HIT_TEST_INTERVAL_MS = 80;
+    let lastFrameTime = 0;
+    let lastHitTestTime = 0;
 
     const stopLoop = () => {
       state.speed = 0;
+      state.vSpeed = 0;
+      state.vContainer = null;
+      lastFrameTime = 0;
       if (state.frameId !== null) {
         window.cancelAnimationFrame(state.frameId);
         state.frameId = null;
@@ -157,28 +207,51 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
       }
     };
 
-    const scrollStep = () => {
+    const scrollStep = (timestamp) => {
       const currentContainer = containerRef.current;
-      if (!currentContainer || state.speed === 0) {
+      if (!currentContainer || (state.speed === 0 && state.vSpeed === 0)) {
         state.frameId = null;
+        lastFrameTime = 0;
         return;
       }
 
+      const dt = lastFrameTime ? Math.min(0.05, Math.max(0.004, (timestamp - lastFrameTime) / 1000)) : 1 / 60;
+      lastFrameTime = timestamp;
+
       const maxScroll = Math.max(0, currentContainer.scrollWidth - currentContainer.clientWidth);
       const currentScroll = currentContainer.scrollLeft;
-      const speed = state.speed;
+      const step = state.speed * dt;
 
       let didScroll = false;
-      if (speed > 0 && currentScroll < maxScroll) {
-        currentContainer.scrollLeft = Math.min(maxScroll, currentScroll + speed);
+      if (step > 0 && currentScroll < maxScroll) {
+        currentContainer.scrollLeft = Math.min(maxScroll, currentScroll + step);
         didScroll = true;
-      } else if (speed < 0 && currentScroll > 0) {
-        currentContainer.scrollLeft = Math.max(0, currentScroll + speed);
+      } else if (step < 0 && currentScroll > 0) {
+        currentContainer.scrollLeft = Math.max(0, currentScroll + step);
         didScroll = true;
       }
 
-      // Se moveu o scroll e temos coordenadas do cursor, atualiza a coluna sob o cursor
-      if (didScroll && state.lastCoords && typeof onColumnHover === 'function') {
+      // Eixo vertical: rola a lista de cards da coluna sob o cursor.
+      let didScrollVertical = false;
+      const column = state.vContainer;
+      if (column && state.vSpeed !== 0 && column.isConnected) {
+        const maxTop = Math.max(0, column.scrollHeight - column.clientHeight);
+        const top = column.scrollTop;
+        const vStep = state.vSpeed * dt;
+        if ((vStep > 0 && top < maxTop) || (vStep < 0 && top > 0)) {
+          column.scrollTop = Math.max(0, Math.min(maxTop, top + vStep));
+          didScrollVertical = true;
+        }
+      }
+
+      // Atualiza a coluna sob o cursor com throttle para evitar hit-test síncrono a cada frame.
+      if (
+        didScroll
+        && state.lastCoords
+        && typeof onColumnHover === 'function'
+        && (timestamp - lastHitTestTime >= HIT_TEST_INTERVAL_MS)
+      ) {
+        lastHitTestTime = timestamp;
         const el = document.elementFromPoint(state.lastCoords.x, state.lastCoords.y);
         const colEl = el?.closest?.('.kanban-column');
         if (colEl) {
@@ -193,10 +266,11 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
         }
       }
 
-      if (didScroll) {
+      if (didScroll || didScrollVertical) {
         state.frameId = window.requestAnimationFrame(scrollStep);
       } else {
         state.frameId = null;
+        lastFrameTime = 0;
       }
     };
 
@@ -206,6 +280,7 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
           state.originalScrollBehavior = container.style.scrollBehavior;
         }
         container.style.scrollBehavior = 'auto';
+        lastFrameTime = 0;
         state.frameId = window.requestAnimationFrame(scrollStep);
       }
     };
@@ -230,21 +305,27 @@ export function useKanbanDragAutoScroll(containerRef, isDragging, onColumnHover)
         const dist = Math.max(0, x - rect.left);
         const ratio = 1 - Math.min(1, dist / EDGE_ZONE);
         const eased = ratio * ratio;
-        state.speed = -(MIN_SPEED + (MAX_SPEED - MIN_SPEED) * eased);
-        startLoop();
+        state.speed = -(MIN_SPEED_PX_S + (MAX_SPEED_PX_S - MIN_SPEED_PX_S) * eased);
       }
       // Zona de auto-scroll à direita
       else if (x > rect.right - EDGE_ZONE && x <= rect.right + 50) {
         const dist = Math.max(0, rect.right - x);
         const ratio = 1 - Math.min(1, dist / EDGE_ZONE);
         const eased = ratio * ratio;
-        state.speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * eased;
-        startLoop();
+        state.speed = MIN_SPEED_PX_S + (MAX_SPEED_PX_S - MIN_SPEED_PX_S) * eased;
       }
       // Fora das zonas de borda
       else {
-        stopLoop();
+        state.speed = 0;
       }
+
+      // Topo ou base da lista de cards da coluna sob o cursor
+      const cards = event.target?.closest?.('.kanban-column')?.querySelector?.('.column-cards-container');
+      state.vSpeed = cards ? verticalEdgeSpeed(cards.getBoundingClientRect(), y) : 0;
+      state.vContainer = state.vSpeed !== 0 ? cards : null;
+
+      if (state.speed !== 0 || state.vSpeed !== 0) startLoop();
+      else stopLoop();
     };
 
     const handleDragEndOrDrop = () => {
@@ -273,87 +354,111 @@ export function useKanbanWheelScroll(containerRef) {
     const container = containerRef.current;
     if (!container) return undefined;
 
-    let lastVerticalScrollTime = 0;
-    let restoreTimer = null;
+    const gesture = createWheelGesture();
+    let frameId = null;
+    let lastFrameTime = 0;
+    let currentPos = container.scrollLeft;
+    let targetPos = container.scrollLeft;
+
+    const cancelAnimation = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      lastFrameTime = 0;
+    };
+
+    const animateScroll = (timestamp) => {
+      const dt = lastFrameTime ? Math.min(0.05, Math.max(0.004, (timestamp - lastFrameTime) / 1000)) : 1 / 60;
+      lastFrameTime = timestamp;
+
+      // Interpolação exponencial independente da taxa de atualização (60Hz / 120Hz / 144Hz).
+      const factor = 1 - Math.exp(-18 * dt);
+      const diff = targetPos - currentPos;
+
+      if (Math.abs(diff) <= 0.6) {
+        container.scrollLeft = targetPos;
+        currentPos = targetPos;
+        frameId = null;
+        lastFrameTime = 0;
+        return;
+      }
+
+      currentPos += diff * factor;
+      container.scrollLeft = currentPos;
+      frameId = window.requestAnimationFrame(animateScroll);
+    };
 
     const handleWheel = (event) => {
       if (event.defaultPrevented) return;
 
       // Se o scroll horizontal nativo for predominante (ex: trackpad com gesto horizontal), deixa o navegador agir
       if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
+        cancelAnimation();
         return;
       }
 
-      // Analisa a hierarquia para verificar se o cursor está sobre uma lista vertical de cards
-      const target = event.target;
-      const cardsContainer = target?.closest?.('.column-cards-container');
-
-      if (cardsContainer) {
-        const scrollableDistance = cardsContainer.scrollHeight - cardsContainer.clientHeight;
-        const hasVerticalScroll = scrollableDistance > 3;
-
-        // Se a coluna possui scroll vertical e o usuário não estiver segurando Shift (padrão para forçar horizontal)
-        if (hasVerticalScroll && !event.shiftKey) {
-          const isScrollingDown = event.deltaY > 0;
-          const isScrollingUp = event.deltaY < 0;
-          const isAtBottom = cardsContainer.scrollTop + cardsContainer.clientHeight >= cardsContainer.scrollHeight - 3;
-          const isAtTop = cardsContainer.scrollTop <= 3;
-
-          // Se há espaço para rolar verticalmente na direção do wheel, preserva o scroll vertical dos cards
-          if ((isScrollingDown && !isAtBottom) || (isScrollingUp && !isAtTop)) {
-            lastVerticalScrollTime = Date.now();
-            return;
-          }
-
-          // Se acabou de rolar verticalmente (nos últimos 180ms), amortece o final da rolagem
-          // para não disparar um salto horizontal repentino no mesmo gesto contínuo
-          if (Date.now() - lastVerticalScrollTime < 180) {
-            return;
-          }
-        }
+      // Coluna sob o cursor que ainda rola na direção do giro: a rolagem vertical é do navegador.
+      // Um gesto que começou na coluna fica nela até a roda parar (sem escorregar para o lado no fim).
+      const cardsContainer = event.shiftKey ? null : event.target?.closest?.('.column-cards-container');
+      let canScrollColumn = false;
+      if (cardsContainer && cardsContainer.scrollHeight - cardsContainer.clientHeight > 3) {
+        canScrollColumn = event.deltaY > 0
+          ? cardsContainer.scrollTop + cardsContainer.clientHeight < cardsContainer.scrollHeight - 3
+          : event.deltaY < 0 && cardsContainer.scrollTop > 3;
       }
+      if (resolveWheelIntent(gesture, { now: event.timeStamp, canScrollColumn }) !== 'horizontal') return;
 
       // Normalização do delta proporcional ao deltaMode
       let delta = event.deltaY;
       if (event.deltaMode === 1) {
         // DOM_DELTA_LINE (típico de roda de mouse no Windows)
-        delta *= 30;
+        delta *= 32;
       } else if (event.deltaMode === 2) {
         // DOM_DELTA_PAGE
         delta *= container.clientWidth * 0.8;
       }
 
-      // Limita a velocidade por tick para evitar saltos bruscos
-      const clampedDelta = Math.max(-160, Math.min(160, delta));
+      const clampedDelta = Math.max(-220, Math.min(220, delta));
       if (clampedDelta === 0) return;
 
       const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
       if (maxScroll <= 0) return;
 
-      const currentScroll = container.scrollLeft;
-      const targetScroll = Math.max(0, Math.min(maxScroll, currentScroll + clampedDelta));
+      // Sincroniza posição inicial caso o scroll tenha sido movido por fora (atalho, scrollbar ou drag)
+      if (frameId === null) {
+        currentPos = container.scrollLeft;
+        targetPos = currentPos;
+      }
 
-      // Impede o scroll vertical da página principal (body)
-      event.preventDefault();
+      const nextTarget = Math.max(0, Math.min(maxScroll, targetPos + clampedDelta));
+      if (nextTarget === targetPos) return;
 
-      if (targetScroll !== currentScroll) {
-        if (container.style.scrollBehavior !== 'auto') {
-          container.style.scrollBehavior = 'auto';
-        }
-        container.scrollLeft = targetScroll;
+      // Ouvinte passivo: sem preventDefault. O quadro tem overflow-y oculto e
+      // overscroll-behavior: contain, então a roda vertical não rola a página junto.
+      targetPos = nextTarget;
 
-        window.clearTimeout(restoreTimer);
-        restoreTimer = window.setTimeout(() => {
-          if (container) container.style.scrollBehavior = '';
-        }, 150);
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      if (reduceMotion) {
+        currentPos = targetPos;
+        container.scrollLeft = targetPos;
+        return;
+      }
+
+      if (frameId === null) {
+        lastFrameTime = 0;
+        frameId = window.requestAnimationFrame(animateScroll);
       }
     };
 
-    container.addEventListener('wheel', handleWheel, { passive: false });
+    // Passivo: a coluna sob o cursor rola direto no compositor, sem esperar o JavaScript.
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('pointerdown', cancelAnimation, { passive: true });
 
     return () => {
-      window.clearTimeout(restoreTimer);
+      cancelAnimation();
       container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('pointerdown', cancelAnimation);
     };
   }, [containerRef]);
 }
