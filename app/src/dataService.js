@@ -1,9 +1,10 @@
+import { loadClientDataWithClient } from './services/clientData/clientDataLoader.js';
 import { createClient } from '@supabase/supabase-js';
 import { asObject } from './utils/asObject.js';
 import { formatDate, compareDateLabel } from './utils/dateFormatting.js';
 import { appointmentTimestamp, isMoreRecentRecord } from './utils/recordRecency.js';
 import { getAuthClient, isAuthRequired } from './services/auth/authService.js';
-import { loadUserTenants, enabledChannels } from './services/tenants/tenantAccess.js';
+import { loadUserTenants } from './services/tenants/tenantAccess.js';
 import { prepareConversationEvents } from './services/conversations/conversationEvents.js';
 import { applyConversationLifecycle, isConversationClosed, requirePersistedClosure } from './services/conversations/conversationLifecycle.js';
 export { isConversationClosed };
@@ -44,9 +45,7 @@ export { resolveConversationDisplayName };
 import { cleanAgentName } from './services/agents/agentNames.js';
 export { cleanAgentName };
 import { loadTeamAgents as loadTeamAgentsWithDependencies } from './services/agents/teamAgentReads.js';
-import { mapAppointment } from './services/appointments/appointmentPresentation.js';
 import { createSaveAppointment } from './services/appointments/saveAppointment.js';
-import { loadConversationHeads, mergeConversationHeads } from './services/conversations/conversationHeads.js';
 import { createAppointmentDataService } from './services/appointments/appointmentDataService.js';
 import { createBroadcastOperations } from './services/broadcasts/broadcastOperations.js';
 import { createTeamAgentManagement } from './services/agents/teamAgentManagement.js';
@@ -138,21 +137,13 @@ import {
   loadContactAvatars as loadContactAvatarsWithClient,
   loadRelevantContacts as loadRelevantContactsWithClient,
 } from './services/contacts/contactDataService.js';
-import {
-  findTenantBySlug,
-  loadAppointments as loadAppointmentsWithClient,
-  loadBroadcastCampaigns as loadBroadcastCampaignsWithClient,
-  loadBroadcastContacts as loadBroadcastContactsWithClient,
-  loadFollowUpJobs as loadFollowUpJobsWithClient,
-  loadKanbanConfig as loadKanbanConfigWithClient,
-} from './services/tenants/tenantDataReads.js';
+import { findTenantBySlug } from './services/tenants/tenantDataReads.js';
 import {
   loadConversationReads as loadConversationReadsWithClient,
   markConversationRead as markConversationReadWithClient,
 } from './services/reads/conversationDataReads.js';
 import {
   buildSalesLeadIndex as buildSalesLeadIndexWithHelpers,
-  loadSalesLeads as loadSalesLeadsWithClient,
   resolveSalesControlMode,
 } from './services/leads/leadDataReads.js';
 export { resolveSalesControlMode };
@@ -172,8 +163,6 @@ import { eventsToKanban, orderKanbanColumnsForTenant, ownerMetadataFromKanbanEve
 export { eventsToKanban, orderKanbanColumnsForTenant, ownerMetadataFromKanbanEvent, resolveTenantKanbanStage };
 import { buildGenesisSalesMovePayload, createMoveKanbanCard } from './services/kanban/kanbanCardMovement.js';
 export { buildGenesisSalesMovePayload };
-import { enrichCatalogReferrals } from './services/catalog/catalogReferrals.js';
-import { buildEmptyClientData, buildLoadedClientData, buildStatus } from './services/clientData/clientDataTransforms.js';
 
 const runtimeEnv = (typeof import.meta !== 'undefined' && import.meta.env) || {};
 const supabaseUrl = runtimeEnv.VITE_SUPABASE_URL || '';
@@ -222,6 +211,7 @@ export function subscribeToClientEvents(onChange, activeTenantSlug, activeTenant
         event: '*',
         schema: 'public',
         table: 'appointments',
+        ...(activeTenantId ? { filter: `tenant_id=eq.${activeTenantId}` } : {}),
       },
       (payload) => onChange?.({ table: 'appointments', ...payload }),
     )
@@ -231,6 +221,7 @@ export function subscribeToClientEvents(onChange, activeTenantSlug, activeTenant
         event: '*',
         schema: 'public',
         table: 'broadcast_campaigns',
+        ...(activeTenantId ? { filter: `tenant_id=eq.${activeTenantId}` } : {}),
       },
       (payload) => onChange?.({ table: 'broadcast_campaigns', ...payload }),
     );
@@ -303,75 +294,10 @@ export function subscribeToConversationReads(onChange, userId) {
   };
 }
 
-export async function loadClientData(fallback, activeTenantSlug, userId = null) {
-  if (!activeTenantSlug) throw new Error('Selecione uma empresa autorizada para continuar.');
-  const supabase = getClient();
-  if (!supabase) {
-    return {
-      ...fallback,
-      tenantId: fallback?.tenantId || null,
-      conversationReads: fallback?.conversationReads || [],
-      source: 'mock',
-      status: buildStatus({ source: 'mock', events: [], tenantSlug: activeTenantSlug }),
-      appointments: [],
-      broadcastContacts: [],
-      broadcastCampaigns: [],
-    };
-  }
-
-  const tenant = await findTenantBySlug(supabase, activeTenantSlug);
-  if (!tenant) throw new Error('Empresa indisponivel para esta conta.');
-  const { data: uiSettings, error: settingsError } = await supabase.from('tenant_settings')
-    .select('settings').eq('tenant_id', tenant.id).maybeSingle();
-  if (settingsError) throw new Error('Nao foi possivel carregar as configuracoes da empresa.');
-  const tenantChannels = enabledChannels(uiSettings?.settings);
-  const [eventsResult, appointments, broadcastContacts, broadcastCampaigns, kanbanConfig, followUpJobs, salesLeads, conversationReads, teamAgents] = await Promise.all([
-    supabase
-      .from('channel_events')
-      .select('*')
-      .eq('tenant_slug', activeTenantSlug)
-      .order('created_at', { ascending: false })
-      .limit(1000),
-    tenant ? loadAppointmentsWithClient(supabase, tenant.id, mapAppointment) : [],
-    tenant ? loadBroadcastContactsWithClient(supabase, tenant.id) : [],
-    tenant ? loadBroadcastCampaignsWithClient(supabase, tenant.id) : [],
-    tenant ? loadKanbanConfigWithClient(supabase, tenant.id) : null,
-    tenant ? loadFollowUpJobsWithClient(supabase, tenant.id, activeTenantSlug) : [],
-    tenant && isGenesisSalesTenant(activeTenantSlug) ? loadSalesLeadsWithClient(supabase, tenant.id) : [],
-    tenant && userId ? loadConversationReadsWithClient(supabase, tenant.id, userId) : [],
-    tenant ? loadTeamAgents(activeTenantSlug) : [],
-  ]);
-  const { data: recentEvents, error } = eventsResult;
-
-  if (error) {
-    throw new Error('Nao foi possivel carregar os atendimentos.');
-  }
-
-  // Completa a janela recente com o último evento de cada conversa: nenhuma conversa some do painel (IA-16).
-  const data = recentEvents?.length ? mergeConversationHeads(recentEvents, await loadConversationHeads(supabase, activeTenantSlug)) : recentEvents;
-
-  if (!data?.length) {
-    return buildEmptyClientData({ fallback, tenantId: tenant.id, enabledChannels: tenantChannels, activeTenantSlug, appointments, broadcastContacts, broadcastCampaigns, conversationReads, teamAgents, kanbanConfig, followUpJobs, salesLeads });
-  }
-
-  // Resolve only the contacts that can be displayed in the conversations already
-  // loaded. A global .limit(1000) silently lost identities for larger tenants.
-  const contactDirectory = await loadRelevantContacts(tenant.id, data, broadcastContacts);
-
-  const catalogEnrichedEvents = await enrichCatalogReferrals(
-    data.map((event) => ({ ...event, raw_payload: asObject(event.raw_payload) })), tenant.id, supabase, activeTenantSlug,
-  );
-  const eventsWithMediaUrls = await enrichMediaUrls(
-    catalogEnrichedEvents,
-    supabase,
-    { cacheOnly: true },
-  );
-  const contactIndex = buildContactDirectory(contactDirectory, tenant.id);
-  const eventsWithAvatars = applyContactDirectory(eventsWithMediaUrls, contactIndex, tenant.id);
-  const broadcastContactsWithAvatars = applyContactAvatarsToBroadcastContacts(broadcastContacts, contactIndex, tenant.id);
-
-  return buildLoadedClientData({ fallback, tenantId: tenant.id, enabledChannels: tenantChannels, activeTenantSlug, userId, events: eventsWithAvatars, appointments, broadcastContacts: broadcastContactsWithAvatars, broadcastCampaigns, conversationReads, teamAgents, kanbanConfig, followUpJobs, salesLeads, tenantSettings: uiSettings?.settings || null });
+export async function loadClientData(fallback, activeTenantSlug, userId = null, options = {}) {
+  return loadClientDataWithClient(getClient(), fallback, activeTenantSlug, userId, options);
 }
+
 
 async function loadTenant(activeTenantSlug) {
   return findTenantBySlug(getClient(), activeTenantSlug);

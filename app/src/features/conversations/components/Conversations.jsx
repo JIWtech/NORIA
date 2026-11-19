@@ -102,6 +102,7 @@ export function Conversations({
   ready = true,
   kanbanColumns = [],
   tenantSettings = null,
+  olderConversations = null,
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -889,6 +890,7 @@ export function Conversations({
         searchInputRef={searchInputRef}
         searchOpen={searchOpen}
         selected={selected}
+        olderConversations={olderConversations}
         setActiveTab={setActiveTab}
         setChannelFilter={setChannelFilter}
         setQuery={setQuery}

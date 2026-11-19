@@ -61,18 +61,29 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
   let stateCount = 0;
   let refCount = 0;
   let effectCount = 0;
+  const effects = [];
 
   traverse(ast, {
     CallExpression(p) {
       if (p.node.callee.name === 'useState') stateCount++;
       if (p.node.callee.name === 'useRef') refCount++;
-      if (p.node.callee.name === 'useEffect') effectCount++;
+      if (p.node.callee.name === 'useEffect') { effectCount++; effects.push(p.node); }
     },
   });
 
-  assert.equal(stateCount, 18, 'Preservação estrita dos 18 useState em App.jsx');
-  assert.equal(refCount, 5, 'Preservação estrita dos 5 useRef em App.jsx');
-  assert.equal(effectCount, 9, 'Preservação estrita dos 9 useEffect em App.jsx');
+  assert.equal(stateCount, 19, 'Preservação estrita dos 19 useState em App.jsx (inclui o filtro de conversas antigas)');
+  assert.equal(refCount, 7, 'Inclui ref do escopo cuja carga completa terminou e ref de conversas antigas');
+  assert.equal(effectCount, 10, 'Bootstrap e assinatura Realtime usam efeitos separados');
+
+  const effectBody = (effect) => appCode.slice(effect.arguments[0].start, effect.arguments[0].end);
+  const bootstrap = effects.find((effect) => effectBody(effect).includes('setDataScope(scopeKey)'));
+  const subscription = effects.find((effect) => effectBody(effect).includes('subscribeToClientEvents('));
+  assert.ok(bootstrap && subscription && bootstrap !== subscription);
+  assert.match(effectBody(bootstrap), /refreshData\(\{ showLoading: false \}\)/);
+  assert.doesNotMatch(effectBody(subscription), /setDataScope\(scopeKey\)/);
+  assert.match(appCode.slice(subscription.arguments[1].start, subscription.arguments[1].end), /appData\?\.tenantId/);
+  assert.doesNotMatch(appCode.slice(bootstrap.arguments[1].start, bootstrap.arguments[1].end), /appData\?\.tenantId/);
+  assert.match(appCode, /const fullyLoadedScope = useRef\(''\)/);
 
   // Validação da integração com componentes modulares do shell
   assert.match(appCode, /import\s*\{\s*AppNavigation\s*\}\s*from\s*['"]\.\/AppNavigation(?:\.jsx)?['"]/);

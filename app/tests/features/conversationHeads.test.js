@@ -23,7 +23,7 @@ test('RPC ausente ou com erro não derruba a carga', async () => {
 });
 
 test('descarta linhas de outro tenant mesmo que a RPC as devolva (isolamento)', async () => {
-  const supabase = { rpc: async (name, args) => { assert.equal(name, 'conversation_latest_events'); assert.equal(args.p_tenant_slug, 'nubia'); return { data: [row('a', 'c1', '2026-11-12T10:00:00Z'), row('b', 'c2', '2026-11-12T10:00:00Z', 'outro')], error: null }; } };
+  const supabase = { rpc: async (name, args) => { assert.match(name, /^conversation_latest_events(_light)?$/); assert.equal(args.p_tenant_slug, 'nubia'); return { data: [row('a', 'c1', '2026-11-12T10:00:00Z'), row('b', 'c2', '2026-11-12T10:00:00Z', 'outro')], error: null }; } };
   const heads = await loadConversationHeads(supabase, 'nubia');
   assert.deepEqual(heads.map((r) => r.id), ['a']);
 });
@@ -36,4 +36,28 @@ test('a lista de conversas é lida em páginas de 1.000 (limite do PostgREST)', 
   const heads = await loadConversationHeads(supabase, 'nubia');
   assert.equal(heads.length, total);
   assert.deepEqual(ranges, [[0, 999], [1000, 1999]]);
+});
+
+// Painel lento (NB Bronze, 19/11): a versão leve devolve só a janela pedida e sem campos de diagnóstico.
+test('usa a função leve com a janela de atividade pedida e numa única chamada quando cabe', async () => {
+  const calls = [];
+  const supabase = { rpc: (name, args) => { calls.push({ name, args }); return { range: async () => ({ data: [row('a', 'c1', '2026-11-12T10:00:00Z')], error: null }) }; } };
+  const since = '2026-10-20T00:00:00.000Z';
+  const heads = await loadConversationHeads(supabase, 'nubia', { since });
+  assert.deepEqual(heads.map((r) => r.id), ['a']);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'conversation_latest_events_light');
+  assert.deepEqual(calls[0].args, { p_tenant_slug: 'nubia', p_limit: 2000, p_since: since, p_before: null });
+});
+
+test('sem a função leve no banco, volta à original e aplica a janela no cliente', async () => {
+  const names = [];
+  const supabase = { rpc: (name) => { names.push(name); return { range: async () => (name === 'conversation_latest_events_light'
+    ? { data: null, error: { message: 'Could not find the function' } }
+    : { data: [row('new', 'c1', '2026-11-12T10:00:00Z'), row('old', 'c2', '2026-09-01T10:00:00Z')], error: null }) }; } };
+  const recent = await loadConversationHeads(supabase, 'nubia', { since: '2026-10-20T00:00:00Z' });
+  assert.deepEqual(recent.map((r) => r.id), ['new']);
+  assert.deepEqual(names, ['conversation_latest_events_light', 'conversation_latest_events']);
+  const older = await loadConversationHeads(supabase, 'nubia', { before: '2026-10-20T00:00:00Z' });
+  assert.deepEqual(older.map((r) => r.id), ['old']);
 });

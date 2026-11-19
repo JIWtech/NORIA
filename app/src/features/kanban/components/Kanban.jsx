@@ -28,6 +28,7 @@ import {
 import { NoriaSelect } from '../../../components/NoriaSelect';
 import { ChannelIcon, getChannelClass } from '../../../components/ui/ChannelIcon';
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
+import { windowItems, KANBAN_CARDS_PAGE } from '../../../utils/renderWindow.js';
 import { SkeletonLine } from '../../../components/ui/Skeletons';
 
 import {
@@ -94,8 +95,11 @@ export function Kanban({
   focusedCardId,
   onCardFocused,
   ready = true,
+  olderConversations = null,
 }) {
   const [agentFilter, setAgentFilter] = useState(KANBAN_OWNER_FILTERS.ALL);
+  // Cards desenhados por coluna (janela): colunas grandes mostram uma página e crescem com "Mostrar mais".
+  const [cardLimits, setCardLimits] = useState({});
   const [channelFilter, setChannelFilter] = useState('todos');
   const [kanbanCardTransition, setKanbanCardTransition] = useState('idle');
   const [searchQuery, setSearchQuery] = useState('');
@@ -505,6 +509,13 @@ export function Kanban({
           >
             {flowStatus === 'loading' ? <><RefreshCcw className="kanban-ai-flow-icon spin" size={16} /> Analisando fluxo...</> : <><Sparkles className="kanban-ai-flow-icon" size={16} /> Organizar fluxo com IA</>}
           </button>
+          {olderConversations && (
+            <button type="button" className="secondary-button kanban-older-toggle" aria-pressed={olderConversations.shown}
+              title="Conversas sem atividade há mais de 30 dias"
+              onClick={() => olderConversations.toggle()}>
+              {olderConversations.shown ? 'Ocultar conversas antigas' : 'Mostrar conversas antigas'}
+            </button>
+          )}
           {kanbanActionStatus && <small className="kanban-action-status">{kanbanActionStatus}</small>}
         </div>
       </div>
@@ -609,7 +620,7 @@ export function Kanban({
                   ))
                 ) : (
                   <>
-                    {column.cards.map((card) => {
+                    {windowItems(column.cards, cardLimits[column.id] || KANBAN_CARDS_PAGE, focusedCardId).visible.map((card) => {
                       const channel = card.channelType || card.channel;
                       const isDragging = draggingCardId === card.id;
                       const labels = kanbanCardLabels(card, column);
@@ -857,6 +868,15 @@ export function Kanban({
                         </article>
                       );
                     })}
+                    {(() => {
+                      const { hidden } = windowItems(column.cards, cardLimits[column.id] || KANBAN_CARDS_PAGE, focusedCardId);
+                      return hidden > 0 && (
+                        <button type="button" className="secondary-button kanban-show-more"
+                          onClick={() => setCardLimits((current) => ({ ...current, [column.id]: (current[column.id] || KANBAN_CARDS_PAGE) + KANBAN_CARDS_PAGE }))}>
+                          Mostrar mais {Math.min(hidden, KANBAN_CARDS_PAGE)} de {hidden}
+                        </button>
+                      );
+                    })()}
                     {!column.cards.length && <div className="column-empty">Sem conversas nesta etapa</div>}
                   </>
                 )}

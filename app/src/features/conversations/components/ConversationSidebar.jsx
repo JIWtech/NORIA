@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Bot, Check, CheckCircle2, Clock3, Filter, Search, Sparkles, UserRound, X } from 'lucide-react';
 import { formatConversationCardOrigin, formatMediaPreviewWithIcon, formatWaitingDuration, getStageLabel } from '../../../dataService.js';
 import { ContactAvatar, ContactAvatarBadge } from '../../../components/ui/ContactAvatar.jsx';
@@ -9,6 +9,7 @@ import { deriveConversationPresentationState } from '../utils/chatTimelineHelper
 import { CONVERSATION_AI_STAGE_CHIP, conversationListTags, conversationStageChip } from '../utils/conversationListTags.js';
 import { findKanbanColumn } from '../../../services/kanban/stageResolution.js';
 import { formatConversationPreview } from '../../../utils/audioUtils.js';
+import { windowItems, CONVERSATIONS_PAGE } from '../../../utils/renderWindow.js';
 export function ConversationSidebar({
   activeCount = 0, activeTab, agentsList, allowedChannels, availableStages, channelCounts, channelFilter,
   closedCount, filteredConversations, followUpCount, isSecondaryFilterActive, kanbanColumns,
@@ -17,7 +18,24 @@ export function ConversationSidebar({
   searchOpen, selected, setActiveTab, setChannelFilter, setQuery, setResponsibleFilter,
   setShowFilterMenu, setStageFilter, showFilterMenu, stageFilter, tenantSettings, tenantSlug,
   unreadCount,
+  olderConversations = null,
 }) {
+  // Janela de renderização: a lista desenha uma página e cresce quando o fim dela aparece na tela (tenants com milhares de conversas).
+  const [conversationLimit, setConversationLimit] = useState(CONVERSATIONS_PAGE);
+  const sentinelRef = useRef(null);
+  const selectedConversationId = selected?.id ?? null;
+  const { visible: visibleConversations, hidden: hiddenConversations } = windowItems(filteredConversations, conversationLimit, selectedConversationId);
+  // Busca, aba ou filtro novos voltam para a primeira página.
+  useEffect(() => { setConversationLimit(CONVERSATIONS_PAGE); }, [query, activeTab, channelFilter, stageFilter, responsibleFilter]);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hiddenConversations || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setConversationLimit((current) => current + CONVERSATIONS_PAGE);
+    }, { rootMargin: '400px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hiddenConversations]);
   return (
     <aside className="conversation-list panel">
       <div className="toolbar" style={{ position: 'relative' }}>
@@ -392,7 +410,7 @@ export function ConversationSidebar({
           ))
         ) : (
           <>
-            {filteredConversations.map((conversation) => {
+            {visibleConversations.map((conversation) => {
               const matchingCard = kanbanCardsByConversationKey?.get(conversation.canonicalKey)
                 || (conversation.normalizedExternalId && kanbanCardsByConversationKey?.get(conversation.normalizedExternalId))
                 || (conversation.externalConversationId && kanbanCardsByConversationKey?.get(conversation.externalConversationId))
@@ -531,6 +549,18 @@ export function ConversationSidebar({
                 </button>
               );
             })}
+            {hiddenConversations > 0 && (
+              <button type="button" ref={sentinelRef} className="secondary-button conversation-list-more"
+                onClick={() => setConversationLimit((current) => current + CONVERSATIONS_PAGE)}>
+                Carregar mais conversas ({hiddenConversations})
+              </button>
+            )}
+            {olderConversations && (
+              <button type="button" className="conversation-list-older-toggle" aria-pressed={olderConversations.shown}
+                onClick={() => olderConversations.toggle()}>
+                {olderConversations.shown ? 'Ocultar conversas sem atividade há mais de 30 dias' : 'Mostrar conversas sem atividade há mais de 30 dias'}
+              </button>
+            )}
             {!filteredConversations.length && <EmptyState title="Nenhum resultado" text="Ajuste a busca ou os filtros para ver outras conversas." compact />}
           </>
         )}

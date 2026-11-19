@@ -57,3 +57,56 @@ test('pedido de recarga durante outra recarga roda de novo ao final (não usa da
   assert.equal(await second, 'depois-da-mudanca');
   assert.equal(calls, 2);
 });
+
+test('pedidos concorrentes unem recursos e recarga completa prevalece', async () => {
+  const coordinator = realtimeRefresh.createRefreshCoordinator();
+  const calls = [];
+  let finish;
+  const load = (resources) => {
+    calls.push(resources);
+    if (calls.length === 1) return new Promise((resolve) => { finish = resolve; });
+    return true;
+  };
+  const first = coordinator.run('a', load, ['appointments']);
+  const second = coordinator.run('a', load, ['appointments']);
+  const third = coordinator.run('a', load, ['broadcastCampaigns']);
+  finish(true);
+  await Promise.all([first, second, third]);
+  assert.deepEqual(calls, [['appointments'], ['appointments', 'broadcastCampaigns']]);
+
+  calls.length = 0;
+  const fourth = coordinator.run('a', load, ['appointments']);
+  const fifth = coordinator.run('a', load, ['broadcastCampaigns']);
+  const sixth = coordinator.run('a', load);
+  finish(true);
+  await Promise.all([fourth, fifth, sixth]);
+  assert.deepEqual(calls, [['appointments'], undefined]);
+});
+
+test('debounce une recursos e preserva recarga completa', async () => {
+  const calls = [];
+  const schedule = realtimeRefresh.createDebouncedRealtimeRefresh((resources) => calls.push(resources), 5);
+  schedule(['appointments']);
+  schedule(['broadcastCampaigns']);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, [['appointments', 'broadcastCampaigns']]);
+  schedule(['appointments']);
+  schedule();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, [['appointments', 'broadcastCampaigns'], undefined]);
+});
+
+test('recarga parcial não renova frescor da carga completa e flush preserva pedido pendente', async () => {
+  let now = 1000;
+  const coordinator = realtimeRefresh.createRefreshCoordinator({ now: () => now, staleAfterMs: 100 });
+  coordinator.markFresh('a');
+  now += 101;
+  await coordinator.run('a', async () => true, ['broadcastCampaigns']);
+  assert.equal(coordinator.shouldRefreshOnVisibility('a'), true);
+  const calls = [];
+  const schedule = realtimeRefresh.createDebouncedRealtimeRefresh((resources) => calls.push(resources), 1000);
+  schedule(['broadcastCampaigns']);
+  schedule.flush();
+  schedule.flush();
+  assert.deepEqual(calls, [['broadcastCampaigns']]);
+});

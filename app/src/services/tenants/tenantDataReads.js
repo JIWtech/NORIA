@@ -25,33 +25,21 @@ const SLOT_PROPOSAL_STATUSES = ['sent', 'rejected', 'superseded'];
 const SLOT_PROPOSAL_LIMIT = 100;
 
 export async function loadAppointments(supabase, tenantId, mapAppointment) {
-  const { data, error } = await supabase
-    .from('appointments')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .order('starts_at', { ascending: false })
-    .limit(200);
-  if (error) {
-    console.warn('Appointments fallback:', error.message);
-  }
-  const { data: openAppointments, error: openError } = await supabase
-    .from('appointments')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .in('status', ACTIVE_APPOINTMENT_STATUSES)
-    .order('starts_at', { ascending: true })
-    .limit(ACTIVE_APPOINTMENTS_LIMIT);
+  const [historyResult, openResult, proposalResult] = await Promise.all([
+    supabase.from('appointments').select('*').eq('tenant_id', tenantId)
+      .order('starts_at', { ascending: false }).limit(200),
+    supabase.from('appointments').select('*').eq('tenant_id', tenantId)
+      .in('status', ACTIVE_APPOINTMENT_STATUSES)
+      .order('starts_at', { ascending: true }).limit(ACTIVE_APPOINTMENTS_LIMIT),
+    supabase.from('appointments').select('*').eq('tenant_id', tenantId)
+      .eq('status', 'cancelled').in('metadata->slot_proposal->>status', SLOT_PROPOSAL_STATUSES)
+      .order('updated_at', { ascending: false }).limit(SLOT_PROPOSAL_LIMIT),
+  ]);
+  const { data, error } = historyResult;
+  const { data: openAppointments, error: openError } = openResult;
+  const { data: proposalAppointments, error: proposalError } = proposalResult;
+  if (error) console.warn('Appointments fallback:', error.message);
   if (openError) console.warn('Active appointments fallback:', openError.message);
-  // Pedidos cancelados que carregam uma proposta de horário (enviada, recusada ou substituída): o Kanban mostra o estado
-  // no cartão da conversa. Consulta própria para não depender do limite do histórico.
-  const { data: proposalAppointments, error: proposalError } = await supabase
-    .from('appointments')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'cancelled')
-    .in('metadata->slot_proposal->>status', SLOT_PROPOSAL_STATUSES)
-    .order('updated_at', { ascending: false })
-    .limit(SLOT_PROPOSAL_LIMIT);
   if (proposalError) console.warn('Slot proposal appointments fallback:', proposalError.message);
   return mergeOpenAppointmentRequests(mergeOpenAppointmentRequests(data || [], openAppointments || []), proposalAppointments || []).map(mapAppointment);
 }

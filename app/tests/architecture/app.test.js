@@ -50,7 +50,7 @@ test('REGRESSAO: App.jsx possui AST limpa com zero variaveis livres e exporta Ap
   assert.match(code, /export\s+default\s+App;/, 'App.jsx deve ter default export de App');
 });
 
-test('REGRESSAO: App.jsx preserva integralmente os 18 estados, 5 refs e 9 efeitos auditados', () => {
+test('REGRESSAO: App.jsx preserva os 19 estados, 7 refs e 10 efeitos auditados', () => {
   const filePath = path.join(__dirname, '../../src/app/App.jsx');
   const code = fs.readFileSync(filePath, 'utf8');
   const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
@@ -67,9 +67,9 @@ test('REGRESSAO: App.jsx preserva integralmente os 18 estados, 5 refs e 9 efeito
     }
   });
 
-  assert.equal(statesCount, 18, 'App deve preservar exatamente 18 chamadas useState');
-  assert.equal(refsCount, 5, 'App deve preservar exatamente 5 chamadas useRef');
-  assert.equal(effectsCount, 9, 'App deve preservar exatamente 9 chamadas useEffect');
+  assert.equal(statesCount, 19, 'App deve preservar exatamente 19 chamadas useState (inclui o filtro de conversas antigas)');
+  assert.equal(refsCount, 7, 'App inclui ref do escopo com carga completa e ref de conversas antigas usada pelas recargas');
+  assert.equal(effectsCount, 10, 'App separa bootstrap e assinatura Realtime');
 });
 
 test('REGRESSAO: main.jsx importa e monta App dentro de AppErrorBoundary exclusivamente a partir de ./app/App', () => {

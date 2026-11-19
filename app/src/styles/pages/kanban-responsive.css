@@ -544,3 +544,8 @@
   border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
   background: color-mix(in srgb, var(--text) 8%, var(--surface-elevated));
 }
+
+/* Janela de renderização do Kanban: colunas grandes mostram uma página de cards e crescem sob demanda. */
+.kanban-show-more { width: 100%; margin-top: 6px; justify-content: center; font-size: 12px; }
+.kanban-older-toggle { white-space: nowrap; }
+.kanban-older-toggle[aria-pressed='true'] { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }

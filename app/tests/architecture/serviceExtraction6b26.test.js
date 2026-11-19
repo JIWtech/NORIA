@@ -33,7 +33,8 @@ test('6B.26 sidebar extraida nao tem referencias livres nem ciclos com Conversat
   const sidebar = fs.readFileSync(sidebarPath, 'utf8');
   const ast = parser.parse(sidebar, { sourceType: 'module', plugins: ['jsx'] });
   const free = new Set();
-  const globals = new Set(['Array', 'Boolean', 'String', 'Math', 'undefined']);
+  // IntersectionObserver: API do navegador usada para carregar mais conversas ao chegar ao fim da lista.
+  const globals = new Set(['Array', 'Boolean', 'String', 'Math', 'undefined', 'IntersectionObserver']);
 
   traverse(ast, {
     ReferencedIdentifier(p) {

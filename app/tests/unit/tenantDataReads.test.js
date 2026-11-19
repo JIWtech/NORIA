@@ -120,3 +120,21 @@ test('propostas de horário de pedidos cancelados entram por consulta própria, 
   const statuses = proposalQuery.calls.find((call) => call[0] === 'in' && call[1] === 'metadata->slot_proposal->>status')[2];
   assert.deepEqual([...statuses].sort(), ['rejected', 'sent', 'superseded']);
 });
+
+test('consultas de agendamentos começam juntas e mantêm a prioridade da mesclagem', async () => {
+  const pending = [];
+  const client = fakeSupabase({ appointments: query => new Promise(resolve => pending.push({ query, resolve })) });
+  const loading = loadAppointments(client, 'tenant-a', row => row);
+  await new Promise(resolve => setImmediate(resolve));
+  try {
+    assert.equal(pending.length, 3);
+    for (const { query } of pending) assert.ok(query.calls.some(call => call.join('|') === 'eq|tenant_id|tenant-a'));
+    pending[2].resolve({ data: [{ id: 'proposta' }, { id: 'comum', source: 'proposta' }], error: null });
+    pending[1].resolve({ data: [{ id: 'ativo' }, { id: 'comum', source: 'ativo' }], error: null });
+    pending[0].resolve({ data: [{ id: 'comum', source: 'histórico' }], error: null });
+    assert.deepEqual(await loading, [{ id: 'comum', source: 'histórico' }, { id: 'ativo' }, { id: 'proposta' }]);
+  } finally {
+    for (const { resolve } of pending) resolve({ data: [], error: null });
+  }
+  await loading;
+});

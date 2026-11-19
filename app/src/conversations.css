@@ -1931,3 +1931,11 @@
 .conversation-layout .system-event-title { font-weight: 600; color: var(--cv-text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversation-layout .system-event-detail { color: var(--cv-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conversation-layout .system-event-time { font-size: 10.5px; }
+
+/* Janela de renderização da lista de conversas e acesso às conversas sem atividade recente. */
+.conversation-list-more { display: block; width: calc(100% - 16px); margin: 8px auto; justify-content: center; font-size: 12px; }
+.conversation-list-older-toggle {
+  display: block; width: 100%; margin: 4px 0 12px; padding: 8px; border: 0; background: transparent;
+  color: var(--muted); font-size: 12px; text-align: center; cursor: pointer;
+}
+.conversation-list-older-toggle:hover, .conversation-list-older-toggle[aria-pressed='true'] { color: var(--brand); }

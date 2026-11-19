@@ -64,6 +64,7 @@ import {
   createRefreshCoordinator,
   VISIBILITY_REFRESH_STALE_AFTER_MS,
 } from '../services/timeline/realtimeRefresh.js';
+import { realtimeRefreshTargets, selectPartialRefresh, mergeCampaignPatch } from '../services/timeline/realtimeRefreshTargets.js';
 import { Dashboard } from '../features/dashboard/components/Dashboard';
 import { Funnel } from '../features/kanban/components/Funnel';
 import { Conversations } from '../features/conversations/components/Conversations';
@@ -173,6 +174,8 @@ function App() {
   const [agentsReady, setAgentsReady] = useState(false);
   const appDataRef = useRef(appData);
   appDataRef.current = appData;
+  const [showOlderConversations, setShowOlderConversations] = useState(false);
+  const includeOlderConversationsRef = useRef(false);
 
   const activeTenantSlug = tenantSlug || null;
   const selectedTenant = availableTenants.find((tenant) => tenant.slug === activeTenantSlug)
@@ -189,6 +192,7 @@ function App() {
       : '');
   const scopeKey = JSON.stringify([session?.user?.id || 'local', activeTenantSlug]);
   const currentScope = useRef(scopeKey);
+  const fullyLoadedScope = useRef('');
   const kanbanMoveInFlightRef = useRef(new Set());
   const conversationViewRef = useRef({ canonicalKey: '', visible: false });
   const conversationReadTimersRef = useRef(new Map());
@@ -717,13 +721,22 @@ function App() {
     };
   }, []);
 
-  async function refreshData({ showLoading = true } = {}) {
+  function toggleOlderConversations() {
+    const next = !includeOlderConversationsRef.current;
+    includeOlderConversationsRef.current = next;
+    setShowOlderConversations(next);
+    void refreshData({ showLoading: false });
+  }
+
+  async function refreshData({ showLoading = true, resources } = {}) {
     if (!hasTenantAccess) return false;
     const requestedScope = scopeKey;
-    return refreshCoordinator.run(requestedScope, async () => {
+    return refreshCoordinator.run(requestedScope, async (requestedResources) => {
       if (showLoading) setLoading(true);
       try {
         const currentData = appDataRef.current;
+        const partialResources = selectPartialRefresh(requestedResources, currentData, fullyLoadedScope.current, requestedScope);
+        const expectedTenantId = currentData?.tenantId;
         const data = await loadClientData({
           conversations: currentData?.conversations || [],
           kanbanColumns: currentData?.kanbanColumns || [],
@@ -733,8 +746,24 @@ function App() {
           broadcastCampaigns: currentData?.broadcastCampaigns || [],
           conversationReads: currentData?.conversationReads || [],
           tenantId: currentData?.tenantId || null,
-        }, activeTenantSlug, session?.user?.id || null);
+        }, activeTenantSlug, session?.user?.id || null, {
+          ...(partialResources ? { resources: partialResources } : {}),
+          // Conversas sem atividade há mais de 30 dias só entram quando a pessoa pede (desempenho em tenants grandes).
+          includeOlderConversations: includeOlderConversationsRef.current,
+        });
         if (currentScope.current !== requestedScope) return false;
+        if (partialResources) {
+          if (!mergeCampaignPatch(appDataRef.current, data, expectedTenantId)) return false;
+          setLoadError('');
+          setAppData((previous) => {
+            if (currentScope.current !== requestedScope || previous?.tenantId !== expectedTenantId) return previous;
+            const merged = mergeCampaignPatch(previous, data, expectedTenantId);
+            if (!merged) return previous;
+            cacheAppData(activeTenantSlug, merged, session?.user?.id || null);
+            return appDataSignature(previous) === appDataSignature(merged) ? previous : merged;
+          });
+          return true;
+        }
         setLoadError('');
         const reconciled = preserveLocalMediaStates(
           appDataRef.current,
@@ -745,6 +774,11 @@ function App() {
           ),
         );
         cacheAppData(activeTenantSlug, reconciled, session?.user?.id || null);
+        // A fila pode continuar antes do próximo render; publique o mesmo snapshot
+        // usado pelo estado antes de permitir uma recarga parcial desse escopo.
+        appDataRef.current = reconciled;
+        fullyLoadedScope.current = requestedScope;
+        refreshCoordinator.markFresh(requestedScope);
         setAppData((previous) => (
           appDataSignature(previous) === appDataSignature(reconciled) ? previous : reconciled
         ));
@@ -758,7 +792,7 @@ function App() {
           if (showLoading) setLoading(false);
         }
       }
-    });
+    }, resources);
   }
 
   const updateConversationMessageMedia = useCallback((eventId, nextMedia) => {
@@ -847,6 +881,7 @@ function App() {
   useEffect(() => {
     if (!hasTenantAccess) return undefined;
     const userId = session?.user?.id || null;
+    fullyLoadedScope.current = '';
     setDataScope(scopeKey);
     setLoadError('');
     persistTenantSlug(activeTenantSlug);
@@ -859,9 +894,15 @@ function App() {
       setAppDataReady(false);
     }
     refreshData({ showLoading: false });
+  }, [activeTenantSlug, session?.user?.id, hasTenantAccess]);
 
-    const refreshFromRealtime = createDebouncedRealtimeRefresh(() => {
-      refreshData({ showLoading: false });
+  useEffect(() => {
+    if (!hasTenantAccess || dataScope !== scopeKey) return undefined;
+    const userId = session?.user?.id || null;
+    const subscribedTenantId = appData?.tenantId;
+
+    const refreshFromRealtime = createDebouncedRealtimeRefresh((resources) => {
+      refreshData({ showLoading: false, resources });
     });
 
     let cancelled = false;
@@ -919,6 +960,7 @@ function App() {
     };
 
     const unsubscribe = subscribeToClientEvents(async (payload) => {
+      if (cancelled) return;
       window.dispatchEvent(new CustomEvent('noria:operator-event', { detail: {
         tenantId: appDataRef.current?.tenantId, userId, payload,
       } }));
@@ -926,8 +968,10 @@ function App() {
         const incomingEvent = payload.new;
         const conversationKey = canonicalConversationKey(incomingEvent.channel_type, incomingEvent.external_conversation_id,
           incomingEvent.contact_handle || incomingEvent.id, activeTenantSlug);
-        const isNewConversation = Boolean(incomingEvent.external_conversation_id)
-          && !appDataRef.current?.conversations?.some((conversation) => conversation.canonicalKey === conversationKey);
+        const knownConversation = appDataRef.current?.conversations?.find((conversation) => conversation.canonicalKey === conversationKey);
+        const isNewConversation = Boolean(incomingEvent.external_conversation_id) && !knownConversation;
+        // Estado antes deste evento: conversa já com a equipe não precisa de recarga completa a cada mensagem.
+        const alreadyHumanControlled = knownConversation?.status === 'atendimento_humano';
         const isStoredMediaWaitingForUrl = hasStoredMediaNeedingUrl(incomingEvent);
         applyRealtimeEvent(isStoredMediaWaitingForUrl
           ? withLocalMediaLoadState(incomingEvent, 'resolving')
@@ -937,13 +981,14 @@ function App() {
           void recoverRealtimeMedia(incomingEvent);
         }
 
-        if (shouldRefreshConversationState(incomingEvent, { isNewConversation })) {
+        if (shouldRefreshConversationState(incomingEvent, { isNewConversation, alreadyHumanControlled })) {
           refreshFromRealtime();
         }
       } else {
-        refreshFromRealtime();
+        const resources = realtimeRefreshTargets(payload, appDataRef.current?.tenantId);
+        if (!resources || resources.length) refreshFromRealtime(resources);
       }
-    }, activeTenantSlug, appDataRef.current?.tenantId);
+    }, activeTenantSlug, subscribedTenantId);
 
     const unsubscribeConversationReads = subscribeToConversationReads((payload) => {
       const marker = payload?.new;
@@ -984,12 +1029,16 @@ function App() {
       cancelled = true;
       unsubscribe();
       unsubscribeConversationReads();
-      refreshFromRealtime.cancel();
+      if (currentScope.current === scopeKey && appDataRef.current?.tenantId !== subscribedTenantId) {
+        refreshFromRealtime.flush();
+      } else {
+        refreshFromRealtime.cancel();
+      }
       document.removeEventListener('visibilitychange', refreshWhenVisible);
       window.removeEventListener('noria:catalog-cache-updated', refreshCatalogAfterWrite);
       window.clearInterval(fallbackPolling);
     };
-  }, [activeTenantSlug, session?.user?.id, hasTenantAccess]);
+  }, [activeTenantSlug, session?.user?.id, hasTenantAccess, dataScope, appData?.tenantId]);
 
   const activeSubscriptionTenantId = appData?.tenantId;
   useEffect(() => {
@@ -1180,6 +1229,7 @@ function App() {
             ready={appDataReady}
             kanbanColumns={appData.kanbanColumns}
             tenantSettings={tenantSettings}
+            olderConversations={{ shown: showOlderConversations, toggle: toggleOlderConversations }}
           />
         )}
         {active === 'kanban' && (
@@ -1199,6 +1249,7 @@ function App() {
             focusedCardId={notificationCard?.scopeKey === scopeKey ? notificationCard.cardId : undefined}
             onCardFocused={() => setNotificationCard(null)}
             ready={appDataReady}
+            olderConversations={{ shown: showOlderConversations, toggle: toggleOlderConversations }}
           />
         )}
         {active === 'funil' && <Funnel funnelStages={appData.funnelStages} tenantName={selectedTenant?.name || ''} ready={appDataReady} />}
