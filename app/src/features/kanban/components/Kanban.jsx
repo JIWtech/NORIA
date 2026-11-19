@@ -653,7 +653,7 @@ export function Kanban({
                           { key: 'open-link', Icon: ExternalLink, label: 'Abrir página de agendamento', href: link },
                         );
                       }
-                      if (hasConversation && onFinishConversation && !labels.closed) {
+                      if (hasConversation && !(tenantSlug === 'ic_salon' && card.detachedFromConversation) && onFinishConversation && !labels.closed) {
                         menu.push({ key: 'finish', Icon: CheckCircle2, label: 'Finalizar atendimento', run: () => onFinishConversation(card) });
                       }
 

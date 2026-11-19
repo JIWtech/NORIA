@@ -81,8 +81,9 @@ export function reconcilePendingKanbanMoves(serverData, pendingMovesMap, confirm
 
   if (!moves.length) return serverData;
 
-  const moveFor = (card) => moves.find((move) => move.cardId === card.id
+  const matchesMove = (move, card) => !card.detachedFromConversation && (move.cardId === card.id
     || (move.identity && move.identity === conversationIdentity(card)));
+  const moveFor = (card) => moves.find((move) => matchesMove(move, card));
   // Um movimento confirmado só vale enquanto o servidor ainda mostra uma revisão anterior ou a janela curta.
   const moveStillApplies = (move, card) => move.kind === 'pending'
     || !card.salesRevision
@@ -104,8 +105,7 @@ export function reconcilePendingKanbanMoves(serverData, pendingMovesMap, confirm
   for (const column of nextColumns) {
     for (const move of moves) {
       if (!targetsColumn(move, column)) continue;
-      const alreadyThere = column.cards.some((card) => card.id === move.cardId
-        || (move.identity && move.identity === conversationIdentity(card)));
+      const alreadyThere = column.cards.some((card) => matchesMove(move, card));
       if (alreadyThere) continue;
       column.cards.unshift(placedCard(freshByMove.get(move) || move.card, move, column));
     }

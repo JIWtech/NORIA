@@ -68,6 +68,14 @@ export function eventsToKanban(
   const latestInboundAtByChat = new Map();
   const latestFollowUpEventByChat = new Map();
   const appointmentsById = new Map(appointments.map((appointment) => [appointment.id, appointment]));
+  const attendedConversations = new Set();
+  const isAttended = appointment => tenantSlug === 'ic_salon' && ['completed', 'done'].includes(appointment?.status);
+  for (const appointment of appointments) {
+    if (isAttended(appointment)) {
+      attendedConversations.add(canonicalConversationKey(appointment.channelType || appointment.channel_type,
+        appointment.externalConversationId || appointment.external_conversation_id, `appointment-${appointment.id}`));
+    }
+  }
   const eventCardsByConversation = new Map();
 
   for (const event of prepareConversationEvents(events).sort((a, b) => compareDateLabel(a.created_at, b.created_at))) {
@@ -180,9 +188,15 @@ export function eventsToKanban(
     const activityEvent = latestConversationActivityByChat.get(key) || event;
     const identityEvent = latestNamedContactByChat.get(key) || activityEvent;
     const payload = asObject(event.raw_payload);
-    const relatedAppointmentId = payload.payment_signal?.appointment_update?.appointment?.id
+    const eventAppointmentId = payload.payment_signal?.appointment_update?.appointment?.id
       || payload.appointment_id || payload.appointment_creation?.appointment?.id || '';
-    const relatedAppointment = appointmentsById.get(relatedAppointmentId);
+    const eventAppointment = appointmentsById.get(eventAppointmentId);
+    const attended = isAttended(eventAppointment);
+    // No Salon a reserva conhecida será vinculada por ID na montagem dos cartões abaixo.
+    // O evento histórico não deve projetar uma segunda cópia na conversa encerrada.
+    const projectEventAppointment = tenantSlug !== 'ic_salon' || !eventAppointment;
+    const relatedAppointmentId = projectEventAppointment ? eventAppointmentId : '';
+    const relatedAppointment = projectEventAppointment ? eventAppointment : null;
     const latestCustomerInboundAt = latestInboundAtByChat.get(key) || null;
     const latestFollowUpEvent = latestFollowUpEventByChat.get(key) || null;
     const waitingForFollowUp = isConversationWaitingForFollowUp({
@@ -200,11 +214,13 @@ export function eventsToKanban(
         columns,
         direction: event.direction,
         isFirstContact: (eventCountsByChat.get(key) || 0) <= 1,
-        paymentResolved: relatedAppointment && !isAppointmentPaymentReported(relatedAppointment.status),
+        paymentResolved: eventAppointment && !isAppointmentPaymentReported(eventAppointment.status),
         waitingForFollowUp,
       },
     });
-    const column = findKanbanDestination(columns, targetCandidates) || findKanbanDestination(columns, AI_KANBAN_COLUMNS) || columns[0];
+    const historicalConfirmation = targetCandidates[0] === 'agendamentos'
+      && (attended || (!eventAppointmentId && attendedConversations.has(key) && !payload.kanban_transition));
+    const column = findKanbanDestination(columns, historicalConfirmation ? AI_KANBAN_COLUMNS : targetCandidates) || findKanbanDestination(columns, AI_KANBAN_COLUMNS) || columns[0];
     const target = column.automationKey || column.id;
     const isFollowUpCard = target === 'follow_ups' && waitingForFollowUp;
     const followUpStepKey = isFollowUpCard ? extractFollowUpStepKey(latestFollowUpEvent) : '';
@@ -375,7 +391,7 @@ export function eventsToKanban(
   const latestAppointmentsByConversation = new Map();
   const extraAppointments = [];
   for (const appointment of appointments) {
-    if (['cancelled', 'canceled'].includes(appointment.status)) continue;
+    if (isAttended(appointment) || ['cancelled', 'canceled'].includes(appointment.status)) continue;
     const key = canonicalConversationKey(
       appointment.channelType || appointment.channel_type,
       appointment.externalConversationId || appointment.external_conversation_id,
@@ -456,9 +472,11 @@ export function eventsToKanban(
       // Atendimento finalizado depois do pedido: a conversa (finalizada ou já em outra sessão) segue o próprio caminho no
       // quadro e o pedido fica sozinho na coluna dele, sem herdar nem esconder o estado da conversa.
       const closeEvent = closeEventsByChat.get(key);
+      const requestCreatedAt = tenantSlug === 'ic_salon' && (appointment.raw?.created_at || appointment.createdAt);
       const closedAfterRequest = Boolean(closeEvent)
-        && Date.parse(closeEvent.created_at) > Date.parse(appointmentTimestamp(appointment) || appointment.createdAt || 0);
-      if (targetColumn && closedAfterRequest && !heldByHuman) {
+        && Date.parse(closeEvent.created_at) > Date.parse(requestCreatedAt || appointmentTimestamp(appointment) || appointment.createdAt || 0);
+      const closedSalonConversation = tenantSlug === 'ic_salon' && matchingEvent.card.isClosed;
+      if (targetColumn && (closedAfterRequest || closedSalonConversation) && !heldByHuman) {
         targetColumn.cards.push(detachedAppointmentCard(appointmentCard, matchingEvent.card, targetColumn));
         continue;
       }
