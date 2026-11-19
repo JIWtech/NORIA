@@ -16,9 +16,12 @@ const REFERENCE_DIR = path.join(WORKFLOWS_DIR, 'backup_pre_ondas_2026-11-12');
 // A publicação de 05:51 UTC já avançou quatro workflows além do backup acima.
 // Seus recibos são a referência imutável para esta publicação seguinte.
 // Recibos de cada publicação anterior, do mais antigo ao mais recente: o último recibo de cada workflow é a versão esperada.
-const PRIOR_RECEIPTS = fs.readdirSync(path.join(root, '.local/deploy_backups')).sort()
+// Ordena pela hora da conferência (verifiedAt), não pelo nome da pasta: pastas com prefixo (fotos-, salon-...)
+// ficavam depois das datadas na ordem alfabética e escondiam publicações mais novas.
+const PRIOR_RECEIPTS = fs.readdirSync(path.join(root, '.local/deploy_backups'))
   .map(dir => path.join(root, '.local/deploy_backups', dir, 'receipts.json')).filter(file => fs.existsSync(file))
   .flatMap(file => JSON.parse(fs.readFileSync(file, 'utf8')))
+  .sort((a, b) => String(a.verifiedAt || '').localeCompare(String(b.verifiedAt || '')))
   .reduce((latest, receipt) => ({ ...latest, [receipt.id]: receipt }), {});
 // Ordem: sub-workflows antes do roteador que os chama.
 const ALL = ['6jSiEH2ugboYSack', 'vCDXJLqIBCZJRTVv', 'fXGorIlPbyf9Qtsp', 'sLxNG9o2falquchd', 'mlKNPv862H2g3Gap', 'yxdKP0PeskDMUFSo', '3N5oN6sxtir9lFrA'];
