@@ -27,7 +27,8 @@ const RETAIL_SEMANTIC_RULES = [
   'products: cite apenas item_id da lista catalog; nunca invente item. Se o cliente descreve algo que não está na lista, deixe products vazio e registre o material pedido em material_requested.',
   'role: mentioned (citou de passagem), asked_about (perguntou informação), compared (comparou), interested (demonstrou interesse comercial), selected (escolheu).',
   'commercial_interest: verdadeiro quando o cliente quer comprar, saber preço, medida, prazo ou condição de pagamento. Dúvida sobre cuidados, garantia ou uso não é interesse comercial.',
-  'customer_decision: decided quando o cliente já sabe exatamente o que quer, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal.',
+  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
+  'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
   'human: pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
@@ -72,7 +73,7 @@ function retailVocabulary(offered) {
 function retailCandidatePath(tenantId, limit) {
   if (!RETAIL_UUID.test(String(tenantId || ''))) throw new Error('NORIA_RETAIL_TENANT_INVALID');
   const max = Number.isInteger(limit) && limit > 0 && limit <= 500 ? limit : 250;
-  return 'product_catalog_items?select=id,tenant_id,name,category,product_line,width_mm,material_class'
+  return 'product_catalog_items?select=id,tenant_id,name,category,product_line,model,width_mm,material_class'
     + '&tenant_id=eq.' + encodeURIComponent(tenantId) + '&active=eq.true&offerable=eq.true'
     + '&order=category.asc,name.asc,id.asc&limit=' + (max + 1);
 }
@@ -84,7 +85,8 @@ function retailCandidates(rows, tenantId, limit) {
   return {
     complete: rows.length <= max,
     items: own.slice(0, max).map(row => ({ item_id: row.id, name: String(row.name || ''), category: row.category || null,
-      line: row.product_line || null, width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
+      line: row.product_line || null, model: row.model || null,
+      width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
   };
 }
 

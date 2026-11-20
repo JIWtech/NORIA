@@ -209,14 +209,14 @@ const reasons = [];
 const postSale = A.handoff.required && A.handoff.reason !== 'HUMAN_REQUESTED';
 if (specialistEnabled && !postSale && !uncertain) {
   // Dúvida informativa (ex.: cuidados com a peça) não é interesse comercial: "asked_about" sozinho não aciona o aviso.
-  const interest = v.interest.on || v.decision.value === 'decided'
-    || items.some(item => roleOf(item.id).some(role => ['interested', 'selected'].includes(role)));
+  // "Decidido" sozinho também não: só conta junto de interesse numa compra (pós-venda não é cliente decidido).
+  const interest = v.interest.on || items.some(item => roleOf(item.id).some(role => ['interested', 'selected'].includes(role)));
   const materialsInPlay = uniq([...interestedItems.map(item => item.material_class), v.material.value]);
   const ownRule = materialsInPlay.filter(m => specialistMaterials.includes(m));
   const highEnd = materialsInPlay.filter(m => highEndMaterials.includes(m));
   if (interest && ownRule.length) reasons.push('material_regra_propria');
   if (interest && highEnd.length) reasons.push('alto_padrao');
-  if (notifyDecided && v.decision.value === 'decided') reasons.push('cliente_decidido');
+  if (notifyDecided && interest && v.decision.value === 'decided') reasons.push('cliente_decidido');
   if (reasons.length) {
     A.notify_specialist = { required: true, reasons: SPECIALIST_REASONS.filter(r => reasons.includes(r)),
       reason: SPECIALIST_REASONS.find(r => reasons.includes(r)), materials: interest ? uniq([...ownRule, ...highEnd]) : [], customer_message: customerMessage };

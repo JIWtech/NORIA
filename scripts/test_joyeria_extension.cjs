@@ -96,6 +96,12 @@ test('cliente que se decide durante a conversa avisa o especialista mesmo em pro
   assert.equal(d.actions.send_site_link.allowed, false);
 });
 
+test('pós-venda lido como "decidido" (sem interesse numa compra) não avisa o especialista', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'care_or_warranty', material_requested: { value: 'blend', evidence_ids: ['m1'] },
+    customer_decision: { value: 'decided', evidence_ids: ['m1'] } } });
+  assert.equal(d.actions.notify_specialist.required, false);
+});
+
 test('pedido de ouro maciço sem produto cadastrado avisa como alto padrão', async () => {
   const { d } = await run({ semantic: { primary_intent: 'product_inquiry', material_requested: { value: 'ouro_macico', evidence_ids: ['m1'] }, commercial_interest: on() } });
   assert.deepEqual(d.actions.notify_specialist.reasons, ['alto_padrao']);

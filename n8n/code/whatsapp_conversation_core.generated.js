@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T16:01:16.520Z',
-  core_sha256: '19e70ff995eb645620fa9e549ff62e4cbea03ecf082fa97bf3011aa758bb7aac',
+  built_at: '2026-11-20T16:13:30.523Z',
+  core_sha256: '88ca16cf4cdb79345f0785ad027b67a785ab28c07f88c30f4769fa51e114780b',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5183,7 +5183,8 @@ const RETAIL_SEMANTIC_RULES = [
   'products: cite apenas item_id da lista catalog; nunca invente item. Se o cliente descreve algo que não está na lista, deixe products vazio e registre o material pedido em material_requested.',
   'role: mentioned (citou de passagem), asked_about (perguntou informação), compared (comparou), interested (demonstrou interesse comercial), selected (escolheu).',
   'commercial_interest: verdadeiro quando o cliente quer comprar, saber preço, medida, prazo ou condição de pagamento. Dúvida sobre cuidados, garantia ou uso não é interesse comercial.',
-  'customer_decision: decided quando o cliente já sabe exatamente o que quer, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal.',
+  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
+  'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
   'human: pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
@@ -5228,7 +5229,7 @@ function retailVocabulary(offered) {
 function retailCandidatePath(tenantId, limit) {
   if (!RETAIL_UUID.test(String(tenantId || ''))) throw new Error('NORIA_RETAIL_TENANT_INVALID');
   const max = Number.isInteger(limit) && limit > 0 && limit <= 500 ? limit : 250;
-  return 'product_catalog_items?select=id,tenant_id,name,category,product_line,width_mm,material_class'
+  return 'product_catalog_items?select=id,tenant_id,name,category,product_line,model,width_mm,material_class'
     + '&tenant_id=eq.' + encodeURIComponent(tenantId) + '&active=eq.true&offerable=eq.true'
     + '&order=category.asc,name.asc,id.asc&limit=' + (max + 1);
 }
@@ -5240,7 +5241,8 @@ function retailCandidates(rows, tenantId, limit) {
   return {
     complete: rows.length <= max,
     items: own.slice(0, max).map(row => ({ item_id: row.id, name: String(row.name || ''), category: row.category || null,
-      line: row.product_line || null, width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
+      line: row.product_line || null, model: row.model || null,
+      width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
   };
 }
 
@@ -6368,7 +6370,7 @@ async function retailLoadItems(context, ids) {
   const wanted = [...new Set(ids.filter(Boolean))];
   if (!wanted.length) return [];
   const rows = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
-    'select=id,tenant_id,name,description,price_cents,currency,sale_unit,width_mm,material_class,site_url,offerable,active,price_status'
+    'select=id,tenant_id,name,description,model,product_line,price_cents,currency,sale_unit,width_mm,material_class,site_url,offerable,active,price_status'
     + '&id=in.(' + wanted.map(encodeFilter).join(',') + ')&limit=10'));
   if (!Array.isArray(rows)) throw new Error('NORIA_RETAIL_ITEMS_UNAVAILABLE');
   return rows.filter(row => row.tenant_id === context.tenant.id && row.active === true && row.offerable === true && row.price_status === 'aprovado');
@@ -6396,8 +6398,8 @@ function retailAuditReply(reply, items) {
 async function retailComposeReply(context, { decision, allowed, items, media, siteLinkItem, customerLine, handoff, history, revisionNote = '' }) {
   const str = { type: 'STRING' };
   const facts = items.filter(item => allowed.present_item_ids.includes(item.id)).map(item => ({
-    item_id: item.id, name: item.name, description: item.description || '', price: retailFormatPrice(item.price_cents), sale_unit: item.sale_unit,
-    width_mm: item.width_mm === null ? null : Number(item.width_mm) }));
+    item_id: item.id, name: item.name, model: item.model || null, line: item.product_line || null, description: item.description || '',
+    price: retailFormatPrice(item.price_cents), sale_unit: item.sale_unit, width_mm: item.width_mm === null || item.width_mm === undefined ? null : Number(item.width_mm) }));
   const generated = await servicesGeminiJson(context, 'retail_compose_reply', {
     customer_messages: turn.messages.map(item => ({ id: item.event_id, text: item.text })),
     opening: !servicesHasRecentBusiness(history),
@@ -6409,6 +6411,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     business_hours: ((hours) => ({ configured: hours.configured, is_open: hours.is_open }))(tenantBusinessHoursStatus(context)),
   }, { type: 'OBJECT', properties: { reply: str }, required: ['reply'] }, [
     'Tarefa: redigir a resposta ao cliente em português do Brasil, no tom do negócio definido acima, coerente com recent_conversation.',
+    'Descreva cada item só pelo que está em product_facts (model, line, width_mm); nunca atribua a um item o modelo ou a largura de outro.',
     'Preços só os de product_facts, escritos exatamente como em price. Não cite preço, desconto, parcela, prazo ou condição que não esteja nas instruções do negócio ou em product_facts.',
     'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro.',
     'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
