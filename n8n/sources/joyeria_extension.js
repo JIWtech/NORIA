@@ -216,7 +216,11 @@ if (specialistEnabled && !postSale && !uncertain) {
   const highEnd = materialsInPlay.filter(m => highEndMaterials.includes(m));
   if (interest && ownRule.length) reasons.push('material_regra_propria');
   if (interest && highEnd.length) reasons.push('alto_padrao');
-  if (notifyDecided && interest && v.decision.value === 'decided') reasons.push('cliente_decidido');
+  // Cliente decidido só vai ao especialista quando não pode concluir sozinho no site: se o item em foco tem link de compra
+  // e não é material do especialista (ex.: semijoia), ele recebe o link (decisão do tenant: só vai à especialista o combinado).
+  const siteBuyable = interestedItems.length > 0 && interestedItems.every(item => typeof item.site_url === 'string' && item.site_url
+    && !specialistMaterials.includes(item.material_class) && !highEndMaterials.includes(item.material_class));
+  if (notifyDecided && interest && v.decision.value === 'decided' && !(siteLinkEnabled && siteBuyable)) reasons.push('cliente_decidido');
   if (reasons.length) {
     A.notify_specialist = { required: true, reasons: SPECIALIST_REASONS.filter(r => reasons.includes(r)),
       reason: SPECIALIST_REASONS.find(r => reasons.includes(r)), materials: interest ? uniq([...ownRule, ...highEnd]) : [], customer_message: customerMessage };

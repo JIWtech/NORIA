@@ -89,11 +89,18 @@ test('dúvida sobre cuidados com a blend, sem interesse comercial, não avisa o 
   assert.equal(d.actions.notify_specialist.required, false);
 });
 
-test('cliente que se decide durante a conversa avisa o especialista mesmo em produto comum', async () => {
+test('cliente decidido em item comprável no site (semijoia) recebe o link e não aciona o especialista', async () => {
   const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(SEMIJOIA, 'selected')],
     customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() } });
+  assert.equal(d.actions.notify_specialist.required, false);
+  assert.equal(d.actions.send_site_link.allowed, true);
+});
+
+test('cliente decidido em item sem link de compra continua indo ao especialista', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(DESCONHECIDO, 'selected')],
+    customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() },
+    cfg: settings({ retail_policy: { specialist: { enabled: true, own_rule_materials: ['blend'], high_end_materials: ['ouro_macico'], decided_customer: true }, site_link: { enabled: false }, max_photos_per_turn: 2 } }) });
   assert.deepEqual(d.actions.notify_specialist.reasons, ['cliente_decidido']);
-  assert.equal(d.actions.send_site_link.allowed, false);
 });
 
 test('pós-venda lido como "decidido" (sem interesse numa compra) não avisa o especialista', async () => {
