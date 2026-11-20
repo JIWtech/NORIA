@@ -86,7 +86,7 @@ const notifyDecided = specialistCfg.decided_customer === true;
 // Frase dita ao cliente quando o especialista é avisado (texto aprovado pelo tenant, usado literalmente pelo CORE).
 const customerMessage = typeof specialistCfg.customer_message === 'string' && specialistCfg.customer_message.trim().length > 0
   && specialistCfg.customer_message.trim().length <= 300 ? specialistCfg.customer_message.trim() : null;
-const maxPhotos = Number.isInteger(retail.max_photos_per_turn) ? Math.min(Math.max(retail.max_photos_per_turn, 0), 3) : 0;
+const maxPhotos = Number.isInteger(retail.max_photos_per_turn) ? Math.min(Math.max(retail.max_photos_per_turn, 0), 4) : 0;
 const siteLinkEnabled = retail.site_link?.enabled === true;
 const configIssues = [];
 if (specialistEnabled && !isObj(settings.specialist_notification)) configIssues.push('SPECIALIST_RECIPIENT_NOT_CONFIGURED');

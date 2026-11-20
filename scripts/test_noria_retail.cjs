@@ -177,7 +177,7 @@ test('autorização estrita: recusada não autoriza nada; link nunca acompanha e
     notify_specialist: { required: true, reason: 'material_regra_propria', reasons: ['material_regra_propria', 'inventado'], materials: ['blend'] },
   }));
   assert.deepEqual(full.present_item_ids, [id(1), id(2), id(3)]);
-  assert.equal(full.media.asset_ids.length, 3);
+  assert.equal(full.media.asset_ids.length, 4);
   assert.equal(full.site_link, null);
   assert.deepEqual(full.notify.reasons, ['material_regra_propria']);
   assert.equal(R.retailAuthorized(decision({ notify_specialist: { required: true, reason: 'qualquer' } })).notify, null);
@@ -188,7 +188,7 @@ test('fotos de vários produtos: cada produto e cada foto uma vez, total limitad
   const media = R.retailAuthorized(decision({ send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(5)],
     items: [{ item_id: id(1), asset_ids: [id(5)] }, { item_id: 'x', asset_ids: [id(6)] }, { item_id: id(2), asset_ids: [id(5), id(6)] },
       { item_id: id(1), asset_ids: [id(7)] }, { item_id: id(3), asset_ids: [id(8), id(9)] }] } })).media;
-  assert.deepEqual(media.items, [{ item_id: id(1), asset_ids: [id(5)] }, { item_id: id(2), asset_ids: [id(6)] }, { item_id: id(3), asset_ids: [id(8)] }]);
+  assert.deepEqual(media.items, [{ item_id: id(1), asset_ids: [id(5)] }, { item_id: id(2), asset_ids: [id(6)] }, { item_id: id(3), asset_ids: [id(8), id(9)] }]);
   assert.equal(media.item_id, id(1));
 });
 

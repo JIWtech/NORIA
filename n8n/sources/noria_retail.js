@@ -9,7 +9,7 @@
 
 const RETAIL_SEMANTIC_CONTRACT = 'noria_retail_semantic_intent_v1';
 const RETAIL_MEDIA_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-const RETAIL_MAX_MEDIA = 3;
+const RETAIL_MAX_MEDIA = 4;
 const RETAIL_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cliente_decidido'];
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';

@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T23:18:06.551Z',
-  core_sha256: 'c166bfd7b98545e94e57c8c29d84e3f6daaee2426d84a0ca5bc780074f98f81e',
+  built_at: '2026-11-20T23:20:31.297Z',
+  core_sha256: '255932f2053cb3ba7f8753c6fd610a3453409001e47e564777999b1271ce5854',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5164,7 +5164,7 @@ const TURN_PIPELINE_FIELDS = ['contract', 'capability', 'contract_version', 'sem
 
 const RETAIL_SEMANTIC_CONTRACT = 'noria_retail_semantic_intent_v1';
 const RETAIL_MEDIA_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
-const RETAIL_MAX_MEDIA = 3;
+const RETAIL_MAX_MEDIA = 4;
 const RETAIL_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cliente_decidido'];
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';
