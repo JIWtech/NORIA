@@ -184,6 +184,22 @@ test('fotos de um item vão uma vez por sessão: nem a apresentação nem o pedi
   assert.equal(primeira.d.actions.send_product_media.allowed, true);
 });
 
+test('pedido de fotos de mais de um produto: uma foto de cada, até o limite; o já enviado na sessão fica de fora', async () => {
+  const two = [ref(BLEND, 'asked_about'), ref(DESCONHECIDO, 'asked_about')];
+  const { d } = await run({ semantic: { primary_intent: 'product_inquiry', products: two, wants_photos: on() } });
+  const media = d.actions.send_product_media;
+  assert.equal(media.allowed, true);
+  assert.equal(media.reason, 'PHOTOS_REQUESTED');
+  assert.deepEqual(media.items.map(entry => entry.item_id), [BLEND, DESCONHECIDO]);
+  assert.ok(media.items.every(entry => entry.asset_ids.length === 1));
+  const partial = await run({ semantic: { primary_intent: 'product_inquiry', products: two, wants_photos: on() }, extra: { retail_context: { media_sent_item_ids: [BLEND] } } });
+  assert.deepEqual(partial.d.actions.send_product_media.items.map(entry => entry.item_id), [DESCONHECIDO]);
+  assert.equal(partial.d.actions.send_product_media.items[0].asset_ids.length, 2);
+  // Sem pedido explícito, vários produtos não disparam fotos automáticas.
+  const auto = await run({ semantic: { primary_intent: 'product_inquiry', products: two } });
+  assert.equal(auto.d.actions.send_product_media.allowed, false);
+});
+
 test('material de regra própria vem da política: outro material configurado usa o mesmo motivo genérico', async () => {
   const cfg = settings();
   cfg.retail_policy.specialist.own_rule_materials = ['prata'];

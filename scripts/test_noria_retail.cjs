@@ -184,6 +184,14 @@ test('autorização estrita: recusada não autoriza nada; link nunca acompanha e
   assert.equal(R.retailAuthorized(decision({ send_site_link: { allowed: true, item_id: id(1) } })).site_link.item_id, id(1));
 });
 
+test('fotos de vários produtos: cada produto e cada foto uma vez, total limitado, item inválido descartado', () => {
+  const media = R.retailAuthorized(decision({ send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(5)],
+    items: [{ item_id: id(1), asset_ids: [id(5)] }, { item_id: 'x', asset_ids: [id(6)] }, { item_id: id(2), asset_ids: [id(5), id(6)] },
+      { item_id: id(1), asset_ids: [id(7)] }, { item_id: id(3), asset_ids: [id(8), id(9)] }] } })).media;
+  assert.deepEqual(media.items, [{ item_id: id(1), asset_ids: [id(5)] }, { item_id: id(2), asset_ids: [id(6)] }, { item_id: id(3), asset_ids: [id(8)] }]);
+  assert.equal(media.item_id, id(1));
+});
+
 const asset = (n, extra = {}) => {
   const storage_path = 'catalog/' + T + '/' + 'a'.repeat(63) + n + '.png';
   return { id: id(n), tenant_id: T, storage_bucket: 'product-catalog', storage_path, sha256: 'a'.repeat(63) + n, mime_type: 'image/png',

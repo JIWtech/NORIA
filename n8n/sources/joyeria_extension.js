@@ -250,17 +250,27 @@ const chosen = presentable.filter(item => roleOf(item.id).some(role => ['selecte
 const focus = presentable.length === 1 ? presentable[0] : chosen.length === 1 ? chosen[0] : null;
 const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
 const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'price_inquiry', 'purchase_intent'].includes(v.primary_intent);
-// Foto já enviada nesta sessão não é reenviada, nem a pedido: a resposta lembra que já está na conversa.
-if (maxPhotos > 0 && focus && !alreadySent.has(focus.id) && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
-  const links = await get('product_catalog_item_images?select=asset_id,display_order,review_status&tenant_id=eq.' + enc(tenantId)
-    + '&item_id=eq.' + enc(focus.id) + '&review_status=eq.aprovada&order=display_order.asc&limit=' + maxPhotos);
-  if (!Array.isArray(links)) throw new Error('JOYERIA_EXT_IMAGENS_INDISPONIVEIS');
-  const assetIds = links.filter(link => link.review_status === 'aprovada' && UUID.test(String(link.asset_id || ''))).map(link => link.asset_id).slice(0, maxPhotos);
-  if (assetIds.length) {
-    A.send_product_media = { allowed: true, item_id: focus.id, asset_ids: assetIds, reason: v.photos.on ? 'PHOTOS_REQUESTED' : 'PRODUCT_PRESENTATION' };
+// Pedido explícito de fotos de vários produtos: vão fotos de cada um (até o limite por turno, ao menos uma por produto).
+// Sem pedido, só o item em foco tem foto automática. Foto já enviada nesta sessão não é reenviada, nem a pedido.
+const targets = focus ? [focus] : v.photos.on && presentable.length > 1 ? presentable : [];
+const pendingTargets = targets.filter(item => !alreadySent.has(item.id)).slice(0, Math.max(maxPhotos, 1));
+if (maxPhotos > 0 && pendingTargets.length && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
+  const perItem = Math.max(1, Math.floor(maxPhotos / pendingTargets.length));
+  const items = [];
+  for (const target of pendingTargets.slice(0, maxPhotos)) {
+    const links = await get('product_catalog_item_images?select=asset_id,display_order,review_status&tenant_id=eq.' + enc(tenantId)
+      + '&item_id=eq.' + enc(target.id) + '&review_status=eq.aprovada&order=display_order.asc&limit=' + perItem);
+    if (!Array.isArray(links)) throw new Error('JOYERIA_EXT_IMAGENS_INDISPONIVEIS');
+    const assetIds = links.filter(link => link.review_status === 'aprovada' && UUID.test(String(link.asset_id || ''))).map(link => link.asset_id).slice(0, perItem);
+    if (assetIds.length) items.push({ item_id: target.id, asset_ids: assetIds });
+  }
+  if (items.length) {
+    // item_id/asset_ids repetem o primeiro produto (compatibilidade com o contrato de um produto só).
+    A.send_product_media = { allowed: true, item_id: items[0].item_id, asset_ids: items[0].asset_ids, items,
+      reason: v.photos.on ? 'PHOTOS_REQUESTED' : 'PRODUCT_PRESENTATION' };
     decision.evidence_used.push(...v.photos.evidence_ids);
   } else A.send_product_media.reason = 'NO_APPROVED_IMAGES';
-} else if (focus && alreadySent.has(focus.id)) A.send_product_media.reason = 'ALREADY_SENT_IN_SESSION';
+} else if (targets.length && !pendingTargets.length) A.send_product_media.reason = 'ALREADY_SENT_IN_SESSION';
 else if (v.photos.on) A.send_product_media.reason = uncertain ? 'CLARIFICATION_REQUIRED' : focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
 
 // 5. Link do site: cliente orientado pela IA, sem critério de especialista nem handoff, com um item em foco e link cadastrado.

@@ -193,7 +193,8 @@ function report(label, text, r) {
   console.log('  [EXT] status=' + d.status + ' motivos=' + (d.reason_codes || []).join(',')
     + ' | aviso=' + (a.notify_specialist?.required ? a.notify_specialist.reasons.join('+') : 'não')
     + ' | handoff=' + (a.handoff?.required ? a.handoff.reason : 'não')
-    + ' | fotos=' + (a.send_product_media?.allowed ? a.send_product_media.asset_ids.length : 'não (' + a.send_product_media?.reason + ')')
+    + ' | fotos=' + (a.send_product_media?.allowed ? (a.send_product_media.items || [a.send_product_media])
+      .map(entry => nameOf(entry.item_id) + ' x' + entry.asset_ids.length).join(' + ') : 'não (' + a.send_product_media?.reason + ')')
     + ' | link=' + (a.send_site_link?.allowed ? 'sim' : 'não'));
   console.log('IA: ' + (r.delivered?.text || '(sem resposta)').replace(/\n/g, '\n    '));
   for (const m of r.sent) console.log('  [envio simulado] ' + (m.kind === 'foto' ? 'foto ' + m.body.fileName + ' para o lead' : 'texto para ' + m.to + ':\n      ' + m.body.text.replace(/\n/g, '\n      ')));

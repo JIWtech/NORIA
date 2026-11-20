@@ -257,9 +257,21 @@ function retailAuthorized(decision) {
   const out = { ...none };
   if (a.present_information?.allowed === true) out.present_item_ids = [...new Set(uuids(a.present_information.item_ids))].slice(0, 3);
   const media = a.send_product_media;
-  if (media?.allowed === true && RETAIL_UUID.test(String(media.item_id || ''))) {
-    const assets = [...new Set(uuids(media.asset_ids))].slice(0, RETAIL_MAX_MEDIA);
-    if (assets.length) out.media = { item_id: media.item_id, asset_ids: assets };
+  if (media?.allowed === true) {
+    // Fotos de um ou mais produtos (items); o formato antigo (item_id/asset_ids) vale como um produto só.
+    // O total de fotos do turno nunca passa de RETAIL_MAX_MEDIA e cada foto aparece uma vez só.
+    const requested = Array.isArray(media.items) ? media.items : [{ item_id: media.item_id, asset_ids: media.asset_ids }];
+    const seenItems = new Set(), seenAssets = new Set(), items = [];
+    for (const entry of requested) {
+      const itemId = String(entry?.item_id || '');
+      if (!RETAIL_UUID.test(itemId) || seenItems.has(itemId)) continue;
+      const room = RETAIL_MAX_MEDIA - seenAssets.size;
+      const assets = uuids(entry.asset_ids).filter(assetId => !seenAssets.has(assetId)).slice(0, room);
+      if (!assets.length) continue;
+      seenItems.add(itemId); assets.forEach(assetId => seenAssets.add(assetId));
+      items.push({ item_id: itemId, asset_ids: assets });
+    }
+    if (items.length) out.media = { item_id: items[0].item_id, asset_ids: items[0].asset_ids, items };
   }
   if (a.send_site_link?.allowed === true && RETAIL_UUID.test(String(a.send_site_link.item_id || ''))) out.site_link = { item_id: a.send_site_link.item_id };
   const notify = a.notify_specialist;
@@ -300,7 +312,7 @@ function retailMediaPlan({ tenantId, storageOrigin, authorized, item, links, ass
       || asset.public_url !== expectedUrl || !String(asset.storage_path || '').startsWith('catalog/' + tenantId + '/')) {
       skipped.push('ASSET_INVALID:' + assetId); continue;
     }
-    send.push({ asset_id: asset.id, url: asset.public_url, mime_type: asset.mime_type, sha256: asset.sha256,
+    send.push({ item_id: item.id, asset_id: asset.id, url: asset.public_url, mime_type: asset.mime_type, sha256: asset.sha256,
       display_order: link.display_order, shared_note: link.shared_note || null });
   }
   // Ordena pela exibição cadastrada e só então numera o nome do arquivo (neutro, sem nome de produto).

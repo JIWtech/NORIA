@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T23:11:20.549Z',
-  core_sha256: 'e67041e51de8128e580d059da3387043b8f71e7d76cc7ca2dd4de344765225c8',
+  built_at: '2026-11-20T23:14:43.238Z',
+  core_sha256: '01dbf7e7e25980b835883ca2e2aabc428c1a00e731b12b00eeb45c5dfbd97754',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5412,9 +5412,21 @@ function retailAuthorized(decision) {
   const out = { ...none };
   if (a.present_information?.allowed === true) out.present_item_ids = [...new Set(uuids(a.present_information.item_ids))].slice(0, 3);
   const media = a.send_product_media;
-  if (media?.allowed === true && RETAIL_UUID.test(String(media.item_id || ''))) {
-    const assets = [...new Set(uuids(media.asset_ids))].slice(0, RETAIL_MAX_MEDIA);
-    if (assets.length) out.media = { item_id: media.item_id, asset_ids: assets };
+  if (media?.allowed === true) {
+    // Fotos de um ou mais produtos (items); o formato antigo (item_id/asset_ids) vale como um produto só.
+    // O total de fotos do turno nunca passa de RETAIL_MAX_MEDIA e cada foto aparece uma vez só.
+    const requested = Array.isArray(media.items) ? media.items : [{ item_id: media.item_id, asset_ids: media.asset_ids }];
+    const seenItems = new Set(), seenAssets = new Set(), items = [];
+    for (const entry of requested) {
+      const itemId = String(entry?.item_id || '');
+      if (!RETAIL_UUID.test(itemId) || seenItems.has(itemId)) continue;
+      const room = RETAIL_MAX_MEDIA - seenAssets.size;
+      const assets = uuids(entry.asset_ids).filter(assetId => !seenAssets.has(assetId)).slice(0, room);
+      if (!assets.length) continue;
+      seenItems.add(itemId); assets.forEach(assetId => seenAssets.add(assetId));
+      items.push({ item_id: itemId, asset_ids: assets });
+    }
+    if (items.length) out.media = { item_id: items[0].item_id, asset_ids: items[0].asset_ids, items };
   }
   if (a.send_site_link?.allowed === true && RETAIL_UUID.test(String(a.send_site_link.item_id || ''))) out.site_link = { item_id: a.send_site_link.item_id };
   const notify = a.notify_specialist;
@@ -5455,7 +5467,7 @@ function retailMediaPlan({ tenantId, storageOrigin, authorized, item, links, ass
       || asset.public_url !== expectedUrl || !String(asset.storage_path || '').startsWith('catalog/' + tenantId + '/')) {
       skipped.push('ASSET_INVALID:' + assetId); continue;
     }
-    send.push({ asset_id: asset.id, url: asset.public_url, mime_type: asset.mime_type, sha256: asset.sha256,
+    send.push({ item_id: item.id, asset_id: asset.id, url: asset.public_url, mime_type: asset.mime_type, sha256: asset.sha256,
       display_order: link.display_order, shared_note: link.shared_note || null });
   }
   // Ordena pela exibição cadastrada e só então numera o nome do arquivo (neutro, sem nome de produto).
@@ -6573,7 +6585,8 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     opening: !servicesHasRecentBusiness(history),
     recent_conversation: history.filter(row => row.message_text && row.ai_provider !== 'buffer').slice(-10).map(row => ({ from: row.direction === 'inbound' ? 'customer' : 'business', text: audioHistoryText(row) })),
     product_facts: facts,
-    photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null } : null,
+    photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null,
+      item_ids: [...new Set(media.send.map(entry => entry.item_id).filter(Boolean))] } : null,
     photos_already_in_conversation: !media && decision.actions?.send_product_media?.reason === 'ALREADY_SENT_IN_SESSION',
     // Por que a foto pedida não sai: vários produtos ao mesmo tempo ou produto sem foto aprovada.
     photos_not_available: !media && ['NO_SINGLE_PRODUCT_IN_FOCUS', 'NO_APPROVED_IMAGES'].includes(decision.actions?.send_product_media?.reason)
@@ -6623,22 +6636,30 @@ function retailEvolution() {
 
 // Plano real das fotos, montado ANTES da redação: o texto só anuncia foto que de fato pode ser enviada. Fotos com reserva
 // pendente ou resultado desconhecido nesta sessão ficam de fora (exigem reconciliação; nunca são reenviadas automaticamente).
+// Plano das fotos de um ou mais produtos (allowedMedia.items). Cada produto é relido e conferido à parte; a numeração
+// dos arquivos segue a ordem final de envio.
 async function retailPlanProductMedia(context, identity, allowedMedia) {
-  const items = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
-    'select=id,tenant_id,active,offerable&id=eq.' + encodeFilter(allowedMedia.item_id) + '&limit=1'));
-  const assetFilter = 'in.(' + allowedMedia.asset_ids.map(encodeFilter).join(',') + ')';
-  const links = await supabaseGet(retailTenantPath('product_catalog_item_images', context.tenant.id,
-    'select=tenant_id,item_id,asset_id,display_order,review_status,shared_note&item_id=eq.' + encodeFilter(allowedMedia.item_id) + '&asset_id=' + assetFilter));
-  const assets = await supabaseGet(retailTenantPath('product_catalog_assets', context.tenant.id,
-    'select=id,tenant_id,storage_bucket,storage_path,public_url,sha256,mime_type&id=' + assetFilter));
   const state = await retailLoadMediaState(context, identity.session_id);
   const pending = new Set(state.pendingAssetIds);
-  const authorized = { ...allowedMedia, asset_ids: allowedMedia.asset_ids.filter(assetId => !pending.has(assetId)) };
-  const plan = authorized.asset_ids.length
-    ? retailMediaPlan({ tenantId: context.tenant.id, storageOrigin: salesMediaHttpsLocation(env('SUPABASE_URL'))?.origin,
-      authorized, item: Array.isArray(items) ? items[0] : null, links, assets })
-    : { send: [], skipped: [] };
-  return { send: plan.send, skipped: [...allowedMedia.asset_ids.filter(assetId => pending.has(assetId)).map(assetId => 'PENDING_RECONCILIATION:' + assetId), ...plan.skipped] };
+  const send = [], skipped = [];
+  for (const entry of Array.isArray(allowedMedia.items) ? allowedMedia.items : [allowedMedia]) {
+    const items = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
+      'select=id,tenant_id,active,offerable&id=eq.' + encodeFilter(entry.item_id) + '&limit=1'));
+    const assetFilter = 'in.(' + entry.asset_ids.map(encodeFilter).join(',') + ')';
+    const links = await supabaseGet(retailTenantPath('product_catalog_item_images', context.tenant.id,
+      'select=tenant_id,item_id,asset_id,display_order,review_status,shared_note&item_id=eq.' + encodeFilter(entry.item_id) + '&asset_id=' + assetFilter));
+    const assets = await supabaseGet(retailTenantPath('product_catalog_assets', context.tenant.id,
+      'select=id,tenant_id,storage_bucket,storage_path,public_url,sha256,mime_type&id=' + assetFilter));
+    const authorized = { item_id: entry.item_id, asset_ids: entry.asset_ids.filter(assetId => !pending.has(assetId)) };
+    skipped.push(...entry.asset_ids.filter(assetId => pending.has(assetId)).map(assetId => 'PENDING_RECONCILIATION:' + assetId));
+    if (!authorized.asset_ids.length) continue;
+    const plan = retailMediaPlan({ tenantId: context.tenant.id, storageOrigin: salesMediaHttpsLocation(env('SUPABASE_URL'))?.origin,
+      authorized, item: Array.isArray(items) ? items[0] : null, links, assets });
+    send.push(...plan.send);
+    skipped.push(...plan.skipped);
+  }
+  return { send: send.slice(0, RETAIL_MAX_MEDIA).map((entry, index) => ({ ...entry,
+    file_name: 'produto-' + (index + 1) + '.' + RETAIL_MEDIA_MIME[entry.mime_type] })), skipped };
 }
 
 async function retailSendProductMedia(context, identity, allowedMedia, plan) {
@@ -6654,7 +6675,7 @@ async function retailSendProductMedia(context, identity, allowedMedia, plan) {
       reservation = await retailInsertEvent({ tenant_id: context.tenant.id, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
         external_message_id: key + '_attempt', direction: 'outbound', sender_type: 'system', message_text: '', service: RETAIL_PHOTO_SERVICE + '_attempt',
         handoff: false, ai_provider: 'retail_product_photo', delivery_status: 'internal',
-        raw_payload: { status: 'reserved', item_id: allowedMedia.item_id, asset_id: entry.asset_id, conversation_session_id: identity.session_id, requires_reconciliation: true } });
+        raw_payload: { status: 'reserved', item_id: entry.item_id || allowedMedia.item_id, asset_id: entry.asset_id, conversation_session_id: identity.session_id, requires_reconciliation: true } });
     } catch (_) { result.status = 'reservation_failed'; break; }
     let response = null, error = null;
     try {
@@ -6671,7 +6692,7 @@ async function retailSendProductMedia(context, identity, allowedMedia, plan) {
         sender_type: outcome.status === 'sent' ? 'assistant' : 'system', message_text: '',
         service: outcome.status === 'sent' ? RETAIL_PHOTO_SERVICE : RETAIL_PHOTO_SERVICE + '_attempt', handoff: false, ai_provider: 'retail_product_photo',
         delivery_status: outcome.status === 'sent' ? 'sent' : 'internal',
-        raw_payload: { content_type: 'image', status: outcome.status, code: outcome.code || null, item_id: allowedMedia.item_id, asset_id: entry.asset_id,
+        raw_payload: { content_type: 'image', status: outcome.status, code: outcome.code || null, item_id: entry.item_id || allowedMedia.item_id, asset_id: entry.asset_id,
           sha256: entry.sha256, reservation_event_id: reservation.id, conversation_session_id: identity.session_id, requires_reconciliation: outcome.status === 'unknown',
           media: { kind: 'image', category: 'image', origin: 'assistant', url: entry.url, mimeType: entry.mime_type, fileName: entry.file_name, caption: '' } } });
     } catch (_) { /* a reserva fica como prova; a reconciliação usa o provider_message_id do log do provedor */ }
