@@ -32,6 +32,9 @@ const RETAIL_SEMANTIC_RULES = [
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
   'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Querer fechar a compra ou perguntar "como faço o pedido" NÃO é pedido de humano.',
   'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
+  'Perguntar se há alguém atendendo ("tem alguém aí?", "oi??") não é pedido de humano: é o cliente checando se foi ouvido.',
+  'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
+  'home_visit só quando o cliente quer atendimento na casa dele. Agendar ida ao showroom ou à loja não é home_visit.',
   'human (complemento): pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
 ];

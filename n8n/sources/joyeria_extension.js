@@ -115,8 +115,10 @@ function validateSemantic(raw) {
     const on = v.requested === true || v.present === true;
     return { on, evidence_ids: evidence(v, name.toUpperCase(), errors, { required: on }), ...extra };
   };
-  const material = isObj(raw.material_requested) ? raw.material_requested : {};
+  let material = isObj(raw.material_requested) ? raw.material_requested : {};
   if (!MATERIALS.includes(material.value)) errors.push('MATERIAL_INVALID');
+  // Material sem evidência não derruba a decisão inteira: é descartado (vira "none") e não aciona nenhuma regra.
+  if (material.value && material.value !== 'none' && !asStrings(material.evidence_ids).length) material = { value: 'none', evidence_ids: [] };
   const decision = isObj(raw.customer_decision) ? raw.customer_decision : {};
   if (!DECISIONS.includes(decision.value)) errors.push('CUSTOMER_DECISION_INVALID');
   const conversation = isObj(raw.conversation) ? raw.conversation : {};
@@ -243,7 +245,9 @@ if (interestedItems.some(item => !presentable.includes(item))) decision.reason_c
 
 // 4. Fotos: um único item em foco, ofertável, com imagens aprovadas; pedido explícito ou primeira apresentação do item
 //    na sessão (o CORE informa em media_sent_item_ids o que já foi enviado nesta sessão, para não repetir a cada mensagem).
-const focus = presentable.length === 1 ? presentable[0] : null;
+// Foco: o único item apresentável; havendo vários (comparação), o único escolhido ou de interesse explícito.
+const chosen = presentable.filter(item => roleOf(item.id).some(role => ['selected', 'interested'].includes(role)));
+const focus = presentable.length === 1 ? presentable[0] : chosen.length === 1 ? chosen[0] : null;
 const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
 const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'price_inquiry', 'purchase_intent'].includes(v.primary_intent);
 if (maxPhotos > 0 && focus && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {

@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T21:07:00.491Z',
-  core_sha256: 'c3b25bb611077b121c96e6c3cca9c41a82c5dc714c0473871d308ba90f9b44c2',
+  built_at: '2026-11-20T21:39:23.163Z',
+  core_sha256: '1097437cc084bb08775838cc1e94baf0705cfa94a78bdf5ec3db0352fc5b968c',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5187,6 +5187,9 @@ const RETAIL_SEMANTIC_RULES = [
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
   'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Querer fechar a compra ou perguntar "como faço o pedido" NÃO é pedido de humano.',
   'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
+  'Perguntar se há alguém atendendo ("tem alguém aí?", "oi??") não é pedido de humano: é o cliente checando se foi ouvido.',
+  'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
+  'home_visit só quando o cliente quer atendimento na casa dele. Agendar ida ao showroom ou à loja não é home_visit.',
   'human (complemento): pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
 ];

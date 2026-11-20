@@ -135,6 +135,12 @@ test('item sem preço aprovado não é apresentado; item de outro tenant é desc
   assert.ok(!d.products.some(p => p.item_id === OUTRO_TENANT));
 });
 
+test('comparação: o item escolhido entre dois apresentáveis recebe as fotos', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'selected'), ref(SEMIJOIA, 'compared')], wants_photos: on() } });
+  assert.equal(d.actions.send_product_media.allowed, true);
+  assert.equal(d.actions.send_product_media.item_id, BLEND);
+});
+
 test('sem imagens aprovadas não há envio de mídia', async () => {
   const { d } = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')], wants_photos: on() }, images: [] });
   assert.equal(d.actions.send_product_media.allowed, false);
