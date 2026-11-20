@@ -37,10 +37,16 @@ Campos de identidade iguais aos do `services_v1` (`tenant_id`, `tenant_slug`, `i
 | `present_information` | `item_ids` | Fatos dos itens entram nos blocos aprovados para a redação |
 | `send_product_media` | `item_id`, `asset_ids` (máx. 3) | Recarrega item e vínculos do mesmo tenant; só imagens `aprovada`, item `offerable`; confere hash, MIME e URL do Storage do projeto; reserva antes do envio; resultado desconhecido não é reenviado |
 | `send_site_link` | `item_id` | Só com `site_url` cadastrado e item ofertável |
-| `notify_specialist` | `reason` (`blend`, `alto_padrao`, `cliente_decidido`), `facts` | Aviso ao destino configurado no tenant (ver abaixo); **não pausa a IA** |
+| `notify_specialist` | `reason` e `reasons` (`material_regra_propria`, `alto_padrao`, `cliente_decidido`), `materials` (ex.: `blend`, vindo do catálogo e da política) | Aviso ao destino configurado no tenant (ver abaixo); **não pausa a IA** |
 | `handoff` | `reason` | Handoff genérico já existente: pausa a IA, sem nome de atendente |
 
 Uma decisão `refused` ou malformada não autoriza nada e leva à contingência neutra já usada no `services_v1`.
+
+Regras da EXT JOYERÍA revisadas em 20/11/2026:
+
+- Interpretação incerta (confiança baixa, ambiguidade ou pedido de esclarecimento) não autoriza aviso, fotos nem link: a IA esclarece primeiro.
+- Pedido explícito de pessoa num caso de especialista gera aviso **e** handoff; troca e reclamação geram só handoff.
+- Fotos automáticas só na primeira apresentação do item na sessão (`retail_context.media_sent_item_ids`, informado pela fase `prepare`); pedido explícito do cliente sempre vale.
 
 ## Aviso ao especialista (`notify_specialist`)
 

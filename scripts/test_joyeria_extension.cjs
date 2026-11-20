@@ -72,7 +72,7 @@ const on = (evidence_ids = ['m1']) => ({ present: true, requested: true, evidenc
 test('interesse comercial em aliança blend avisa o especialista, apresenta o item e envia fotos aprovadas, sem link do site', async () => {
   const { d, requests } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on() } });
   assert.equal(d.status, 'ok');
-  assert.deepEqual(d.actions.notify_specialist, { required: true, reasons: ['blend'], reason: 'blend' });
+  assert.deepEqual(d.actions.notify_specialist, { required: true, reasons: ['material_regra_propria'], reason: 'material_regra_propria', materials: ['blend'] });
   assert.equal(d.actions.handoff.required, false, 'aviso ao especialista não pausa a IA');
   assert.deepEqual(d.actions.present_information.item_ids, [BLEND]);
   assert.deepEqual(d.actions.send_product_media.asset_ids, ASSETS);
@@ -133,6 +133,38 @@ test('troca e pedido de humano viram handoff genérico, sem aviso ao especialist
   assert.equal(troca.d.actions.send_product_media.allowed, false);
   const humano = await run({ semantic: { primary_intent: 'human_request', human: on() } });
   assert.equal(humano.d.actions.handoff.reason, 'HUMAN_REQUESTED');
+});
+
+test('pedido de pessoa num caso de especialista avisa o especialista e também faz o handoff', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'human_request', products: [ref(BLEND, 'interested')], human: on(), commercial_interest: on() } });
+  assert.equal(d.actions.handoff.reason, 'HUMAN_REQUESTED');
+  assert.equal(d.actions.notify_specialist.required, true);
+  assert.deepEqual(d.actions.notify_specialist.materials, ['blend']);
+});
+
+test('interpretação incerta não avisa, não envia foto nem link; pede esclarecimento', async () => {
+  for (const extra of [{ confidence: 'low' }, { primary_intent: 'ambiguous' }, { conversation: { topic_change: false, requires_clarification: true } }, { ambiguities: [{ kind: 'product' }] }]) {
+    const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on(), wants_photos: on(), ...extra } });
+    assert.equal(d.actions.notify_specialist.required, false, JSON.stringify(extra));
+    assert.equal(d.actions.send_product_media.allowed, false, JSON.stringify(extra));
+    assert.equal(d.actions.send_site_link.allowed, false, JSON.stringify(extra));
+    assert.ok(d.reason_codes.includes('CLARIFICATION_REQUIRED'));
+  }
+});
+
+test('fotos automáticas só na primeira apresentação do item na sessão; pedido explícito sempre vale', async () => {
+  const repetida = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')] }, extra: { retail_context: { media_sent_item_ids: [BLEND] } } });
+  assert.equal(repetida.d.actions.send_product_media.allowed, false);
+  assert.equal(repetida.d.actions.send_product_media.reason, 'ALREADY_SENT_IN_SESSION');
+  const pedida = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')], wants_photos: on() }, extra: { retail_context: { media_sent_item_ids: [BLEND] } } });
+  assert.equal(pedida.d.actions.send_product_media.allowed, true);
+});
+
+test('material de regra própria vem da política: outro material configurado usa o mesmo motivo genérico', async () => {
+  const cfg = settings();
+  cfg.retail_policy.specialist.own_rule_materials = ['prata'];
+  const { d } = await run({ cfg, semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on() } });
+  assert.equal(d.actions.notify_specialist.required, false, 'blend não é mais regra própria nessa política');
 });
 
 test('visita domiciliar só encaminha com localidade; sem ela, a IA pergunta', async () => {

@@ -25,7 +25,8 @@ const INTEREST_ROLES = ['asked_about', 'compared', 'interested', 'selected'];
 const MATERIALS = ['ouro_macico', 'material_nobre', 'blend', 'banhado_revestido', 'prata', 'aco', 'outro', 'desconhecido', 'none'];
 const DECISIONS = ['decided', 'exploring', 'undefined'];
 const CONFIDENCE = ['low', 'medium', 'high'];
-const SPECIALIST_REASONS = ['blend', 'alto_padrao', 'cliente_decidido'];
+// Motivos genéricos: o material concreto (ex.: blend) vai em notify_specialist.materials, vindo do catálogo e da política.
+const SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cliente_decidido'];
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 
 const isObj = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -138,7 +139,7 @@ const decision = {
     present_information: { allowed: false, item_ids: [] },
     send_product_media: { allowed: false, item_id: null, asset_ids: [], reason: 'NOT_REQUESTED' },
     send_site_link: { allowed: false, item_id: null, reason: 'NOT_REQUESTED' },
-    notify_specialist: { required: false, reasons: [], reason: null },
+    notify_specialist: { required: false, reasons: [], reason: null, materials: [] },
     handoff: { required: false, reason: null },
   },
 };
@@ -193,20 +194,29 @@ if (v.human.on || v.primary_intent === 'complaint') {
   } else decision.reason_codes.push('HOME_VISIT_LOCALITY_MISSING');
 }
 
+// Interpretação incerta não dispara efeito externo: a IA esclarece antes de avisar, enviar fotos ou link.
+const uncertain = v.ambiguous || v.requires_clarification || v.confidence === 'low';
+if (uncertain) decision.reason_codes.push('CLARIFICATION_REQUIRED');
+
 // 2. Aviso ao especialista (a IA continua atendendo). Critérios lidos da política do tenant:
 //    material com regra própria (ex.: blend) ou material de alto padrão, sempre com interesse comercial evidenciado;
 //    cliente decidido, inclusive quem se decide durante a conversa. Composição desconhecida nunca conta como alto padrão.
+//    Pedido explícito de pessoa não impede o aviso (o caso continua sendo do especialista); troca e reclamação, sim.
 const reasons = [];
-if (specialistEnabled && !A.handoff.required) {
+const postSale = A.handoff.required && A.handoff.reason !== 'HUMAN_REQUESTED';
+if (specialistEnabled && !postSale && !uncertain) {
   // Dúvida informativa (ex.: cuidados com a peça) não é interesse comercial: "asked_about" sozinho não aciona o aviso.
   const interest = v.interest.on || v.decision.value === 'decided'
     || items.some(item => roleOf(item.id).some(role => ['interested', 'selected'].includes(role)));
   const materialsInPlay = uniq([...interestedItems.map(item => item.material_class), v.material.value]);
-  if (interest && materialsInPlay.some(m => specialistMaterials.includes(m))) reasons.push('blend');
-  if (interest && materialsInPlay.some(m => highEndMaterials.includes(m))) reasons.push('alto_padrao');
+  const ownRule = materialsInPlay.filter(m => specialistMaterials.includes(m));
+  const highEnd = materialsInPlay.filter(m => highEndMaterials.includes(m));
+  if (interest && ownRule.length) reasons.push('material_regra_propria');
+  if (interest && highEnd.length) reasons.push('alto_padrao');
   if (notifyDecided && v.decision.value === 'decided') reasons.push('cliente_decidido');
   if (reasons.length) {
-    A.notify_specialist = { required: true, reasons: SPECIALIST_REASONS.filter(r => reasons.includes(r)), reason: SPECIALIST_REASONS.find(r => reasons.includes(r)) };
+    A.notify_specialist = { required: true, reasons: SPECIALIST_REASONS.filter(r => reasons.includes(r)),
+      reason: SPECIALIST_REASONS.find(r => reasons.includes(r)), materials: interest ? uniq([...ownRule, ...highEnd]) : [] };
     decision.evidence_used.push(...v.interest.evidence_ids, ...v.material.evidence_ids, ...v.decision.evidence_ids);
     if (configIssues.includes('SPECIALIST_RECIPIENT_NOT_CONFIGURED')) decision.reason_codes.push('SPECIALIST_RECIPIENT_NOT_CONFIGURED');
   }
@@ -223,9 +233,12 @@ if (presentable.length) {
 }
 if (interestedItems.some(item => !presentable.includes(item))) decision.reason_codes.push('PRODUCT_NOT_OFFERABLE');
 
-// 4. Fotos: um único item em foco, ofertável, com imagens aprovadas; pedido explícito ou primeira apresentação do item.
+// 4. Fotos: um único item em foco, ofertável, com imagens aprovadas; pedido explícito ou primeira apresentação do item
+//    na sessão (o CORE informa em media_sent_item_ids o que já foi enviado nesta sessão, para não repetir a cada mensagem).
 const focus = presentable.length === 1 ? presentable[0] : null;
-if (maxPhotos > 0 && focus && !A.handoff.required && (v.photos.on || ['product_inquiry', 'purchase_intent'].includes(v.primary_intent))) {
+const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
+const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'purchase_intent'].includes(v.primary_intent);
+if (maxPhotos > 0 && focus && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
   const links = await get('product_catalog_item_images?select=asset_id,display_order,review_status&tenant_id=eq.' + enc(tenantId)
     + '&item_id=eq.' + enc(focus.id) + '&review_status=eq.aprovada&order=display_order.asc&limit=' + maxPhotos);
   if (!Array.isArray(links)) throw new Error('JOYERIA_EXT_IMAGENS_INDISPONIVEIS');
@@ -234,14 +247,14 @@ if (maxPhotos > 0 && focus && !A.handoff.required && (v.photos.on || ['product_i
     A.send_product_media = { allowed: true, item_id: focus.id, asset_ids: assetIds, reason: v.photos.on ? 'PHOTOS_REQUESTED' : 'PRODUCT_PRESENTATION' };
     decision.evidence_used.push(...v.photos.evidence_ids);
   } else A.send_product_media.reason = 'NO_APPROVED_IMAGES';
-} else if (v.photos.on) A.send_product_media.reason = focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
+} else if (v.photos.on) A.send_product_media.reason = uncertain ? 'CLARIFICATION_REQUIRED' : focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
+else if (focus && alreadySent.has(focus.id)) A.send_product_media.reason = 'ALREADY_SENT_IN_SESSION';
 
 // 5. Link do site: cliente orientado pela IA, sem critério de especialista nem handoff, com um item em foco e link cadastrado.
-if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.required && v.interest.on) {
+if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.required && !uncertain && v.interest.on) {
   if (typeof focus.site_url === 'string' && /^https:\/\/[^/\s]+\/\S*$/.test(focus.site_url)) A.send_site_link = { allowed: true, item_id: focus.id, reason: 'GUIDED_PURCHASE' };
   else A.send_site_link.reason = 'NO_SITE_URL';
 } else if (A.notify_specialist.required) A.send_site_link.reason = 'SPECIALIST_FLOW';
 
-if (v.ambiguous || v.requires_clarification || v.confidence === 'low') decision.reason_codes.push('CLARIFICATION_REQUIRED');
 if (v.topic_change) decision.reason_codes.push('TOPIC_CHANGE');
 return finish('ok');
