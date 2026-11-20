@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T23:14:43.238Z',
-  core_sha256: '01dbf7e7e25980b835883ca2e2aabc428c1a00e731b12b00eeb45c5dfbd97754',
+  built_at: '2026-11-20T23:18:06.551Z',
+  core_sha256: 'c166bfd7b98545e94e57c8c29d84e3f6daaee2426d84a0ca5bc780074f98f81e',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6658,7 +6658,10 @@ async function retailPlanProductMedia(context, identity, allowedMedia) {
     send.push(...plan.send);
     skipped.push(...plan.skipped);
   }
-  return { send: send.slice(0, RETAIL_MAX_MEDIA).map((entry, index) => ({ ...entry,
+  // Larguras de uma linha podem compartilhar a mesma imagem: o mesmo arquivo não vai duas vezes no mesmo turno.
+  const seenFiles = new Set();
+  const unique = send.filter(entry => !seenFiles.has(entry.sha256) && seenFiles.add(entry.sha256));
+  return { send: unique.slice(0, RETAIL_MAX_MEDIA).map((entry, index) => ({ ...entry,
     file_name: 'produto-' + (index + 1) + '.' + RETAIL_MEDIA_MIME[entry.mime_type] })), skipped };
 }
 
