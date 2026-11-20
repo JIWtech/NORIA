@@ -65,10 +65,56 @@ Sem mudança: "Assumir" grava `conversation_assigned` com `handoff: true` (pausa
 
 Fonte: migration pendente `20261120200000_product_catalog` e carga gerada por `scripts/product_catalog_load.cjs`. A fase `prepare` carrega candidatos por tenant, ativos e ofertáveis, com limite e ordenação determinísticos; nunca o catálogo inteiro no prompt.
 
-## Ordem de implementação
+## Estado (20/11/2026)
 
-1. Capability `retail_v1` aceita na declaração do pipeline e no perfil, sem alterar `services_v1` (testes de regressão do salão e da Núbia).
-2. Envio genérico de mídia a partir de `product_catalog_*` (MIME real, sem nomes de arquivo de veículo).
-3. `notify_specialist` com reserva idempotente e reconciliação.
-4. Fases `prepare` e `finalize` do `retail_v1`.
-5. EXT da JOYERÍA (política) e prompt; gerador de workflows; homologação com número de teste.
+| Peça | Arquivo | Estado |
+| --- | --- | --- |
+| Catálogo (schema) | `supabase/migrations_pending_review/20261120200000_product_catalog.sql` | Pronto, testado em PGlite, **não aplicado** |
+| Carga do catálogo | `scripts/product_catalog_load.cjs` + `clients/joyeria/catalogo_pdf/carga/` | Pronto, testado em PGlite, **não executado** |
+| EXT JOYERÍA | `n8n/sources/joyeria_extension.js` | Pronta, 18 testes, não ligada ao gerador |
+| Funções puras do CORE | `n8n/sources/noria_retail.js` | Prontas, 14 testes, não embutidas no motor |
+| Integração ao CORE, roteador, gerador e painel | — | Plano abaixo |
+
+## Plano de integração ao CORE (sem quebrar os tenants atuais)
+
+### Como o CORE funciona hoje (pontos de contato)
+
+- **Roteador** (`noria_router.js`): tenants mapeados (`clinica_nubia_oficial`, `wesley_automoveis`, `noria`) têm ramo próprio; qualquer outro vai para `saas_dynamic`, que valida tenant, canal e instância e entrega `noria_client_policy`. Só a Núbia é marcada com `noria_pipeline = 'services_v1'`.
+- **Gerador** (`build_noria_workflows.cjs`): a cadeia do pipeline em fases é criada por `configureServicesChain`, presa à EXT v2 da Núbia e ao seletor `noria_pipeline === 'services_v1'`.
+- **Motor** (`noria_core.js`): `allowedBusinessProfiles` aceita três perfis; `turnPipelineFor` aceita só a capability `services_v1` e exige o vocabulário de serviços; o despacho principal chama `runServicesTurnPrepare/Finalize`; fotos só saem pelo módulo de vendas de veículos.
+- **Painel**: eventos `specialist_notice*` e `retail_product_photo` não são reconhecidos e apareceriam como mensagens enviadas ao cliente.
+
+### Regra de não regressão
+
+Toda mudança entra atrás de duas travas que hoje nenhum tenant satisfaz: perfil `retail_consultative_v1` na política da EXT **e** `settings.noria_turn_pipeline` habilitado com capability `retail_v1`. Fora disso, cada função alterada devolve exatamente o mesmo resultado de antes. A cada etapa:
+
+1. Bateria completa de `scripts/test_*.cjs` sem credenciais: o conjunto que passa hoje (114) continua passando e as 25 falhas pré-existentes continuam as mesmas (lista em `test_results_base.json` da auditoria).
+2. Testes específicos: `test_noria_services_pipeline`, `test_nubia_extension_v2`, `test_export_fixes_salon_nubia`, `test_salon_holiday_hours`, `test_nb_bronze_prompt_v12_proposal`, adaptador do Salon e `npm test` do painel.
+3. Gerador em `NORIA_BUILD_OUT_DIR` temporário: o diff dos workflows de Núbia, Salon, Gênesis e NORIA deve conter só os nós novos do ramo `retail_v1` e a revisão do motor.
+4. Auditoria anti-hardcode.
+
+### Etapas
+
+| # | Etapa | Mudança | Risco para os atuais | Verificação específica |
+| --- | --- | --- | --- | --- |
+| 1 | Embutir `noria_retail.js` no motor | Gerador concatena as funções puras no código do CORE (sem `module.exports`) | Nenhum: só declara funções | Motor gerado carrega; hash novo; testes do motor iguais |
+| 2 | Perfil e capability | `allowedBusinessProfiles` ganha `retail_consultative_v1`; `turnPipelineFor` aceita `retail_v1` com o vocabulário próprio (`retailVocabulary`), mantendo o caminho de `services_v1` intacto | Baixo: ramo novo só por declaração | Teste: services_v1 com a mesma configuração dá o mesmo resultado; retail_v1 sem vocabulário completo falha fechado |
+| 3 | Fase `prepare` do retail | `runRetailTurnPrepare`: mesmas guardas do serviço (reset, IA desligada, trava humana, limite de uso), candidatos do catálogo (`retailCandidatePath`), interpretação Gemini com `retailSemanticSchema`, `retail_context.media_sent_item_ids` | Nenhum fora do retail | Fixtures: candidatos de outro tenant descartados; mais de 100 itens; falha do Gemini vira `semantic_failure` |
+| 4 | Fase `finalize` do retail | `runRetailTurnFinalize`: verifica decisão (`retailVerifiedDecision`), redige com fatos autorizados, auditoria determinística (só preços, links e itens autorizados; sem telefone nem nome de atendente), entrega pelo ciclo existente (begin → provedor → confirm) | Nenhum fora do retail | Resposta com preço não autorizado é bloqueada; decisão recusada leva à contingência neutra |
+| 5 | Fotos | `sendRetailProductMedia` depois da entrega do texto: relê item, vínculos e arquivos do tenant, `retailMediaPlan`, reserva por foto em `channel_events` (inserção única), `sendMedia` com MIME real e nome neutro; resultado desconhecido não é reenviado | Nenhum: função nova, sem tocar no caminho de veículos | Foto de outro tenant, não aprovada ou URL externa nunca sai; reserva duplicada interrompe |
+| 6 | Aviso ao especialista | `sendSpecialistNotice` depois da entrega ao lead (se a entrega foi cancelada por Assumir, não avisa): destino só do cadastro, reserva `specialist_notice_<sessão>_<motivo>`, `sendText` ao número do especialista pela instância do tenant, evento de resultado | Nenhum fora do retail | Repetição e concorrência geram um aviso; timeout vira `unknown` sem reenvio; destino igual ao lead é recusado |
+| 7 | Roteador | Ramo `saas_dynamic` marca `noria_pipeline = 'retail_v1'` só com declaração válida (contrato, capability, versão, piloto por contato); pino de lote como no serviço | Baixo: tenants atuais não declaram retail | Testes do roteador: Núbia, Gênesis, NORIA e Salon com o mesmo resultado |
+| 8 | Gerador | Cadeia `CORE \| Retail \| …` (seletor, despacho, prepare, EXT decisão, finalize) ligada ao ramo falso do seletor atual; EXT JOYERÍA gerada como workflow próprio | Médio (gerador compartilhado): conferido pelo diff do item 3 da regra | Diff de workflows restrito aos nós novos |
+| 9 | Painel | `specialist_notice` vira evento de sistema ("Especialista avisado", "Falha no aviso", "Aviso incerto"); reservas (`*_attempt`) ficam internas; `retail_product_photo` exibido como foto enviada | Baixo | `npm test` + testes novos de classificação |
+| 10 | Configuração e homologação | Aplicar migration, criar tenant/canal/settings da JOYERÍA, carga do catálogo, upload das fotos, variáveis `EVOLUTION_*_JOYERIA` e `NORIA_INGRESS_FORWARD_TOKEN_JOYERIA`, rollout `pilot` só com o número de teste | **Exige autorização explícita** (produção) | Roteiro de homologação com o número de teste; rollback por `enabled: false` |
+
+### Rollback
+
+- Etapas 1–9 são código: reverter o commit e regenerar. Sem a declaração `retail_v1`, nada novo executa.
+- Em produção: `settings.noria_turn_pipeline.enabled = false` (ou rollout `pilot` vazio) desliga o retail sem afetar outros tenants; mensagens em andamento ficam presas ao pino e vão para revisão humana, como no serviço.
+- Catálogo: desativar itens; o rollback da migration recusa apagar tabelas com dados.
+
+### Pendências de decisão
+
+- Política de mensagem ao cliente durante o aviso: a IA diz que "uma especialista vai continuar"? Hoje o plano mantém a IA atendendo sem anunciar o aviso (decisão 21). Confirmar o texto, se houver.
+- Conteúdo comercial de pagamento, prazo, frete, horário e endereço fica na persona (`settings.system_prompt`) e em `business_facts`; a carga dessas configurações é parte da etapa 10.
