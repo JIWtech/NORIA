@@ -100,6 +100,41 @@ if (!s.noria_client_policy) {
   throw new Error('NORIA_SEM_EXTENSAO_CONFIGURADA: ' + tenant_slug);
 }
 
+// Venda consultiva (retail_v1): só com perfil retail_consultative_v1 E declaração habilitada e válida em settings.noria_turn_pipeline.
+// Um lote em andamento fica no pipeline que o iniciou (pino gravado pelo despachante). Fora do piloto, o turno segue o caminho
+// padrão, onde o CORE registra a mensagem para a equipe sem resposta da IA. Nenhum outro perfil é afetado.
+let retailRoute = null;
+const retailPolicy = s.noria_client_policy;
+const retailOffered = retailPolicy?.modules?.turn_pipeline;
+if (retailPolicy?.profile === 'retail_consultative_v1' && retailOffered && typeof retailOffered === 'object') {
+  const declared = s.noria_turn_pipeline;
+  const version = typeof retailOffered.contract_version === 'string' ? retailOffered.contract_version : '';
+  const digits = value => String(value || '').replace(/\D/g, '');
+  const phoneOf = jid => { const m = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || '')); return m ? m[1] : ''; };
+  try {
+    const queue = await get('conversation_turn_queue?select=claimed&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&chat_id=eq.' + enc(remoteJid) + '&limit=1');
+    const claimed = Array.isArray(queue) && Array.isArray(queue[0]?.claimed) ? queue[0].claimed : [];
+    if (claimed.length && version) {
+      const keys = claimed.map(item => String(item?.event_id || item?.id || '')).filter(Boolean).map(id => 'noria_pin_' + version + '_' + id);
+      const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)
+        + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];
+      if (!Array.isArray(pins)) throw new Error('pin');
+      if (pins.length) retailRoute = { noria_contract_version: version, noria_router: 'retail_v1_pinned', noria_pipeline: 'retail_v1' };
+    } else if (declared && typeof declared === 'object' && !Array.isArray(declared) && declared.enabled === true) {
+      const scoped = declared.rollout === 'all' || (declared.rollout === 'pilot' && Array.isArray(declared.pilot?.allowed_contacts)
+        && declared.pilot.allowed_contacts.length > 0 && declared.pilot.allowed_contacts.every(item => typeof item === 'string' && /^\d{8,15}$/.test(digits(item))));
+      if (declared.contract !== 'noria_turn_pipeline_v1' || declared.capability !== 'retail_v1' || retailOffered.capability !== 'retail_v1'
+        || !version || declared.contract_version !== version || !scoped) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
+      const allowed = declared.rollout === 'all' || (phoneOf(remoteJid) !== '' && declared.pilot.allowed_contacts.some(item => digits(item) === phoneOf(remoteJid)));
+      if (allowed) retailRoute = { noria_contract_version: version, noria_router: 'retail_v1', noria_pipeline: 'retail_v1', noria_pipeline_rollout: declared.rollout };
+    }
+  } catch (error) {
+    if (/^NORIA_ROTEAMENTO_/.test(String(error?.message))) throw error;
+    // Falha fechada: sem confirmar o pino ou a declaração, o item fica na fila e a recuperação tenta de novo.
+    throw new Error('NORIA_ROTEAMENTO_PIPELINE_INDISPONIVEL');
+  }
+}
+
 return {
   json: {
     ...v,
@@ -107,5 +142,6 @@ return {
     noria_client_policy: s.noria_client_policy,
     noria_contract_version: '1.0',
     noria_router: 'saas_dynamic_v1',
+    ...(retailRoute || {}),
   },
 };

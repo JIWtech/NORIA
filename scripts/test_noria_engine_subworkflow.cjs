@@ -112,7 +112,9 @@ test('a EXT NORIA é chamada só no ramo NORIA e converge no marcador da fase ú
   assert.deepEqual(calls.map(node => node.name), ['CORE | Executar EXT NORIA']);
   assert.equal(calls[0].parameters.options.waitForSubWorkflow, true);
   assert.deepEqual(links('CORE - Resolver extensão do tenant'), [['CORE | É tenant NORIA?']]);
-  assert.deepEqual(links('CORE | É tenant NORIA?'), [['CORE | Executar EXT NORIA'], ['CORE | Serviços | Núbia v2?']]);
+  // Ramo "não é NORIA": seletor da venda consultiva (retail_v1); o ramo falso dele segue para a Núbia v2 como antes.
+  assert.deepEqual(links('CORE | É tenant NORIA?'), [['CORE | Executar EXT NORIA'], ['CORE | Retail | Venda consultiva?']]);
+  assert.deepEqual(links('CORE | Retail | Venda consultiva?'), [['CORE | Retail | Preparar dispatch'], ['CORE | Serviços | Núbia v2?']]);
   assert.deepEqual(links('CORE | Executar EXT NORIA'), [['CORE | Motor conversacional único | Fase']]);
   assert.equal(ext.name, 'NORIA EXT | NORIA | Política');
   const [trigger, policy] = ext.nodes;

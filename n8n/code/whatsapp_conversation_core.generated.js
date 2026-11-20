@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T15:50:22.033Z',
-  core_sha256: 'caf0c5e30c02b6a4e2ef1ae75be0562ddfc6054b4f2b33779a044adc1139bf93',
+  built_at: '2026-11-20T15:53:20.688Z',
+  core_sha256: '1ec5c1f32f44aaef9b3a7ea99cf7c5cd197aecc5340cb7b044aa9b871e554b97',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5442,6 +5442,9 @@ function turnPipelineFor(context) {
     if (raw === undefined || raw === null) return null;
     if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('NORIA_TURN_PIPELINE_CONFIG_INVALID');
     if (raw.enabled !== true) return null;
+    // Venda consultiva: só o roteador decide quem entra no pipeline (declaração válida e contato do piloto). Turno não roteado
+    // segue sem pipeline e é registrado para a equipe pelo CORE, sem resposta da IA.
+    if (tenantBusinessRules.profile === 'retail_consultative_v1' && inputJson.noria_pipeline !== 'retail_v1') return null;
     // A rota legada já foi selecionada pelo Roteador. A checagem do pino persistido
     // continua obrigatória depois do claim para impedir que a v1 execute um lote da v2.
     const legacyRoute = inputJson.noria_router === 'core_3wf_v1'
@@ -15978,6 +15981,15 @@ async function runTurn() {
   const declaredPipeline = settingsFor(context).noria_turn_pipeline;
   if (declaredPipeline && typeof declaredPipeline.contract_version === 'string' && await servicesPinFound(context, declaredPipeline.contract_version)) {
     throw new Error('NORIA_TURN_PINNED_TO_OTHER_PIPELINE');
+  }
+
+  // Venda consultiva sem pipeline ativo (declaração desligada ou contato fora do piloto): nunca usa o caminho de serviços.
+  // A mensagem fica registrada para a equipe no painel, sem resposta automática.
+  if (tenantBusinessRules.profile === 'retail_consultative_v1') {
+    if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
+    Object.assign(event, { handoff: false, ai_provider: 'retail_pipeline_inactive' });
+    await saveEvent(event); await complete('done');
+    return { ok: true, skipped: true, reason: 'retail_pipeline_inactive' };
   }
 
   if (normalized === '/reset' || normalized === 'reset') {

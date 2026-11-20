@@ -378,6 +378,76 @@ function configureServicesChain(workflow) {
   }
 }
 
+// Venda consultiva (retail_v1): seletor no ramo "não é tenant NORIA", antes do seletor da Núbia v2. Só turnos que o roteador
+// marcou com noria_pipeline = 'retail_v1' (perfil retail_consultative_v1 + declaração válida) entram; qualquer outro segue
+// para "Núbia v2?" exatamente como antes. Cadeia: despacho -> prepare -> EXT de decisão do tenant -> finalize. Idempotente.
+// ID do workflow da EXT: NORIA_RETAIL_EXT_WORKFLOW_ID, senão o já configurado, senão um marcador a preencher na publicação.
+const RETAIL_EXT_PLACEHOLDER = 'PREENCHER_ID_EXT_JOYERIA';
+const RETAIL_PREFIX = 'CORE | Retail | ';
+const RETAIL_SELECTOR = RETAIL_PREFIX + 'Venda consultiva?';
+function configureRetailChain(workflow) {
+  const find = name => workflow.nodes.find(node => node.name === name);
+  const noriaGate = 'CORE | É tenant NORIA?';
+  const servicesSelector = SERVICES_PREFIX + 'Núbia v2?';
+  if (!find(noriaGate) || !find(servicesSelector)) throw new Error('MISSING_RETAIL_ANCHORS');
+  const configured = find(RETAIL_PREFIX + 'Executar EXT decisão')?.parameters?.workflowId?.value;
+  const extId = process.env.NORIA_RETAIL_EXT_WORKFLOW_ID || (configured && configured !== RETAIL_EXT_PLACEHOLDER ? configured : RETAIL_EXT_PLACEHOLDER);
+  const ifNode = (expression, notes) => ({ type: 'n8n-nodes-base.if', typeVersion: 2.2, notes, parameters: {
+    conditions: { options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+      conditions: [{ leftValue: expression, rightValue: true, operator: { type: 'boolean', operation: 'equals' } }], combinator: 'and' },
+    options: {} } });
+  const engineCall = () => ({ type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, notes: 'Fase do Motor conversacional.',
+    parameters: { workflowId: { __rl: true, value: ENGINE_WORKFLOW_ID, mode: 'id', cachedResultUrl: '/workflow/' + ENGINE_WORKFLOW_ID },
+      mode: 'each', options: { waitForSubWorkflow: true } } });
+  const marker = phase => ({ type: 'n8n-nodes-base.code', typeVersion: 2, parameters: { mode: 'runOnceForEachItem',
+    jsCode: "return { json: { ...$json, noria_engine_phase: '" + phase + "', noria_engine_contract: 'noria_engine_phase_v1' }, binary: $input.item.binary };" } });
+  const terminal = "={{ $json.noria_terminal === true || $json.skipped === true }}";
+  const spec = [
+    ['Venda consultiva?', ifNode("={{ $json.noria_pipeline === 'retail_v1' }}",
+      'Seletor retail_v1: ramo falso = fluxo atual (Núbia v2 e legado). O verdadeiro só recebe turnos marcados pelo roteador.')],
+    ['Preparar dispatch', { type: 'n8n-nodes-base.code', typeVersion: 2, notes: 'Despachante genérico de turno.',
+      parameters: { mode: 'runOnceForEachItem', jsCode: servicesDispatchCode } }],
+    ['Turno terminal?', ifNode(terminal, 'Turno já encerrado: vai direto para a finalização.')],
+    ['Preparar resposta | Fase', marker('prepare')],
+    ['Preparar resposta', engineCall()],
+    ['Turno terminal após prepare?', ifNode(terminal, 'Turno encerrado na preparação: vai direto para a finalização.')],
+    ['Executar EXT decisão', { type: 'n8n-nodes-base.executeWorkflow', typeVersion: 1.2, notes: 'EXT de decisão comercial do tenant (retail_v1).',
+      parameters: { workflowId: { __rl: true, value: extId, mode: 'id' }, mode: 'each', options: { waitForSubWorkflow: true } } }],
+    ['Finalizar resposta | Fase', marker('finalize')],
+    ['Finalizar resposta', engineCall()],
+  ];
+  const anchor = find(servicesSelector);
+  const [x0, y0] = [anchor.position[0], anchor.position[1] + 640];
+  spec.forEach(([step, definition], index) => {
+    const name = RETAIL_PREFIX + step;
+    let node = find(name);
+    if (!node) {
+      node = { name, id: deterministicNodeId('noria-retail-chain', name), position: [x0 + index * 256, y0] };
+      workflow.nodes.push(node);
+    }
+    Object.assign(node, definition);
+    delete node.disabled;
+  });
+  const to = name => [{ node: name, type: 'main', index: 0 }];
+  const R = step => RETAIL_PREFIX + step;
+  const noriaBranches = workflow.connections[noriaGate]?.main || [];
+  const falseTarget = noriaBranches[1]?.[0]?.node;
+  if (falseTarget !== servicesSelector && falseTarget !== RETAIL_SELECTOR) throw new Error('RETAIL_ANCHOR_ROUTE_UNEXPECTED: ' + falseTarget);
+  workflow.connections[noriaGate] = { main: [noriaBranches[0], to(RETAIL_SELECTOR)] };
+  workflow.connections[RETAIL_SELECTOR] = { main: [to(R('Preparar dispatch')), to(servicesSelector)] };
+  workflow.connections[R('Preparar dispatch')] = { main: [to(R('Turno terminal?'))] };
+  workflow.connections[R('Turno terminal?')] = { main: [to(R('Finalizar resposta | Fase')), to(R('Preparar resposta | Fase'))] };
+  workflow.connections[R('Preparar resposta | Fase')] = { main: [to(R('Preparar resposta'))] };
+  workflow.connections[R('Preparar resposta')] = { main: [to(R('Turno terminal após prepare?'))] };
+  workflow.connections[R('Turno terminal após prepare?')] = { main: [to(R('Finalizar resposta | Fase')), to(R('Executar EXT decisão'))] };
+  workflow.connections[R('Executar EXT decisão')] = { main: [to(R('Finalizar resposta | Fase'))] };
+  workflow.connections[R('Finalizar resposta | Fase')] = { main: [to(R('Finalizar resposta'))] };
+  delete workflow.connections[R('Finalizar resposta')];
+  if (extId === RETAIL_EXT_PLACEHOLDER) {
+    console.warn('AVISO: cadeia retail com ' + RETAIL_EXT_PLACEHOLDER + '. Defina NORIA_RETAIL_EXT_WORKFLOW_ID após criar o workflow da EXT JOYERÍA.');
+  }
+}
+
 // Successful executions are not stored (the recovery and follow-up ticks alone would write thousands of rows a day); failures keep full data.
 function applyLeanExecutionSettings(workflow) {
   workflow.settings = { ...(workflow.settings || {}), saveDataSuccessExecution: 'none', saveDataErrorExecution: 'all', saveExecutionProgress: false, saveManualExecutions: false };
@@ -457,6 +527,7 @@ const ENGINE_PHASES = {
   'CORE | Motor conversacional único': 'single', 'CORE | Preparar resposta': 'prepare',
   'CORE | Finalizar resposta': 'finalize', 'CORE | Serviços | Preparar resposta': 'prepare',
   'CORE | Serviços | Verificar disponibilidade': 'availability', 'CORE | Serviços | Finalizar resposta': 'finalize',
+  'CORE | Retail | Preparar resposta': 'prepare', 'CORE | Retail | Finalizar resposta': 'finalize',
 };
 function deterministicNodeId(namespace, name) {
   const h = crypto.createHash('sha1').update(namespace + ':' + name).digest('hex');
@@ -504,7 +575,8 @@ function verifyParentEngine(workflow) {
   applySalonRoute(workflow, ENGINE_WORKFLOW_ID, salonId);
   const ext = find('CORE | Executar EXT NORIA');
   if (ext?.parameters?.workflowId?.value !== NORIA_EXT_WORKFLOW_ID) throw new Error('NORIA_EXT_ROUTE_DRIFT');
-  if (JSON.stringify(links('CORE | É tenant NORIA?')) !== JSON.stringify([['CORE | Executar EXT NORIA'], ['CORE | Serviços | Núbia v2?']])
+  if (JSON.stringify(links('CORE | É tenant NORIA?')) !== JSON.stringify([['CORE | Executar EXT NORIA'], [RETAIL_SELECTOR]])
+      || JSON.stringify(links(RETAIL_SELECTOR)) !== JSON.stringify([[RETAIL_PREFIX + 'Preparar dispatch'], ['CORE | Serviços | Núbia v2?']])
       || JSON.stringify(links('CORE | Executar EXT NORIA')) !== JSON.stringify([['CORE | Motor conversacional único | Fase']])) throw new Error('NORIA_EXT_ROUTE_DRIFT');
 }
 
@@ -533,6 +605,28 @@ new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', noriaExtCo
 const noriaExtWorkflow = loadWorkflow('noriaExt');
 setNodeCode(noriaExtWorkflow, 'EXT NORIA - Política', noriaExtCode);
 saveWorkflow('noriaExt', noriaExtWorkflow);
+
+// EXT JOYERÍA (decisão comercial retail_v1): workflow novo, gerado aqui por inteiro para importação no n8n. Ainda não existe
+// no n8n; depois de criado, o ID entra em NORIA_RETAIL_EXT_WORKFLOW_ID para a cadeia retail do roteador apontar para ele.
+const RETAIL_EXT_WORKFLOW_FILE = 'NORIA-EXT-JOYERIA-Decisao-Comercial.json';
+{
+  const joyeriaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/joyeria_extension.js'), 'utf8').replace(/\r\n/g, '\n');
+  new AsyncFunction('$json', '$env', joyeriaExtCode);
+  const trigger = 'Entrada do NORIA CORE | JOYERÍA retail_v1';
+  const ext = 'EXT | Decisão comercial JOYERÍA';
+  writeOut(WORKFLOWS_DIR + RETAIL_EXT_WORKFLOW_FILE, JSON.stringify({
+    name: 'NORIA EXT | JOYERÍA | Decisão comercial (retail_v1)',
+    nodes: [
+      { parameters: { inputSource: 'passthrough' }, id: deterministicNodeId('noria-retail-ext', trigger), name: trigger,
+        type: 'n8n-nodes-base.executeWorkflowTrigger', typeVersion: 1.1, position: [-144, 16] },
+      { parameters: { jsCode: joyeriaExtCode }, id: deterministicNodeId('noria-retail-ext', ext), name: ext,
+        type: 'n8n-nodes-base.code', typeVersion: 2, position: [144, 16] },
+    ],
+    connections: { [trigger]: { main: [[{ node: ext, type: 'main', index: 0 }]] } },
+    settings: { executionOrder: 'v1', binaryMode: 'separate' },
+    active: false,
+  }, null, 2) + '\n');
+}
 
 // Roteador: projeta as fontes nos nós de código e mantém a topologia do export (conferida abaixo).
 {
@@ -588,6 +682,7 @@ saveWorkflow('noriaExt', noriaExtWorkflow);
   }
   ensureGenesisTerminalBypass(workflow);
   configureServicesChain(workflow);
+  configureRetailChain(workflow);
   configureRoyalRoute(workflow);
   configureNubiaExtRoute(workflow);
   verifyParentEngine(workflow);
@@ -670,6 +765,9 @@ const manifest = {
     'n8n/sources/nubia_extension.js',
     'n8n/sources/noria_extension.js',
     'n8n/sources/noria_router_core.js',
+    'n8n/sources/noria_retail.js',
+    'n8n/sources/joyeria_extension.js',
+    WORKFLOWS_DIR + RETAIL_EXT_WORKFLOW_FILE,
     ...Object.keys(WORKFLOW_FILES).map(key => WORKFLOWS_DIR + WORKFLOW_FILES[key]),
     'clients/ic_saloon/salon_engine.js',
     'n8n/code/whatsapp_conversation_core.generated.js',

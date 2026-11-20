@@ -29,8 +29,10 @@ const servicesDeclared = { ...retailDeclared, capability: 'services_v1', contrac
 const servicesPolicy = { contract: 'noria_policy_v2', profile: 'services_booking_v2', capability: 'standard', modules: { turn_pipeline: servicesOffered } };
 const PIPE = { TURN_PIPELINE_CONTRACT: 'noria_turn_pipeline_v1', TURN_PIPELINE_CAPABILITIES: ['services_v1', 'retail_v1'],
   TURN_PIPELINE_FIELDS: ['contract', 'capability', 'contract_version', 'semantic_contract', 'decision_contract', 'decision_provenance'] };
-const selector = (policy, settings, version) => {
-  const core = loadCore(['settingsFor', 'salesEnabled', 'turnPipelineFor'], { tenantBusinessRules: policy, inputJson: { noria_contract_version: version }, ...PIPE });
+// routed=true simula o turno que o roteador marcou com noria_pipeline = 'retail_v1'.
+const selector = (policy, settings, version, routed = true) => {
+  const core = loadCore(['settingsFor', 'salesEnabled', 'turnPipelineFor'], { tenantBusinessRules: policy,
+    inputJson: { noria_contract_version: version, ...(routed ? { noria_pipeline: 'retail_v1' } : {}) }, ...PIPE });
   return () => core.turnPipelineFor({ settings: { settings } });
 };
 
@@ -43,6 +45,7 @@ test('etapa 2: retail_v1 é selecionado só com o perfil de venda consultiva e v
   const incomplete = { ...retailPolicy, modules: { turn_pipeline: { ...retailOffered, semantic_vocabulary: { ...VOCAB, materials: [] } } } };
   assert.throws(selector(incomplete, { noria_turn_pipeline: retailDeclared }, '1.0'), /CONFIG_INVALID/);
   assert.equal(selector(retailPolicy, {}, '1.0')(), null, 'sem declaração continua no legado');
+  assert.equal(selector(retailPolicy, { noria_turn_pipeline: retailDeclared }, '1.0', false)(), null, 'turno não roteado não entra no pipeline');
 });
 
 test('etapa 2: services_v1 continua idêntico (mesma seleção e vocabulário de serviços)', () => {
