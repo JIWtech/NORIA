@@ -175,6 +175,19 @@ test('registros do aviso ficam na conversa do lead, não pausam a IA e usam a ch
   }
 });
 
+test('frase ao cliente: validada na autorização e dita só quando o aviso é reservado pela primeira vez', () => {
+  const auth = msg => R.retailAuthorized(decision({ notify_specialist: { required: true, reason: 'alto_padrao', reasons: ['alto_padrao'], customer_message: msg } }));
+  assert.equal(auth('  Frase aprovada.  ').notify.customer_message, 'Frase aprovada.');
+  assert.equal(auth('veja https://x.com').notify.customer_message, null);
+  assert.equal(auth('ligue 5522999990000').notify.customer_message, null);
+  assert.equal(auth('x'.repeat(301)).notify.customer_message, null);
+  const ok = auth('Frase aprovada.');
+  assert.equal(R.retailSpecialistCustomerLine(ok, { status: 'reserved_now' }), 'Frase aprovada.');
+  assert.equal(R.retailSpecialistCustomerLine(ok, { status: 'already_reserved' }), null);
+  assert.equal(R.retailSpecialistCustomerLine(ok, null), null);
+  assert.equal(R.retailSpecialistCustomerLine(auth(undefined), { status: 'reserved_now' }), null);
+});
+
 test('o módulo não conhece tenant, número, produto nem faz I/O', () => {
   const code = fs.readFileSync(path.join(__dirname, '../n8n/sources/noria_retail.js'), 'utf8');
   assert.doesNotMatch(code, /joyeria|blend|99796|99923|Elegance/i);

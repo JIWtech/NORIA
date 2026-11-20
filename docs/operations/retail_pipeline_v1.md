@@ -114,7 +114,8 @@ Toda mudança entra atrás de duas travas que hoje nenhum tenant satisfaz: perfi
 - Em produção: `settings.noria_turn_pipeline.enabled = false` (ou rollout `pilot` vazio) desliga o retail sem afetar outros tenants; mensagens em andamento ficam presas ao pino e vão para revisão humana, como no serviço.
 - Catálogo: desativar itens; o rollback da migration recusa apagar tabelas com dados.
 
-### Pendências de decisão
+### Decisões
 
-- Política de mensagem ao cliente durante o aviso: a IA diz que "uma especialista vai continuar"? Hoje o plano mantém a IA atendendo sem anunciar o aviso (decisão 21). Confirmar o texto, se houver.
-- Conteúdo comercial de pagamento, prazo, frete, horário e endereço fica na persona (`settings.system_prompt`) e em `business_facts`; a carga dessas configurações é parte da etapa 10.
+- **Frase ao cliente quando o especialista é avisado** (decidido em 20/11/2026): "Uma especialista irá entrar em contato". Fica em `settings.retail_policy.specialist.customer_message` (texto do tenant, nunca no código). A EXT repassa a frase; o CORE a acrescenta literalmente à resposta **só no turno em que o aviso é reservado pela primeira vez** (`retailSpecialistCustomerLine`), e a IA continua atendendo até Assumir. Sem frase configurada, o aviso segue e a decisão registra `SPECIALIST_CUSTOMER_MESSAGE_NOT_CONFIGURED`.
+- **Comportamento da IA:** a persona do Google Docs é a base do atendimento e vira `settings.system_prompt` (etapa 10). A cópia `clients/joyeria/fontes/persona-google-docs.txt` foi conferida linha a linha com o documento publicado em 20/11/2026: mesmo conteúdo (diferenças só de marcadores de lista). Onde a persona diverge de decisões posteriores de João (endereço, preço da abaulada 2 mm, parcelamento, link do site para o cliente orientado pela IA), valem as decisões registradas em `clients/joyeria/plano-implementacao.md`.
+- Conteúdo comercial de pagamento, prazo, frete, horário e endereço fica na persona e em `business_facts`; a carga dessas configurações é parte da etapa 10.

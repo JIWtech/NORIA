@@ -83,6 +83,9 @@ const specialistEnabled = specialistCfg.enabled === true;
 const highEndMaterials = asStrings(specialistCfg.high_end_materials).filter(m => MATERIALS.includes(m) && !['desconhecido', 'none', 'banhado_revestido'].includes(m));
 const specialistMaterials = asStrings(specialistCfg.own_rule_materials).filter(m => MATERIALS.includes(m) && !['desconhecido', 'none'].includes(m));
 const notifyDecided = specialistCfg.decided_customer === true;
+// Frase dita ao cliente quando o especialista é avisado (texto aprovado pelo tenant, usado literalmente pelo CORE).
+const customerMessage = typeof specialistCfg.customer_message === 'string' && specialistCfg.customer_message.trim().length > 0
+  && specialistCfg.customer_message.trim().length <= 300 ? specialistCfg.customer_message.trim() : null;
 const maxPhotos = Number.isInteger(retail.max_photos_per_turn) ? Math.min(Math.max(retail.max_photos_per_turn, 0), 3) : 0;
 const siteLinkEnabled = retail.site_link?.enabled === true;
 const configIssues = [];
@@ -139,7 +142,7 @@ const decision = {
     present_information: { allowed: false, item_ids: [] },
     send_product_media: { allowed: false, item_id: null, asset_ids: [], reason: 'NOT_REQUESTED' },
     send_site_link: { allowed: false, item_id: null, reason: 'NOT_REQUESTED' },
-    notify_specialist: { required: false, reasons: [], reason: null, materials: [] },
+    notify_specialist: { required: false, reasons: [], reason: null, materials: [], customer_message: null },
     handoff: { required: false, reason: null },
   },
 };
@@ -216,7 +219,8 @@ if (specialistEnabled && !postSale && !uncertain) {
   if (notifyDecided && v.decision.value === 'decided') reasons.push('cliente_decidido');
   if (reasons.length) {
     A.notify_specialist = { required: true, reasons: SPECIALIST_REASONS.filter(r => reasons.includes(r)),
-      reason: SPECIALIST_REASONS.find(r => reasons.includes(r)), materials: interest ? uniq([...ownRule, ...highEnd]) : [] };
+      reason: SPECIALIST_REASONS.find(r => reasons.includes(r)), materials: interest ? uniq([...ownRule, ...highEnd]) : [], customer_message: customerMessage };
+    if (!customerMessage) decision.reason_codes.push('SPECIALIST_CUSTOMER_MESSAGE_NOT_CONFIGURED');
     decision.evidence_used.push(...v.interest.evidence_ids, ...v.material.evidence_ids, ...v.decision.evidence_ids);
     if (configIssues.includes('SPECIALIST_RECIPIENT_NOT_CONFIGURED')) decision.reason_codes.push('SPECIALIST_RECIPIENT_NOT_CONFIGURED');
   }

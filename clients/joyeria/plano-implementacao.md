@@ -143,6 +143,8 @@ Estas decisões prevalecem sobre trechos anteriores deste plano e do levantament
 - **Composição:** fonte = site e PDF. As 16 do PDF são blend (PDF p. 3). Os textos do site permitem classificar banhado/revestido, prata 925, aço e aço IPG; nenhum dos 191 itens consultados é de ouro maciço. Item sem material claro fica como `desconhecido` e não entra como alto padrão. Pedido de ouro maciço na conversa gera aviso à Joyce mesmo sem produto cadastrado para mostrar.
 - **Fotos:** armazenar as imagens de catálogo em bucket **público** (como as fotos do site e as da Gênesis), em caminho próprio do tenant. Nunca guardar dados de clientes nesse bucket.
 - **Arquitetura:** criar um **perfil comercial novo e genérico** de venda consultiva de produtos no CORE (opção A), em vez de adaptar o perfil de serviços usado por I&C Salon, NORIA e Núbia ou o perfil de veículos.
+- **Frase ao cliente quando Joyce é avisada:** "Uma especialista irá entrar em contato". Dita uma vez, no turno do aviso; a IA continua atendendo até Joyce marcar Assumir. Texto guardado na configuração do tenant.
+- **Persona:** o documento do Google Docs define o comportamento da IA e será a base do prompt. A cópia local foi conferida com o documento publicado em 20/11/2026 e tem o mesmo conteúdo. Onde a persona diverge das decisões de João acima (endereço, preço de R$ 880, parcelamento em 10x, não enviar link do site), valem as decisões de João.
 
 ### Pré-requisitos técnicos identificados na auditoria
 

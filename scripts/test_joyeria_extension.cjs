@@ -18,7 +18,8 @@ const ASSETS = [id(6), id(7)];
 const settings = (overrides = {}) => ({
   noria_client_policy: { profile: 'retail_consultative_v1', modules: { turn_pipeline: { capability: 'retail_v1' } } },
   specialist_notification: { recipient: '5500000000000' },
-  retail_policy: { specialist: { enabled: true, own_rule_materials: ['blend'], high_end_materials: ['ouro_macico', 'material_nobre'], decided_customer: true },
+  retail_policy: { specialist: { enabled: true, own_rule_materials: ['blend'], high_end_materials: ['ouro_macico', 'material_nobre'], decided_customer: true,
+    customer_message: 'Frase aprovada de teste.' },
     max_photos_per_turn: 2, site_link: { enabled: true } },
   ...overrides,
 });
@@ -72,7 +73,8 @@ const on = (evidence_ids = ['m1']) => ({ present: true, requested: true, evidenc
 test('interesse comercial em aliança blend avisa o especialista, apresenta o item e envia fotos aprovadas, sem link do site', async () => {
   const { d, requests } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on() } });
   assert.equal(d.status, 'ok');
-  assert.deepEqual(d.actions.notify_specialist, { required: true, reasons: ['material_regra_propria'], reason: 'material_regra_propria', materials: ['blend'] });
+  assert.deepEqual(d.actions.notify_specialist, { required: true, reasons: ['material_regra_propria'], reason: 'material_regra_propria', materials: ['blend'],
+    customer_message: 'Frase aprovada de teste.' });
   assert.equal(d.actions.handoff.required, false, 'aviso ao especialista não pausa a IA');
   assert.deepEqual(d.actions.present_information.item_ids, [BLEND]);
   assert.deepEqual(d.actions.send_product_media.asset_ids, ASSETS);
@@ -165,6 +167,15 @@ test('material de regra própria vem da política: outro material configurado us
   cfg.retail_policy.specialist.own_rule_materials = ['prata'];
   const { d } = await run({ cfg, semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on() } });
   assert.equal(d.actions.notify_specialist.required, false, 'blend não é mais regra própria nessa política');
+});
+
+test('frase ao cliente vem só da configuração; sem ela, o aviso segue e a falta é sinalizada', async () => {
+  const cfg = settings();
+  delete cfg.retail_policy.specialist.customer_message;
+  const { d } = await run({ cfg, semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested')], commercial_interest: on() } });
+  assert.equal(d.actions.notify_specialist.required, true);
+  assert.equal(d.actions.notify_specialist.customer_message, null);
+  assert.ok(d.reason_codes.includes('SPECIALIST_CUSTOMER_MESSAGE_NOT_CONFIGURED'));
 });
 
 test('visita domiciliar só encaminha com localidade; sem ela, a IA pergunta', async () => {

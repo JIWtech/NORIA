@@ -126,8 +126,11 @@ function retailAuthorized(decision) {
   if (a.send_site_link?.allowed === true && RETAIL_UUID.test(String(a.send_site_link.item_id || ''))) out.site_link = { item_id: a.send_site_link.item_id };
   const notify = a.notify_specialist;
   if (notify?.required === true && RETAIL_SPECIALIST_REASONS.includes(notify.reason)) {
+    // Frase aprovada pelo tenant para o cliente; sem link, telefone ou texto longo (vai literal na resposta).
+    const message = typeof notify.customer_message === 'string' ? notify.customer_message.trim() : '';
+    const safeMessage = message && message.length <= 300 && !/https?:\/\/|www\.|\d{8,}/i.test(message) ? message : null;
     out.notify = { reason: notify.reason, reasons: retailStrings(notify.reasons).filter(r => RETAIL_SPECIALIST_REASONS.includes(r)),
-      materials: retailStrings(notify.materials).slice(0, 5) };
+      materials: retailStrings(notify.materials).slice(0, 5), customer_message: safeMessage };
   }
   if (a.handoff?.required === true && typeof a.handoff.reason === 'string' && a.handoff.reason) out.handoff = { reason: a.handoff.reason };
   // Link de compra nunca acompanha o fluxo do especialista nem o handoff.
@@ -238,6 +241,13 @@ function retailProviderOutcome(response, error) {
   return id ? { status: 'sent', provider_message_id: String(id) } : { status: 'unknown', code: 'PROVIDER_ID_MISSING' };
 }
 
+// Frase ao cliente sobre o especialista: só no turno em que este aviso foi reservado pela primeira vez
+// (reserva duplicada = já avisado antes nesta sessão) e nunca quando a entrega ao lead foi cancelada.
+function retailSpecialistCustomerLine(authorized, reservation) {
+  if (!authorized?.notify?.customer_message) return null;
+  return reservation?.status === 'reserved_now' ? authorized.notify.customer_message : null;
+}
+
 // Registros em channel_events da conversa do LEAD. A reserva é inserida (nunca upsert) antes da chamada ao provedor;
 // se já existir, o aviso não é repetido. Nenhum registro pausa a IA (handoff=false).
 function retailNoticeReservation({ tenantId, tenantSlug, chatId, sessionId, requestId, reason, reasons, materials }) {
@@ -272,5 +282,6 @@ if (typeof module === 'object' && module && module.exports) {
     retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaSentItemIds,
     retailVerifiedDecision, retailAuthorized, retailMediaPlan, retailLeadPhone, retailSpecialistRecipient,
     retailSpecialistNoticeKey, retailSpecialistMessage, retailProviderOutcome, retailNoticeReservation, retailNoticeOutcome,
+    retailSpecialistCustomerLine,
   };
 }
