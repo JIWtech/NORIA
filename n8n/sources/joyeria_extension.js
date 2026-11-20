@@ -250,7 +250,8 @@ const chosen = presentable.filter(item => roleOf(item.id).some(role => ['selecte
 const focus = presentable.length === 1 ? presentable[0] : chosen.length === 1 ? chosen[0] : null;
 const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
 const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'price_inquiry', 'purchase_intent'].includes(v.primary_intent);
-if (maxPhotos > 0 && focus && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
+// Foto já enviada nesta sessão não é reenviada, nem a pedido: a resposta lembra que já está na conversa.
+if (maxPhotos > 0 && focus && !alreadySent.has(focus.id) && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
   const links = await get('product_catalog_item_images?select=asset_id,display_order,review_status&tenant_id=eq.' + enc(tenantId)
     + '&item_id=eq.' + enc(focus.id) + '&review_status=eq.aprovada&order=display_order.asc&limit=' + maxPhotos);
   if (!Array.isArray(links)) throw new Error('JOYERIA_EXT_IMAGENS_INDISPONIVEIS');
@@ -259,8 +260,8 @@ if (maxPhotos > 0 && focus && !A.handoff.required && !uncertain && (v.photos.on 
     A.send_product_media = { allowed: true, item_id: focus.id, asset_ids: assetIds, reason: v.photos.on ? 'PHOTOS_REQUESTED' : 'PRODUCT_PRESENTATION' };
     decision.evidence_used.push(...v.photos.evidence_ids);
   } else A.send_product_media.reason = 'NO_APPROVED_IMAGES';
-} else if (v.photos.on) A.send_product_media.reason = uncertain ? 'CLARIFICATION_REQUIRED' : focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
-else if (focus && alreadySent.has(focus.id)) A.send_product_media.reason = 'ALREADY_SENT_IN_SESSION';
+} else if (focus && alreadySent.has(focus.id)) A.send_product_media.reason = 'ALREADY_SENT_IN_SESSION';
+else if (v.photos.on) A.send_product_media.reason = uncertain ? 'CLARIFICATION_REQUIRED' : focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
 
 // 5. Link do site: cliente orientado pela IA, sem critério de especialista nem handoff, com um item em foco e link cadastrado.
 if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.required && !uncertain && v.interest.on) {

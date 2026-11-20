@@ -47,6 +47,18 @@ for (const [code, name, cents, material, url] of [
   width_mm: null, sale_unit: 'unidade', material_class: material, material_evidence: 'nome do anúncio no site', price_cents: cents, currency: 'BRL', price_status: 'aprovado',
   availability: 'desconhecida', site_url: url, offerable: true, active: true });
 
+// Demais produtos do site (exceto as alianças blend, que vêm do PDF), com composição "desconhecida" como estariam sem a
+// classificação do cadastro. Preço do site tratado como aprovado só no simulador.
+const siteInventory = JSON.parse(fs.readFileSync(path.join(root, 'clients/joyeria/fontes/inventario-site-2026-11-20.json'), 'utf8'));
+const knownUrls = new Set(db.product_catalog_items.map(item => item.site_url).filter(Boolean));
+for (const p of siteInventory.produtos) {
+  if (/blend/i.test(p.nome) || knownUrls.has(p.url) || !Number(p.preco)) continue;
+  db.product_catalog_items.push({ id: uuid('site-' + p.id), tenant_id: TENANT, item_code: 'site-' + p.id, name: p.nome, description: '',
+    category: 'site', product_line: null, model: null, width_mm: null, sale_unit: 'unidade', material_class: 'desconhecido', material_evidence: null,
+    price_cents: Math.round(Number(p.preco) * 100), currency: 'BRL', price_status: 'aprovado', availability: 'desconhecida', site_url: p.url,
+    offerable: true, active: true });
+}
+
 // ------------------------------------------------------------------- PostgREST mínimo em memória
 function query(url) {
   const u = new URL(url.startsWith('http') ? url : ORIGIN + url);
@@ -115,11 +127,11 @@ async function runTurn(chatId, text, turnIndex, name) {
   const pipeline = { contract: 'noria_turn_pipeline_v1', capability: 'retail_v1', contract_version: '1.0', semantic_contract: 'noria_retail_semantic_intent_v1',
     decision_contract: 'noria_retail_decision_v1', decision_provenance: 'joyeria_extension_commercial_decide_v1',
     semantic_vocabulary: policy.modules.turn_pipeline.semantic_vocabulary };
-  let delivered = null;
+  let delivered = null, savedError = null;
   const makeGlobals = inputJson => ({
     inputJson, turn, chatId, tenantSlug: 'joyeria', tenantBusinessRules: policy, firstName: name, normalized: text.toLowerCase().trim(),
     workflowStartedAtMs: Date.now() - 1000,
-    commit: async () => true, complete: async () => {}, saveEvent: async () => {},
+    commit: async () => true, complete: async () => {}, saveEvent: async event => { savedError = event.ai_error || null; },
     sendChannelMessage: async (context, replyText, event) => {
       delivered = { text: replyText, handoff: event.handoff === true };
       db.channel_events.push({ id: 'out-' + crypto.randomUUID(), tenant_id: TENANT, external_conversation_id: chatId, channel_type: 'whatsapp', direction: 'outbound',
@@ -164,7 +176,7 @@ async function runTurn(chatId, text, turnIndex, name) {
   // 3. finalize
   const before = outbox.length;
   const result = await load(decided).runRetailTurnFinalize(context, pipeline, history, { raw_payload: {} }, { lockedByHuman: false });
-  return { semantic: prepared.semantic_intent, semanticFailure: prepared.semantic_failure, decision: decided.commercial_decision, delivered, execution: result.retail_execution,
+  return { semantic: prepared.semantic_intent, semanticFailure: prepared.semantic_failure, decision: decided.commercial_decision, delivered, execution: result.retail_execution, error: savedError,
     sent: outbox.slice(before) };
 }
 
@@ -184,7 +196,8 @@ function report(label, text, r) {
     + ' | link=' + (a.send_site_link?.allowed ? 'sim' : 'não'));
   console.log('IA: ' + (r.delivered?.text || '(sem resposta)').replace(/\n/g, '\n    '));
   for (const m of r.sent) console.log('  [envio simulado] ' + (m.kind === 'foto' ? 'foto ' + m.body.fileName + ' para o lead' : 'texto para ' + m.to + ':\n      ' + m.body.text.replace(/\n/g, '\n      ')));
-  console.log('  [execução] fotos=' + (r.execution?.media?.status || '-') + ' aviso=' + (r.execution?.notice?.status || '-') + ' handoff=' + r.execution?.handoff?.executed);
+  console.log('  [execução] fotos=' + (r.execution?.media?.status || '-') + ' aviso=' + (r.execution?.notice?.status || '-') + ' handoff=' + r.execution?.handoff?.executed
+    + (r.error ? ' | erro da redação: ' + r.error : ''));
 }
 
 const SCENARIOS = {

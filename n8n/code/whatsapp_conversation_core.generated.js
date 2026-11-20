@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T21:55:21.261Z',
-  core_sha256: '629be33db2e0b58f25e02d56bd9fcdd924623380a677d6218a0eb46a5bbda7cd',
+  built_at: '2026-11-20T22:22:59.003Z',
+  core_sha256: 'ccf28a06426a447161849da8b30bc8bce4b5234db238d790aa2265acf04f1f08',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5170,6 +5170,15 @@ const RETAIL_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cliente_decidido'];
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';
 const RETAIL_PHOTO_SERVICE = 'retail_product_photo';
+const RETAIL_ENUM_LIMIT = 40;
+
+// Mantém só produtos citados que existem entre os candidatos do tenant; os demais são descartados (nunca viram fato).
+function retailKnownProducts(semantic, itemIds) {
+  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
+  const known = new Set(retailStrings(itemIds));
+  const products = semantic.products.filter(product => known.has(String(product?.item_id || '')));
+  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
+}
 
 const retailIsObj = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const retailStrings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string' && item) : [];
@@ -5183,11 +5192,11 @@ const RETAIL_SEMANTIC_RULES = [
   'products: cite apenas item_id da lista catalog; nunca invente item. Se o cliente descreve algo que não está na lista, deixe products vazio e registre o material pedido em material_requested.',
   'role: mentioned (citou de passagem), asked_about (perguntou informação), compared (comparou), interested (demonstrou interesse comercial), selected (escolheu).',
   'commercial_interest: verdadeiro quando o cliente quer comprar, saber preço, medida, prazo ou condição de pagamento. Dúvida sobre cuidados, garantia ou uso não é interesse comercial.',
-  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
-  'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
-  'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
+  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo ou condiciona a compra (ultimato, "só fecho se..."); undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
+  'Use model e width_mm de cada item de catalog para casar o pedido do cliente; não cite item de outro modelo ou medida. Se vários itens correspondem igualmente (variações com o mesmo nome), cite todos.',
+  'material_requested: material que o próprio cliente pediu, segundo o vocabulário de materiais. Sem pedido de material, use none.',
   'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Não é pedido de humano: querer fechar a compra, perguntar "como faço o pedido" ou checar se há alguém respondendo ("tem alguém aí?", "oi??").',
-  'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
+  'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada não é pedido de nova foto.',
   'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
   'exchange: pedido de troca. home_visit: só quando o cliente quer atendimento na casa dele (agendar ida ao showroom ou à loja não é home_visit); preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
@@ -5196,7 +5205,9 @@ const RETAIL_SEMANTIC_RULES = [
 function retailSemanticSchema(vocabulary, itemIds) {
   const str = { type: 'STRING' }, bool = { type: 'BOOLEAN' }, ids = { type: 'ARRAY', items: str };
   const enumOf = values => ({ type: 'STRING', enum: values });
-  const itemId = Array.isArray(itemIds) && itemIds.length ? enumOf(itemIds) : str;
+  // Lista fechada só para catálogos pequenos: com muitos itens o Gemini recusa o esquema ("too many states"). Acima do
+  // limite o campo é livre e o motor descarta qualquer item fora do catálogo (retailKnownProducts).
+  const itemId = Array.isArray(itemIds) && itemIds.length && itemIds.length <= RETAIL_ENUM_LIMIT ? enumOf(itemIds) : str;
   const flag = (name, extra = {}) => ({ type: 'OBJECT', properties: { [name]: bool, ...extra, evidence_ids: ids }, required: [name, 'evidence_ids'] });
   return {
     type: 'OBJECT',
@@ -5365,20 +5376,21 @@ function retailSpecialistRecipient(settings, remoteJid) {
   return { ok: true, number: digits };
 }
 
-// Chave de idempotência: um aviso por conversa, sessão e motivo. A conversa entra na própria chave porque a sessão inicial
-// de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da migration 003 não).
+// Chave de idempotência: UM aviso por conversa e sessão, qualquer que seja o motivo (o especialista já tem o lead; motivos
+// novos na mesma sessão não geram outro aviso). O motivo fica no registro. A conversa entra na própria chave porque a sessão
+// inicial de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da 003 não).
 function retailSpecialistNoticeKey(sessionId, reason, chatId) {
   if (!RETAIL_SPECIALIST_REASONS.includes(reason)) throw new Error('NORIA_RETAIL_NOTICE_REASON_INVALID');
   const session = String(sessionId || '').replace(/[^A-Za-z0-9_-]/g, '');
   if (!session) throw new Error('NORIA_RETAIL_NOTICE_SESSION_INVALID');
   const chat = String(chatId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!chat) throw new Error('NORIA_RETAIL_NOTICE_CHAT_INVALID');
-  return 'specialist_notice_' + chat + '_' + session + '_' + reason;
+  return 'specialist_notice_' + chat + '_' + session;
 }
 
 const RETAIL_REASON_LABEL = {
   material_regra_propria: 'interesse em material com atendimento especializado',
-  alto_padrao: 'interesse em joia de alto padrão',
+  alto_padrao: 'interesse em produto de alto padrão',
   cliente_decidido: 'cliente já sabe o que quer',
 };
 
@@ -6352,10 +6364,14 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
         ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current' }))],
       assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
       catalog: candidates.items, catalog_complete: candidates.complete, session_id: identity.session_id,
-    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)), RETAIL_SEMANTIC_RULES,
+    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)),
+    // Regras genéricas do contrato + orientações de interpretação do próprio tenant (settings.retail_policy.semantic_guidance).
+    [...RETAIL_SEMANTIC_RULES, ...retailStrings(settings.retail_policy?.semantic_guidance).slice(0, 20)],
     // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.
     { persona: false, model: /^gemini-[a-z0-9.-]+$/.test(String(settings.semantic_model || '')) ? settings.semantic_model : '' });
-    semantic = generated.value && typeof generated.value === 'object' ? { ...generated.value, contract: pipeline.semantic_contract } : null;
+    // Sem lista fechada no esquema (catálogo grande), produto fora dos candidatos é descartado aqui.
+    semantic = generated.value && typeof generated.value === 'object'
+      ? { ...retailKnownProducts(generated.value, candidates.items.map(item => item.item_id)), contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
   } catch (error) { semanticFailure = String(error?.message || error).slice(0, 120); }
   return {
@@ -6392,7 +6408,7 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   // Anunciar que a equipe assume sem que a conversa tenha sido passada à equipe engana o cliente.
   if (!teamHandoff && /\b(continuar|seguir|assumir)\b[^.!?]{0,30}\b(atendimento|por aqui)\b/i.test(String(reply || ''))) failures.push('TEAM_CLAIM_WITHOUT_HANDOFF');
   // Ortografia (verificação técnica, não semântica): palavras comuns escritas sem o acento obrigatório.
-  if (/\b(voce|nao|ola|alguem|tambem|ate|ja|so|entao|numeracao|informacao|alianca|aliancas)\b/i.test(String(reply || ''))) failures.push('ACCENT_MISSING');
+  if (/\b(voce|nao|ola|alguem|tambem|ate|ja|so|entao|informacao|opcao|opcoes)\b/i.test(String(reply || ''))) failures.push('ACCENT_MISSING');
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
   if (!photosSent && /\b(enviando|envio|mandando|segue|seguem)\b[^.!?]{0,40}\bfotos?\b/i.test(String(reply || ''))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
@@ -6419,19 +6435,17 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     recent_conversation: history.filter(row => row.message_text && row.ai_provider !== 'buffer').slice(-10).map(row => ({ from: row.direction === 'inbound' ? 'customer' : 'business', text: audioHistoryText(row) })),
     product_facts: facts,
     photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null } : null,
+    photos_already_in_conversation: !media && decision.actions?.send_product_media?.reason === 'ALREADY_SENT_IN_SESSION',
     site_link_will_be_appended: Boolean(siteLinkItem), specialist_line_will_be_appended: Boolean(customerLine), team_handoff: Boolean(handoff),
     reason_codes: decision.reason_codes || [],
     business_hours: ((hours) => ({ configured: hours.configured, is_open: hours.is_open }))(tenantBusinessHoursStatus(context)),
   }, { type: 'OBJECT', properties: { reply: str }, required: ['reply'] }, [
-    'Tarefa: redigir a resposta ao cliente em português do Brasil, no tom do negócio definido acima, coerente com recent_conversation.',
-    'Descreva cada item só pelo que está em product_facts (model, line, width_mm); nunca atribua a um item o modelo ou a largura de outro.',
-    'Preços só os de product_facts, escritos exatamente como em price.',
-    'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro; se for falso, não mencione link. Só diga que está enviando fotos se photos_being_sent existir.',
-    'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
-    'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
-    'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa; se for falso, não diga que alguém vai continuar o atendimento.',
-    'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa.',
-    'Se opening=false, não abra com saudação.',
+    // Só contrato e integridade dos fatos (genérico para qualquer tenant). Tom, tamanho e condução ficam no prompt do tenant.
+    'Tarefa: redigir a resposta ao cliente seguindo as instruções do negócio acima, coerente com recent_conversation.',
+    'Fatos de produto só de product_facts: nome, modelo, linha, medida e preço exatamente como estão (price). Não crie nome de produto nem atribua a um item dados de outro.',
+    'Ausência de um produto, categoria ou serviço nos dados não prova que o negócio não o tenha: nunca afirme que não tem; diga que vai verificar.',
+    'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir (com photos_already_in_conversation, diga que já estão acima na conversa); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
+    'Especialista: se specialist_line_will_be_appended for verdadeiro, não anuncie nem ofereça contato de especialista (o sistema acrescenta a frase aprovada). Equipe: só diga que alguém vai continuar o atendimento se team_handoff for verdadeiro, sem citar nome.',
     ...(revisionNote ? [revisionNote] : []),
   ]);
   return { reply: cleanReplyText(String(generated.value?.reply || '')), model: generated.model, usage: generated.usage };

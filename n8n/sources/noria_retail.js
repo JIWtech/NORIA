@@ -14,6 +14,15 @@ const RETAIL_UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cliente_decidido'];
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';
 const RETAIL_PHOTO_SERVICE = 'retail_product_photo';
+const RETAIL_ENUM_LIMIT = 40;
+
+// Mantém só produtos citados que existem entre os candidatos do tenant; os demais são descartados (nunca viram fato).
+function retailKnownProducts(semantic, itemIds) {
+  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
+  const known = new Set(retailStrings(itemIds));
+  const products = semantic.products.filter(product => known.has(String(product?.item_id || '')));
+  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
+}
 
 const retailIsObj = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const retailStrings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string' && item) : [];
@@ -27,11 +36,11 @@ const RETAIL_SEMANTIC_RULES = [
   'products: cite apenas item_id da lista catalog; nunca invente item. Se o cliente descreve algo que não está na lista, deixe products vazio e registre o material pedido em material_requested.',
   'role: mentioned (citou de passagem), asked_about (perguntou informação), compared (comparou), interested (demonstrou interesse comercial), selected (escolheu).',
   'commercial_interest: verdadeiro quando o cliente quer comprar, saber preço, medida, prazo ou condição de pagamento. Dúvida sobre cuidados, garantia ou uso não é interesse comercial.',
-  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
-  'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
-  'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
+  'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo ou condiciona a compra (ultimato, "só fecho se..."); undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
+  'Use model e width_mm de cada item de catalog para casar o pedido do cliente; não cite item de outro modelo ou medida. Se vários itens correspondem igualmente (variações com o mesmo nome), cite todos.',
+  'material_requested: material que o próprio cliente pediu, segundo o vocabulário de materiais. Sem pedido de material, use none.',
   'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Não é pedido de humano: querer fechar a compra, perguntar "como faço o pedido" ou checar se há alguém respondendo ("tem alguém aí?", "oi??").',
-  'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
+  'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada não é pedido de nova foto.',
   'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
   'exchange: pedido de troca. home_visit: só quando o cliente quer atendimento na casa dele (agendar ida ao showroom ou à loja não é home_visit); preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
@@ -40,7 +49,9 @@ const RETAIL_SEMANTIC_RULES = [
 function retailSemanticSchema(vocabulary, itemIds) {
   const str = { type: 'STRING' }, bool = { type: 'BOOLEAN' }, ids = { type: 'ARRAY', items: str };
   const enumOf = values => ({ type: 'STRING', enum: values });
-  const itemId = Array.isArray(itemIds) && itemIds.length ? enumOf(itemIds) : str;
+  // Lista fechada só para catálogos pequenos: com muitos itens o Gemini recusa o esquema ("too many states"). Acima do
+  // limite o campo é livre e o motor descarta qualquer item fora do catálogo (retailKnownProducts).
+  const itemId = Array.isArray(itemIds) && itemIds.length && itemIds.length <= RETAIL_ENUM_LIMIT ? enumOf(itemIds) : str;
   const flag = (name, extra = {}) => ({ type: 'OBJECT', properties: { [name]: bool, ...extra, evidence_ids: ids }, required: [name, 'evidence_ids'] });
   return {
     type: 'OBJECT',
@@ -209,20 +220,21 @@ function retailSpecialistRecipient(settings, remoteJid) {
   return { ok: true, number: digits };
 }
 
-// Chave de idempotência: um aviso por conversa, sessão e motivo. A conversa entra na própria chave porque a sessão inicial
-// de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da migration 003 não).
+// Chave de idempotência: UM aviso por conversa e sessão, qualquer que seja o motivo (o especialista já tem o lead; motivos
+// novos na mesma sessão não geram outro aviso). O motivo fica no registro. A conversa entra na própria chave porque a sessão
+// inicial de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da 003 não).
 function retailSpecialistNoticeKey(sessionId, reason, chatId) {
   if (!RETAIL_SPECIALIST_REASONS.includes(reason)) throw new Error('NORIA_RETAIL_NOTICE_REASON_INVALID');
   const session = String(sessionId || '').replace(/[^A-Za-z0-9_-]/g, '');
   if (!session) throw new Error('NORIA_RETAIL_NOTICE_SESSION_INVALID');
   const chat = String(chatId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!chat) throw new Error('NORIA_RETAIL_NOTICE_CHAT_INVALID');
-  return 'specialist_notice_' + chat + '_' + session + '_' + reason;
+  return 'specialist_notice_' + chat + '_' + session;
 }
 
 const RETAIL_REASON_LABEL = {
   material_regra_propria: 'interesse em material com atendimento especializado',
-  alto_padrao: 'interesse em joia de alto padrão',
+  alto_padrao: 'interesse em produto de alto padrão',
   cliente_decidido: 'cliente já sabe o que quer',
 };
 
@@ -302,7 +314,7 @@ function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservat
 if (typeof module === 'object' && module && module.exports) {
   module.exports = {
     RETAIL_SEMANTIC_CONTRACT, RETAIL_SEMANTIC_RULES, RETAIL_SPECIALIST_REASONS, RETAIL_NOTICE_CONTRACT, RETAIL_PHOTO_SERVICE,
-    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaState,
+    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaState, retailKnownProducts,
     retailVerifiedDecision, retailAuthorized, retailMediaPlan, retailLeadPhone, retailSpecialistRecipient,
     retailSpecialistNoticeKey, retailSpecialistMessage, retailProviderOutcome, retailNoticeReservation, retailNoticeOutcome,
     retailSpecialistCustomerLine,

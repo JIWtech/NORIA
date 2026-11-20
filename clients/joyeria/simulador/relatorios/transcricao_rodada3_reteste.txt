@@ -1,0 +1,181 @@
+
+==================== comparacao_concorrente_pressao_preco_e_perguntas_tecnicas_750 ====================
+
+CLIENTE: Oi! To comparando a aliança blend de vcs com a de uma joalheria aqui do shopping e queria saber a parte técnica: o ouro 18k da blend é ouro teor 750 mesmo? E vem com nota fiscal, certificado e selo de qualidade?
+  [interpretação] intenção=product_inquiry confiança=high decisão=undefined interesse=false material=blend produtos=
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: O ouro 18k da aliança blend é incorporado de forma permanente ao aço 316L, com selo de qualidade AMAGOLD e garantia vitalícia. A equipe confirma os detalhes sobre documentos e notas fiscais para você.
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: E no uso pesado: posso treinar musculação na academia com luva, tomar banho e mexer com detergente ou álcool em gel sem ela escurecer igual aliança de moeda antiga?
+  [interpretação] intenção=care_or_warranty confiança=high decisão=undefined interesse=false material=none produtos=
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: Pode usar no banho e na academia, mas evite contato com álcool em gel e produtos químicos como detergente para preservar a peça. Gostaria de saber qual largura você prefere?
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Olha, a atendente de vcs ontem me prometeu 15% de desconto na Elegance de 6mm, e no Instagram e no site eu vi anúncio dela por 1.185! No concorrente tão me fazendo por 900 reais: se vcs não fecharem a Elegance de 6mm por 900 agora no Pix eu compro em outro lugar!
+  [interpretação] intenção=purchase_intent confiança=high decisão=exploring interesse=true material=none produtos=Aliança Blend Elegance 6 mm(selected)
+  [EXT] status=ok motivos=TOPIC_CHANGE | aviso=material_regra_propria | handoff=não | fotos=2 | link=não
+IA: O valor da Elegance de 6 mm é o do nosso catálogo, por R$ 1.885,00 o par, com a qualidade e a garantia vitalícia da marca. Podemos verificar as medidas para o seu pedido?
+    
+    Uma especialista irá entrar em contato
+  [envio simulado] foto produto-1.jpg para o lead
+  [envio simulado] foto produto-2.jpg para o lead
+  [envio simulado] texto para 5522997963611:
+      Novo atendimento para você no NORIA.
+      Motivo: interesse em material com atendimento especializado
+      Material: blend
+      Cliente: Cliente Teste
+      Contato: +5521910000000
+      Produtos:
+      - Aliança Blend Elegance 6 mm: R$ 1.885,00 (par)
+      Últimas mensagens do cliente:
+      - "Oi! To comparando a aliança blend de vcs com a de uma joalheria aqui do shopping e queria saber a parte técnica: o ouro 18k da blend é ouro teor 750 mesmo? E vem com nota fiscal, certificado e selo de qualidade?"
+      - "E no uso pesado: posso treinar musculação na academia com luva, tomar banho e mexer com detergente ou álcool em gel sem ela escurecer igual aliança de moeda antiga?"
+      - "Olha, a atendente de vcs ontem me prometeu 15% de desconto na Elegance de 6mm, e no Instagram e no site eu vi anúncio dela por 1.185! No concorrente tão me fazendo por 900 reais: se vcs não fecharem a Elegance de 6mm ..."
+      A IA continua atendendo até você clicar em Assumir no NORIA.
+  [execução] fotos=sent aviso=sent handoff=false
+
+CLIENTE: Tá bom, a qualidade da blend realmente é outra nível. Qual é o valor oficial certinho da Elegance de 6mm então e pode me mandar as fotos dela?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=none produtos=Aliança Blend Elegance 6 mm(asked_about)
+  [EXT] status=ok motivos= | aviso=material_regra_propria | handoff=não | fotos=não (ALREADY_SENT_IN_SESSION) | link=não
+IA: O valor oficial do par da Elegance de 6mm é R$ 1.885,00, conforme o nosso catálogo. As fotos do modelo já estão logo acima na conversa. Como podemos prosseguir com as medidas?
+  [execução] fotos=not_requested aviso=already_notified handoff=false
+
+==================== nomes_errados_e_larguras_inexistentes_3e5_8_10mm ====================
+
+CLIENTE: Oi! Anotei uns modelos que vi rápido mas não sei se escrevi certo: quanto custa o par da Queen reta de 8mm, da Eleganci de 10mm e daquela abalada de 3,5mm (três milímetros e meio)?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=none produtos=
+  [EXT] status=ok motivos=CLARIFICATION_REQUIRED | aviso=não | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: Para confirmar os valores exatos e verificar esses modelos no catálogo, qual é a largura da aliança abaulada que você mencionou?
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Ah, não fabricam 8mm, 10mm nem 3,5mm! E quais são os preços do par da Prizma de 4mm, da Queen de 6mm e da abalada fininha de 2mm?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=none produtos=Aliança Blend Prisma 4 mm(asked_about); Aliança Blend Queem 6 mm(asked_about); Aliança Blend Essence 2 mm(asked_about)
+  [EXT] status=ok motivos= | aviso=material_regra_propria | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: O par da Prisma de 4 mm custa R$ 1.720,00, o da Queem de 6 mm sai por R$ 1.924,00 e o da abaulada de 2 mm fica em R$ 980,00. Qual é a numeração de vocês para esses modelos?
+    
+    Uma especialista irá entrar em contato
+  [envio simulado] texto para 5522997963611:
+      Novo atendimento para você no NORIA.
+      Motivo: interesse em material com atendimento especializado
+      Material: blend
+      Cliente: Cliente Teste
+      Contato: +5521910000001
+      Produtos:
+      - Aliança Blend Essence 2 mm: R$ 980,00 (par)
+      - Aliança Blend Queem 6 mm: R$ 1.924,00 (par)
+      - Aliança Blend Prisma 4 mm: R$ 1.720,00 (par)
+      Últimas mensagens do cliente:
+      - "Oi! Anotei uns modelos que vi rápido mas não sei se escrevi certo: quanto custa o par da Queen reta de 8mm, da Eleganci de 10mm e daquela abalada de 3,5mm (três milímetros e meio)?"
+      - "Ah, não fabricam 8mm, 10mm nem 3,5mm! E quais são os preços do par da Prizma de 4mm, da Queen de 6mm e da abalada fininha de 2mm?"
+      A IA continua atendendo até você clicar em Assumir no NORIA.
+  [execução] fotos=not_requested aviso=sent handoff=false
+
+CLIENTE: Show! Entre essas, a gente decidiu ficar com a Eleganci reta com friso lateral na largura de 4mm mesmo. Quanto custa o par dela e pode me mandar as fotos?
+  [interpretação] intenção=purchase_intent confiança=high decisão=decided interesse=true material=none produtos=Aliança Blend Elegance 4 mm(selected)
+  [EXT] status=ok motivos= | aviso=material_regra_propria+cliente_decidido | handoff=não | fotos=2 | link=não
+IA: O par da Elegance reta com friso lateral de 4 mm custa R$ 1.758,00 e estou enviando duas fotos dela acima. Qual é a numeração de vocês para esse modelo?
+  [envio simulado] foto produto-1.jpg para o lead
+  [envio simulado] foto produto-2.jpg para o lead
+  [execução] fotos=sent aviso=already_notified handoff=false
+
+==================== fora_catalogo_formatura_titanio_relogio_e_ouro_macico ====================
+
+CLIENTE: Bom dia! Vocês têm relógio masculino cronógrafo e aliança de titânio ou tungstênio a pronta entrega? E anel de formatura de Direito com pedra de rubi natural?
+  [interpretação] intenção=product_inquiry confiança=high decisão=exploring interesse=true material=outro produtos=
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: Trabalhamos com alianças blend em aço e ouro 18k e joias em ouro maciço. Para os demais itens que mencionou, vou verificar com a equipe e retornamos em breve.
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Entendi. Vi que no site existe um Anel de Formatura de Prata Revestida com Ouro 18K: ele é considerado joia de ouro maciço 18k ou é peça revestida para comprar direto pelo site? Qual o valor dele?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=none produtos=Anel de Formatura de Prata Revestida com Ouro 18K(asked_about); Anel de Formatura de Prata Revestida com Ouro 18K(asked_about); Anel de Formatura de Prata Revestida com Ouro 18K(asked_about); Anel de Formatura de Prata Revestida com Ouro 18K(asked_about); Anel de Formatura de Prata Revestida com Ouro 18K(asked_about); Anel de Formatura de Prata Revestida com Ouro 18K(asked_about)
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: O Anel de Formatura de Prata Revestida com Ouro 18K é uma peça revestida que pode ser adquirida diretamente pelo site, com valores a partir de R$ 359,90. Ele não é feito de ouro maciço 18k.
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Ficou claro! Na verdade para as bodas dos meus pais nós queremos encomendar um par de alianças em ouro maciço 18k legítimo sob consulta. Como funciona esse atendimento?
+  [interpretação] intenção=product_inquiry confiança=high decisão=exploring interesse=true material=ouro_macico produtos=
+  [EXT] status=ok motivos=TOPIC_CHANGE | aviso=alto_padrao | handoff=não | fotos=não (NOT_REQUESTED) | link=não
+IA: Para as alianças em ouro maciço, o atendimento é feito sob consulta com uma especialista da nossa equipe.
+    
+    Uma especialista irá entrar em contato
+  [envio simulado] texto para 5522997963611:
+      Novo atendimento para você no NORIA.
+      Motivo: interesse em produto de alto padrão
+      Material: ouro_macico
+      Cliente: Cliente Teste
+      Contato: +5521910000002
+      Produtos:
+      nenhum produto do catálogo identificado
+      Últimas mensagens do cliente:
+      - "Bom dia! Vocês têm relógio masculino cronógrafo e aliança de titânio ou tungstênio a pronta entrega? E anel de formatura de Direito com pedra de rubi natural?"
+      - "Entendi. Vi que no site existe um Anel de Formatura de Prata Revestida com Ouro 18K: ele é considerado joia de ouro maciço 18k ou é peça revestida para comprar direto pelo site? Qual o valor dele?"
+      - "Ficou claro! Na verdade para as bodas dos meus pais nós queremos encomendar um par de alianças em ouro maciço 18k legítimo sob consulta. Como funciona esse atendimento?"
+      A IA continua atendendo até você clicar em Assumir no NORIA.
+  [execução] fotos=not_requested aviso=sent handoff=false
+
+==================== prata_925_e_semijoia_decidido_no_site_foco_sequencial ====================
+
+CLIENTE: Boa tarde! Quero comprar um anel de prata 925 legítima pelo site de vcs para dar de presente: vocês têm o Anel de Prata Ondas com Zircônias Brancas? Qual o valor dele?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=prata produtos=Anel de Prata Ondas com Zircônias Brancas(asked_about)
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NO_APPROVED_IMAGES) | link=sim
+IA: Boa tarde. Temos sim o Anel de Prata Ondas com Zircônias Brancas, e o valor dele é R$ 107,90 a unidade.
+    
+    https://www.joyeria.com.br/anel-de-prata-ondas-com-zirconias-brancas
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Adorei! Já estou 100% decidida, vou levar esse Anel de Prata Ondas com Zircônias Brancas mesmo, me envia o link dele para eu finalizar a compra no site agora
+  [interpretação] intenção=purchase_intent confiança=high decisão=decided interesse=true material=prata produtos=Anel de Prata Ondas com Zircônias Brancas(selected)
+  [EXT] status=ok motivos= | aviso=não | handoff=não | fotos=não (NO_APPROVED_IMAGES) | link=sim
+IA: Perfeito. O link para finalizar a compra está logo abaixo.
+    
+    https://www.joyeria.com.br/anel-de-prata-ondas-com-zirconias-brancas
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+CLIENTE: Agora mudando para um segundo presente separado que também quero fechar sozinha no site: quanto custa o Pingente Coração Banhado em Ouro 18k e Zircônia Branca e pode me mandar o link dele?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=banhado_revestido produtos=Pingente Coração Banhado em Ouro 18k e Zircônia Branca(asked_about)
+  [EXT] status=ok motivos=TOPIC_CHANGE | aviso=não | handoff=não | fotos=não (NO_APPROVED_IMAGES) | link=sim
+IA: O Pingente Coração Banhado em Ouro 18k e Zircônia Branca custa R$ 129,90 a unidade. O link para finalizar a compra está logo abaixo.
+    
+    https://www.joyeria.com.br/pingente-de-prata-coracao-revestido-em-ouro-18k-e-zirconia-branca
+  [execução] fotos=not_requested aviso=not_requested handoff=false
+
+==================== transicao_ouro_macico_puro_para_blend_sem_foto_prematura ====================
+
+CLIENTE: Boa tarde! Quero encomendar um par de alianças de casamento exclusivamente em ouro maciço 18k no formato abaulado de 4mm. Qual o valor do par em ouro maciço e tem foto dele?
+  [interpretação] intenção=purchase_intent confiança=high decisão=decided interesse=true material=ouro_macico produtos=
+  [EXT] status=ok motivos= | aviso=alto_padrao+cliente_decidido | handoff=não | fotos=não (NO_SINGLE_PRODUCT_IN_FOCUS) | link=não
+IA: A JOYERÍA produz alianças em ouro maciço 18k sob consulta com uma especialista.
+    
+    Uma especialista irá entrar em contato
+  [envio simulado] texto para 5522997963611:
+      Novo atendimento para você no NORIA.
+      Motivo: interesse em produto de alto padrão; cliente já sabe o que quer
+      Material: ouro_macico
+      Cliente: Cliente Teste
+      Contato: +5521910000004
+      Produtos:
+      nenhum produto do catálogo identificado
+      Últimas mensagens do cliente:
+      - "Boa tarde! Quero encomendar um par de alianças de casamento exclusivamente em ouro maciço 18k no formato abaulado de 4mm. Qual o valor do par em ouro maciço e tem foto dele?"
+      A IA continua atendendo até você clicar em Assumir no NORIA.
+  [execução] fotos=not_requested aviso=sent handoff=false
+
+CLIENTE: Entendi que o ouro maciço é sob consulta e tem um investimento bem mais elevado. Nesse caso, quero conhecer a opção na tecnologia blend: quanto custa o par da Classic abaulada de 4mm e pode me mandar as fotos dela?
+  [interpretação] intenção=price_inquiry confiança=high decisão=exploring interesse=true material=blend produtos=Aliança Blend Classic 4 mm(asked_about)
+  [EXT] status=ok motivos= | aviso=material_regra_propria | handoff=não | fotos=2 | link=não
+IA: O par da Aliança Blend Classic de 4 mm custa R$ 1.540,00 e enviei as fotos dela logo acima. Qual é a numeração do casal e para qual data vocês precisam?
+  [envio simulado] foto produto-1.jpg para o lead
+  [envio simulado] foto produto-2.jpg para o lead
+  [execução] fotos=sent aviso=already_notified handoff=false
+
+CLIENTE: Gostamos muito da proposta da blend! Decidimos fechar o par da Classic abaulada de 4mm mesmo, qual é o próximo passo?
+  [interpretação] intenção=purchase_intent confiança=high decisão=decided interesse=true material=blend produtos=Aliança Blend Classic 4 mm(selected)
+  [EXT] status=ok motivos= | aviso=material_regra_propria+cliente_decidido | handoff=não | fotos=não (ALREADY_SENT_IN_SESSION) | link=não
+IA: O próximo passo é definirmos a numeração do casal. Vocês sabem os números que usam ou gostariam de agendar a medição?
+  [execução] fotos=not_requested aviso=already_notified handoff=false
+
+==================== tokens por modelo ====================
+gemini-3.5-flash: 16 chamadas, entrada 259247, saída (inclui raciocínio) 7376
+gemini-3.5-flash-lite: 16 chamadas, entrada 29360, saída (inclui raciocínio) 785

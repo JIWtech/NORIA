@@ -173,12 +173,15 @@ test('interpretação incerta não avisa, não envia foto nem link; pede esclare
   }
 });
 
-test('fotos automáticas só na primeira apresentação do item na sessão; pedido explícito sempre vale', async () => {
+test('fotos de um item vão uma vez por sessão: nem a apresentação nem o pedido explícito reenviam', async () => {
   const repetida = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')] }, extra: { retail_context: { media_sent_item_ids: [BLEND] } } });
   assert.equal(repetida.d.actions.send_product_media.allowed, false);
   assert.equal(repetida.d.actions.send_product_media.reason, 'ALREADY_SENT_IN_SESSION');
   const pedida = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')], wants_photos: on() }, extra: { retail_context: { media_sent_item_ids: [BLEND] } } });
-  assert.equal(pedida.d.actions.send_product_media.allowed, true);
+  assert.equal(pedida.d.actions.send_product_media.allowed, false);
+  assert.equal(pedida.d.actions.send_product_media.reason, 'ALREADY_SENT_IN_SESSION');
+  const primeira = await run({ semantic: { primary_intent: 'product_inquiry', products: [ref(BLEND, 'interested')], wants_photos: on() } });
+  assert.equal(primeira.d.actions.send_product_media.allowed, true);
 });
 
 test('material de regra própria vem da política: outro material configurado usa o mesmo motivo genérico', async () => {

@@ -27,6 +27,17 @@ test('esquema semântico usa o vocabulário declarado e restringe item_id aos ca
   }
 });
 
+test('catálogo grande: item_id sem lista fechada no esquema e produto fora dos candidatos é descartado', () => {
+  const many = Array.from({ length: 200 }, (_, i) => id(i + 1));
+  const schema = R.retailSemanticSchema(VOCAB, many);
+  assert.equal(schema.properties.products.items.properties.item_id.enum, undefined);
+  assert.equal(schema.properties.products.items.properties.item_id.type, 'STRING');
+  const filtered = R.retailKnownProducts({ products: [{ item_id: id(3) }, { item_id: 'inventado' }, {}] }, many);
+  assert.deepEqual(filtered.products, [{ item_id: id(3) }]);
+  assert.equal(filtered.discarded_products, 2);
+  assert.equal(R.retailKnownProducts(null, many), null);
+});
+
 test('vocabulário incompleto ou com item inválido é configuração inválida', () => {
   assert.deepEqual(R.retailVocabulary({ semantic_vocabulary: VOCAB }), VOCAB);
   assert.throws(() => R.retailVocabulary({ semantic_vocabulary: { ...VOCAB, roles: [] } }), /VOCABULARY_INVALID/);
@@ -145,8 +156,9 @@ test('destino do aviso só do cadastro; recusa ausente, inválido ou igual ao le
 test('chave do aviso é por conversa, sessão e motivo: duas conversas na sessão "initial" não colidem', () => {
   const a = R.retailSpecialistNoticeKey('initial', 'alto_padrao', '5522999990000@s.whatsapp.net');
   const b = R.retailSpecialistNoticeKey('initial', 'alto_padrao', '5522888880000@s.whatsapp.net');
-  assert.equal(a, 'specialist_notice_5522999990000swhatsappnet_initial_alto_padrao');
+  assert.equal(a, 'specialist_notice_5522999990000swhatsappnet_initial');
   assert.notEqual(a, b);
+  assert.equal(R.retailSpecialistNoticeKey('initial', 'cliente_decidido', '5522999990000@s.whatsapp.net'), a, 'um aviso por sessão, qualquer motivo');
   assert.throws(() => R.retailSpecialistNoticeKey('s1', 'blend', 'x@s.whatsapp.net'), /REASON_INVALID/);
   assert.throws(() => R.retailSpecialistNoticeKey('', 'alto_padrao', 'x@s.whatsapp.net'), /SESSION_INVALID/);
   assert.throws(() => R.retailSpecialistNoticeKey('s1', 'alto_padrao', ''), /CHAT_INVALID/);
@@ -178,14 +190,15 @@ test('resultado do provedor: só ID prova envio; timeout e 5xx são desconhecido
 test('registros do aviso ficam na conversa do lead, não pausam a IA e usam a chave única', () => {
   const args = { tenantId: T, tenantSlug: 'joyeria', chatId: '5522999990000@s.whatsapp.net', sessionId: 's1', requestId: 'm1:tok', reason: 'alto_padrao' };
   const r = R.retailNoticeReservation({ ...args, reasons: ['alto_padrao'], materials: ['ouro_macico'] });
-  assert.equal(r.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_alto_padrao');
+  assert.equal(r.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1');
+  assert.equal(r.raw_payload.reason, 'alto_padrao');
   assert.equal(r.handoff, false);
   assert.equal(r.external_conversation_id, args.chatId);
   assert.ok(!JSON.stringify(r).includes('recipient'), 'número do especialista não fica no evento');
   for (const status of ['sent', 'failed', 'unknown']) {
     const o = R.retailNoticeOutcome({ ...args, reservationId: 'e1', outcome: { status, provider_message_id: status === 'sent' ? 'P' : undefined } });
     assert.equal(o.handoff, false);
-    assert.equal(o.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_alto_padrao_' + status);
+    assert.equal(o.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_' + status);
     assert.equal(o.raw_payload.requires_reconciliation, status === 'unknown');
   }
 });
@@ -201,6 +214,15 @@ test('frase ao cliente: validada na autorização e dita só quando o aviso é r
   assert.equal(R.retailSpecialistCustomerLine(ok, { status: 'already_reserved' }), null);
   assert.equal(R.retailSpecialistCustomerLine(ok, null), null);
   assert.equal(R.retailSpecialistCustomerLine(auth(undefined), { status: 'reserved_now' }), null);
+});
+
+test('o retail_v1 do CORE é genérico: nenhum termo de um ramo de negócio (joalheria) no módulo nem nas fases do motor', () => {
+  const core = fs.readFileSync(path.join(__dirname, '../n8n/sources/noria_core.js'), 'utf8');
+  const start = core.indexOf('// ===================================================================== retail_v1');
+  const end = core.indexOf('function sessionHandoffMessage(', start);
+  assert.ok(start > 0 && end > start, 'trecho retail_v1 do motor encontrado');
+  const retailCode = fs.readFileSync(path.join(__dirname, '../n8n/sources/noria_retail.js'), 'utf8') + core.slice(start, end);
+  assert.doesNotMatch(retailCode, /ouro|alian[cç]a|banhad|folhead|revestid|encapad|abaulad|chanfrad|\bjoias?\b|\bblend\b|\d+ ?mm\b/i);
 });
 
 test('o módulo não conhece tenant, número, produto nem faz I/O', () => {

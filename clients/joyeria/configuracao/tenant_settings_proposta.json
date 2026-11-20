@@ -48,6 +48,11 @@
       "decided_customer": true,
       "customer_message": "Uma especialista irá entrar em contato"
     },
+    "semantic_guidance": [
+      "Modelos de aliança: abaulada, reta, reta com friso lateral e reta italiana chanfrada; a medida é a largura em mm. Diferencie abaulada de reta.",
+      "material_requested: ouro maciço é ouro_macico. Peça banhada, folheada, revestida ou encapada nunca é ouro maciço; aliança blend é blend.",
+      "Perguntar se a foto enviada é de outra largura (as larguras de uma linha podem compartilhar a mesma foto) não é pedido de nova foto."
+    ],
     "max_photos_per_turn": 2,
     "site_link": { "enabled": true },
     "candidate_limit": 250

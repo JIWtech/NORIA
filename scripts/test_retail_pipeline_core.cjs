@@ -140,7 +140,7 @@ test('caso de especialista: resposta com a frase aprovada uma vez, reserva antes
   assert.match(notice.body.text, /\+5522999990000/);
   const reservationIndex = h.log.inserts.findIndex(row => row.service === 'specialist_notice_attempt');
   assert.ok(reservationIndex >= 0 && h.log.inserts.every(row => row.handoff === false));
-  assert.equal(h.log.inserts[reservationIndex].external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_material_regra_propria');
+  assert.equal(h.log.inserts[reservationIndex].external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1');
   assert.equal(result.retail_execution.notice.status, 'sent');
   assert.ok(h.log.completed);
 });
