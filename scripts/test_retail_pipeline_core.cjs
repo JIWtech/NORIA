@@ -74,8 +74,9 @@ const ITEM = { id: id(1), tenant_id: T, name: 'Aliança Teste 2 mm', description
 const assetRow = n => ({ id: id(n), tenant_id: T, storage_bucket: 'product-catalog', storage_path: 'catalog/' + T + '/' + 'a'.repeat(63) + n + '.png',
   public_url: ORIGIN + '/storage/v1/object/public/product-catalog/catalog/' + T + '/' + 'a'.repeat(63) + n + '.png', sha256: 'a'.repeat(63) + n, mime_type: 'image/png' });
 
-function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'], mediaResponse = null } = {}) {
-  const log = { inserts: [], provider: [], delivered: null, completed: false, events: [] };
+function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'], mediaResponse = null,
+  mediaHistory = [], reservationFails = false } = {}) {
+  const log = { inserts: [], provider: [], delivered: null, completed: false, events: [], composeInputs: [] };
   const identity = { tenant_id: T, tenant_slug: 'loja', instance: 'loja', remote_jid: LEAD, session_id: 's1', request_id: 'm1:tok', turn_token: 'tok', last_event_id: 'm1' };
   const decision = { contract: 'dec_r', provenance: 'prov_r', noria_contract_version: '1.0', status, ...identity, reason_codes: [], evidence_used: ['m1'], actions };
   let replyIndex = 0;
@@ -89,7 +90,8 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
     sendChannelMessage: async (context, text) => { log.delivered = text; return cancelled ? { cancelled: true } : { sent: true }; },
     sessionHandoffMessage: () => 'CONTINGENCIA', servicesHasRecentBusiness: () => true, audioHistoryText: row => row.message_text || '',
     tenantBusinessHoursStatus: () => ({ configured: true, is_open: true }), cleanReplyText: text => text,
-    servicesGeminiJson: async () => ({ value: { reply: replies[Math.min(replyIndex++, replies.length - 1)] }, model: 'gemini-x', usage: {} }),
+    servicesGeminiJson: async (context, label, input) => { log.composeInputs.push(input);
+      return { value: { reply: replies[Math.min(replyIndex++, replies.length - 1)] }, model: 'gemini-x', usage: {} }; },
     turnQueueState: async () => ({ token: 'tok', lease_until: new Date(Date.now() + 60000).toISOString() }),
     env: name => ({ SUPABASE_URL: ORIGIN, EVOLUTION_API_URL_LOJA: 'https://evo.test', EVOLUTION_API_KEY_LOJA: 'k', EVOLUTION_INSTANCE_LOJA: 'loja' }[name] || ''),
     tenantEnvSuffix: slug => slug.toUpperCase(), encodeFilter: value => encodeURIComponent(String(value)),
@@ -98,10 +100,14 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
       if (url.includes('/product_catalog_item_images?')) return [2, 3].map(n => ({ tenant_id: T, item_id: id(1), asset_id: id(n), display_order: n, review_status: 'aprovada', shared_note: null }));
       if (url.includes('/product_catalog_assets?')) return [assetRow(2), assetRow(3)];
       if (url.includes('external_message_id=eq.specialist_notice_')) return notified ? [{ id: 'old' }] : [];
+      if (url.includes('/channel_events?') && url.includes('retail_product_photo')) return mediaHistory;
       if (url.includes('/channel_events?')) return [];
       throw new Error('GET inesperado ' + url);
     },
-    supabasePost: async (url, row) => { log.inserts.push(row); return [{ id: 'ev' + log.inserts.length, ...row }]; },
+    supabasePost: async (url, row) => {
+      if (reservationFails && row.service === 'specialist_notice_attempt') throw new Error('banco indisponível');
+      log.inserts.push(row); return [{ id: 'ev' + log.inserts.length, ...row }];
+    },
     httpJson: async (method, url, headers, body) => {
       log.provider.push({ url, body });
       if (mediaResponse && url.includes('/sendMedia/')) return mediaResponse;
@@ -109,7 +115,7 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
     },
   };
   const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue',
-    'retailEvolution', 'retailSendProductMedia', 'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'runRetailTurnFinalize', 'salesMediaHttpsLocation'], globals);
+    'retailEvolution', 'retailSendProductMedia', 'retailPlanProductMedia', 'retailLoadMediaState', 'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'runRetailTurnFinalize', 'salesMediaHttpsLocation'], globals);
   const pipeline = { contract: 'noria_turn_pipeline_v1', contract_version: '1.0', decision_contract: 'dec_r', decision_provenance: 'prov_r' };
   return { run: () => core.runRetailTurnFinalize({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), log };
 }
@@ -127,7 +133,7 @@ test('caso de especialista: resposta com a frase aprovada uma vez, reserva antes
   assert.match(notice.body.text, /\+5522999990000/);
   const reservationIndex = h.log.inserts.findIndex(row => row.service === 'specialist_notice_attempt');
   assert.ok(reservationIndex >= 0 && h.log.inserts.every(row => row.handoff === false));
-  assert.equal(h.log.inserts[reservationIndex].external_message_id, 'specialist_notice_s1_material_regra_propria');
+  assert.equal(h.log.inserts[reservationIndex].external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_material_regra_propria');
   assert.equal(result.retail_execution.notice.status, 'sent');
   assert.ok(h.log.completed);
 });
@@ -179,6 +185,34 @@ test('foto com resultado desconhecido fica interna, não aparece como enviada e 
   assert.equal(internal.length, 2, 'reserva + resultado desconhecido, ambos internos');
   assert.ok(internal.every(row => row.sender_type === 'system' && row.delivery_status === 'internal'));
   assert.equal(internal[1].raw_payload.requires_reconciliation, true);
+});
+
+test('foto pendente de reconciliação em turno anterior não é reenviada nem anunciada no texto', async () => {
+  const pending = [{ id: 'r1', service: 'retail_product_photo_attempt', direction: 'outbound',
+    raw_payload: { status: 'reserved', item_id: id(1), asset_id: id(2), conversation_session_id: 's1' } },
+  { id: 'o1', service: 'retail_product_photo_attempt', direction: 'outbound',
+    raw_payload: { status: 'unknown', reservation_event_id: 'r1', item_id: id(1), asset_id: id(2), conversation_session_id: 's1' } }];
+  const h = finalizeHarness({ actions: { ...present, send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(2)] } }, mediaHistory: pending });
+  const out = await h.run();
+  assert.equal(h.log.provider.filter(p => p.url.includes('/sendMedia/')).length, 0);
+  assert.equal(h.log.composeInputs[0].photos_being_sent, null, 'texto não anuncia foto que não sairá');
+  assert.equal(out.retail_execution.media.status, 'not_sent');
+  assert.deepEqual(out.retail_execution.media.skipped, ['PENDING_RECONCILIATION:' + id(2)]);
+  // A outra foto do mesmo item, sem pendência, continua elegível.
+  const h2 = finalizeHarness({ actions: { ...present, send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(2), id(3)] } }, mediaHistory: pending });
+  await h2.run();
+  assert.equal(h2.log.provider.filter(p => p.url.includes('/sendMedia/')).length, 1);
+  assert.equal(h2.log.composeInputs[0].photos_being_sent.count, 1);
+});
+
+test('falha de banco ao reservar o aviso fica registrada como falha (visível no painel), sem envio', async () => {
+  const h = finalizeHarness({ actions: { ...present, ...notifyAction }, reservationFails: true });
+  const out = await h.run();
+  assert.equal(out.retail_execution.notice.status, 'failed');
+  assert.equal(h.log.provider.filter(p => p.url.includes('/sendText/')).length, 0);
+  const failure = h.log.inserts.find(row => row.service === 'specialist_notice');
+  assert.equal(failure.raw_payload.status, 'failed');
+  assert.equal(failure.raw_payload.code, 'NOTICE_RESERVATION_FAILED');
 });
 
 test('link do site anexado pelo sistema; decisão recusada e auditoria reprovada viram contingência sem efeitos', async () => {

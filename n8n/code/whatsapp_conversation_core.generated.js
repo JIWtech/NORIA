@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T15:53:20.688Z',
-  core_sha256: '1ec5c1f32f44aaef9b3a7ea99cf7c5cd197aecc5340cb7b044aa9b871e554b97',
+  built_at: '2026-11-20T16:01:16.520Z',
+  core_sha256: '19e70ff995eb645620fa9e549ff62e4cbea03ecf082fa97bf3011aa758bb7aac',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5244,12 +5244,26 @@ function retailCandidates(rows, tenantId, limit) {
   };
 }
 
-// Itens cujas fotos já foram enviadas nesta sessão (para a EXT não repetir a apresentação automática).
-function retailMediaSentItemIds(history, sessionId) {
-  return [...new Set((Array.isArray(history) ? history : [])
-    .filter(row => row?.service === RETAIL_PHOTO_SERVICE && row.direction === 'outbound'
-      && String(row.raw_payload?.conversation_session_id || '') === String(sessionId || ''))
-    .map(row => String(row.raw_payload?.item_id || '')).filter(id => RETAIL_UUID.test(id)))];
+// Estado das fotos nesta sessão, a partir das reservas e resultados gravados em channel_events.
+// - sentItemIds: itens com foto confirmada pelo provedor.
+// - pendingAssetIds/pendingItemIds: reserva sem resultado ou com resultado desconhecido. Exigem reconciliação: a foto
+//   pode ter chegado ao cliente, então nunca é reenviada automaticamente, em nenhum turno.
+// Para a EXT, item pendente conta como já apresentado (não repete a apresentação automática).
+function retailMediaState(rows, sessionId) {
+  const inSession = (Array.isArray(rows) ? rows : []).filter(row => row?.direction === 'outbound'
+    && String(row.raw_payload?.conversation_session_id || '') === String(sessionId || ''));
+  const reservations = inSession.filter(row => row.service === RETAIL_PHOTO_SERVICE + '_attempt' && row.raw_payload?.status === 'reserved');
+  const outcomes = inSession.filter(row => row.raw_payload?.reservation_event_id);
+  const resolved = new Set(outcomes.filter(row => ['sent', 'failed'].includes(row.raw_payload.status)).map(row => String(row.raw_payload.reservation_event_id)));
+  const pending = [
+    ...reservations.filter(row => !resolved.has(String(row.id))),
+    ...outcomes.filter(row => row.raw_payload.status === 'unknown'),
+  ];
+  const ids = (list, key) => [...new Set(list.map(row => String(row.raw_payload?.[key] || '')).filter(id => RETAIL_UUID.test(id)))];
+  const sentItemIds = ids(outcomes.filter(row => row.service === RETAIL_PHOTO_SERVICE && row.raw_payload.status === 'sent'), 'item_id');
+  const pendingItemIds = ids(pending, 'item_id');
+  return { sentItemIds, pendingItemIds, pendingAssetIds: ids(pending, 'asset_id'),
+    presentedItemIds: [...new Set([...sentItemIds, ...pendingItemIds])] };
 }
 
 // ------------------------------------------------------------------- decisão da EXT (fase finalize)
@@ -5346,12 +5360,15 @@ function retailSpecialistRecipient(settings, remoteJid) {
   return { ok: true, number: digits };
 }
 
-// Chave de idempotência: um aviso por tenant, conversa, sessão e motivo (o índice único de channel_events garante).
-function retailSpecialistNoticeKey(sessionId, reason) {
+// Chave de idempotência: um aviso por conversa, sessão e motivo. A conversa entra na própria chave porque a sessão inicial
+// de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da migration 003 não).
+function retailSpecialistNoticeKey(sessionId, reason, chatId) {
   if (!RETAIL_SPECIALIST_REASONS.includes(reason)) throw new Error('NORIA_RETAIL_NOTICE_REASON_INVALID');
   const session = String(sessionId || '').replace(/[^A-Za-z0-9_-]/g, '');
   if (!session) throw new Error('NORIA_RETAIL_NOTICE_SESSION_INVALID');
-  return 'specialist_notice_' + session + '_' + reason;
+  const chat = String(chatId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!chat) throw new Error('NORIA_RETAIL_NOTICE_CHAT_INVALID');
+  return 'specialist_notice_' + chat + '_' + session + '_' + reason;
 }
 
 const RETAIL_REASON_LABEL = {
@@ -5407,7 +5424,7 @@ function retailSpecialistCustomerLine(authorized, reservation) {
 // Registros em channel_events da conversa do LEAD. A reserva é inserida (nunca upsert) antes da chamada ao provedor;
 // se já existir, o aviso não é repetido. Nenhum registro pausa a IA (handoff=false).
 function retailNoticeReservation({ tenantId, tenantSlug, chatId, sessionId, requestId, reason, reasons, materials }) {
-  const key = retailSpecialistNoticeKey(sessionId, reason);
+  const key = retailSpecialistNoticeKey(sessionId, reason, chatId);
   return {
     tenant_id: tenantId, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
     external_message_id: key, direction: 'outbound', sender_type: 'system', message_text: '',
@@ -5418,7 +5435,7 @@ function retailNoticeReservation({ tenantId, tenantSlug, chatId, sessionId, requ
 }
 
 function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservationId, reason, outcome }) {
-  const key = retailSpecialistNoticeKey(sessionId, reason);
+  const key = retailSpecialistNoticeKey(sessionId, reason, chatId);
   return {
     tenant_id: tenantId, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
     external_message_id: key + '_' + outcome.status, direction: 'outbound', sender_type: 'system',
@@ -6277,13 +6294,14 @@ function retailTenantPath(table, tenantId, query) {
   return '/rest/v1/' + table + '?' + query + '&tenant_id=eq.' + encodeFilter(tenantId);
 }
 
-// Fotos já enviadas nesta sessão: consulta própria (o histórico do turno pode estar truncado).
-async function retailLoadMediaSent(context, sessionId) {
+// Estado das fotos nesta sessão (enviadas e pendentes de reconciliação): consulta própria, pois o histórico do turno pode
+// estar truncado. Inclui reservas e resultados para que foto com resultado desconhecido nunca seja reenviada.
+async function retailLoadMediaState(context, sessionId) {
   const rows = await supabaseGet(retailTenantPath('channel_events', context.tenant.id,
-    'select=service,direction,raw_payload&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId)
-    + '&service=eq.' + RETAIL_PHOTO_SERVICE + '&order=created_at.desc&limit=200'));
+    'select=id,service,direction,raw_payload&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId)
+    + '&service=in.(' + RETAIL_PHOTO_SERVICE + ',' + RETAIL_PHOTO_SERVICE + '_attempt)&order=created_at.desc&limit=400'));
   if (!Array.isArray(rows)) throw new Error('NORIA_RETAIL_MEDIA_HISTORY_UNAVAILABLE');
-  return retailMediaSentItemIds(rows, sessionId);
+  return retailMediaState(rows, sessionId);
 }
 
 async function runRetailTurnPrepare(context, pipeline, history, event, control) {
@@ -6315,7 +6333,7 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
   }
   const limit = Number.isInteger(settings.retail_policy?.candidate_limit) ? settings.retail_policy.candidate_limit : RETAIL_DEFAULT_CANDIDATES;
   const candidates = retailCandidates(await supabaseGet('/rest/v1/' + retailCandidatePath(context.tenant.id, limit)), context.tenant.id, limit);
-  const mediaSent = await retailLoadMediaSent(context, identity.session_id);
+  const mediaState = await retailLoadMediaState(context, identity.session_id);
   const currentIds = new Set(turn.messages.map(item => item.event_id));
   const sessionEvidence = history.filter(row => row.direction === 'inbound' && row.sender_type === 'contact' && row.ai_provider !== 'buffer' && !currentIds.has(row.id))
     .slice(-60).map(row => ({ id: row.id, text: audioHistoryText(row), direction: 'inbound', sender_type: 'contact', session_id: identity.session_id, received_at: row.created_at })).filter(row => row.text);
@@ -6340,7 +6358,8 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     session_id: identity.session_id, request_id: identity.request_id, turn_token: identity.turn_token,
     noria_preclaimed_turn: turn, turn, semantic_intent: semantic, semantic_failure: semanticFailure || null, semantic_model: model, semantic_usage: usage,
     session_evidence: sessionEvidence,
-    retail_context: { media_sent_item_ids: mediaSent, catalog_complete: candidates.complete, catalog_size: candidates.items.length },
+    // Para a EXT, item com foto pendente de reconciliação conta como já apresentado.
+    retail_context: { media_sent_item_ids: mediaState.presentedItemIds, catalog_complete: candidates.complete, catalog_size: candidates.items.length },
   };
 }
 
@@ -6430,8 +6449,9 @@ function retailEvolution() {
   return { base, key, instance };
 }
 
-async function retailSendProductMedia(context, identity, allowedMedia) {
-  const result = { status: 'not_sent', sent: 0, skipped: [] };
+// Plano real das fotos, montado ANTES da redação: o texto só anuncia foto que de fato pode ser enviada. Fotos com reserva
+// pendente ou resultado desconhecido nesta sessão ficam de fora (exigem reconciliação; nunca são reenviadas automaticamente).
+async function retailPlanProductMedia(context, identity, allowedMedia) {
   const items = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
     'select=id,tenant_id,active,offerable&id=eq.' + encodeFilter(allowedMedia.item_id) + '&limit=1'));
   const assetFilter = 'in.(' + allowedMedia.asset_ids.map(encodeFilter).join(',') + ')';
@@ -6439,9 +6459,18 @@ async function retailSendProductMedia(context, identity, allowedMedia) {
     'select=tenant_id,item_id,asset_id,display_order,review_status,shared_note&item_id=eq.' + encodeFilter(allowedMedia.item_id) + '&asset_id=' + assetFilter));
   const assets = await supabaseGet(retailTenantPath('product_catalog_assets', context.tenant.id,
     'select=id,tenant_id,storage_bucket,storage_path,public_url,sha256,mime_type&id=' + assetFilter));
-  const plan = retailMediaPlan({ tenantId: context.tenant.id, storageOrigin: salesMediaHttpsLocation(env('SUPABASE_URL'))?.origin,
-    authorized: allowedMedia, item: Array.isArray(items) ? items[0] : null, links, assets });
-  result.skipped = plan.skipped;
+  const state = await retailLoadMediaState(context, identity.session_id);
+  const pending = new Set(state.pendingAssetIds);
+  const authorized = { ...allowedMedia, asset_ids: allowedMedia.asset_ids.filter(assetId => !pending.has(assetId)) };
+  const plan = authorized.asset_ids.length
+    ? retailMediaPlan({ tenantId: context.tenant.id, storageOrigin: salesMediaHttpsLocation(env('SUPABASE_URL'))?.origin,
+      authorized, item: Array.isArray(items) ? items[0] : null, links, assets })
+    : { send: [], skipped: [] };
+  return { send: plan.send, skipped: [...allowedMedia.asset_ids.filter(assetId => pending.has(assetId)).map(assetId => 'PENDING_RECONCILIATION:' + assetId), ...plan.skipped] };
+}
+
+async function retailSendProductMedia(context, identity, allowedMedia, plan) {
+  const result = { status: 'not_sent', sent: 0, skipped: plan.skipped };
   if (!plan.send.length) return result;
   const evolution = retailEvolution();
   for (const [index, entry] of plan.send.entries()) {
@@ -6492,7 +6521,13 @@ async function retailSendSpecialistNotice(context, identity, notify, recipient, 
   const args = { tenantId: context.tenant.id, tenantSlug, chatId, sessionId: identity.session_id, requestId: identity.request_id, reason: notify.reason };
   let reservation;
   try { reservation = await retailInsertEvent(retailNoticeReservation({ ...args, reasons: notify.reasons, materials: notify.materials })); }
-  catch (_) { return { status: 'not_reserved' }; }
+  catch (error) {
+    // Os turnos de uma conversa são processados um de cada vez (claim da fila), então a reserva só falha por erro de banco.
+    // A frase ao cliente já saiu: registra a falha para a equipe ver no painel ("Falha ao avisar") em vez de ficar sem rastro.
+    const code = 'NOTICE_RESERVATION_FAILED';
+    try { await retailInsertEvent(retailNoticeOutcome({ ...args, reservationId: null, outcome: { status: 'failed', code } })); } catch (_) { /* banco indisponível */ }
+    return { status: 'failed', code, detail: String(error?.message || error).slice(0, 120) };
+  }
   const settings = settingsFor(context);
   const text = retailSpecialistMessage({ reasons: notify.reasons, materials: notify.materials,
     leadName: turn.messages.at(-1)?.name || firstName || '', leadPhone: retailLeadPhone(chatId),
@@ -6519,7 +6554,7 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
   if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
   const settings = settingsFor(context);
   const execution = { media: { status: 'not_requested' }, notice: { status: 'not_requested' }, handoff: { executed: false } };
-  let items = [], text = '', composed = null, audit = [], compositionError = null, customerLine = null, recipient = null, alreadyNotified = false;
+  let items = [], text = '', composed = null, audit = [], compositionError = null, customerLine = null, recipient = null, alreadyNotified = false, mediaPlan = null;
   try {
     if (decision.status !== 'ok') throw new Error('RETAIL_DECISION_REFUSED');
     items = await retailLoadItems(context, [...allowed.present_item_ids, allowed.media?.item_id, allowed.site_link?.item_id]);
@@ -6528,16 +6563,18 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
       recipient = retailSpecialistRecipient(settings, chatId);
       if (!recipient.ok) execution.notice = { status: 'not_configured', code: recipient.code };
       else {
-        alreadyNotified = await retailNoticeAlreadyReserved(context, retailSpecialistNoticeKey(identity.session_id, allowed.notify.reason));
+        alreadyNotified = await retailNoticeAlreadyReserved(context, retailSpecialistNoticeKey(identity.session_id, allowed.notify.reason, chatId));
         execution.notice = { status: alreadyNotified ? 'already_notified' : 'pending' };
         customerLine = retailSpecialistCustomerLine(allowed, { status: alreadyNotified ? 'already_reserved' : 'reserved_now' });
       }
     }
     const siteLinkItem = allowed.site_link ? items.find(item => item.id === allowed.site_link.item_id && /^https:\/\/[^/\s]+\/\S*$/.test(item.site_url || '')) : null;
-    const mediaPreview = allowed.media ? { send: allowed.media.asset_ids.map(() => ({})) } : null;
+    // Plano real das fotos antes do texto (sem fotos em handoff): o texto só anuncia o que pode ser enviado.
+    if (allowed.media && !allowed.handoff) mediaPlan = await retailPlanProductMedia(context, identity, allowed.media);
+    const mediaForText = mediaPlan?.send?.length ? mediaPlan : null;
     // 3. Redação auditada (uma revisão); falhando, contingência neutra com handoff, como no services_v1.
     const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
-      media: mediaPreview, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
+      media: mediaForText, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
     composed = await compose('');
     audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)));
     if (audit.length) {
@@ -6568,8 +6605,8 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
   await saveEvent(event);
   const sent = await sendChannelMessage(context, text, event);
   if (!sent.cancelled && !compositionError) {
-    if (allowed.media && !execution.handoff.executed) {
-      try { execution.media = await retailSendProductMedia(context, identity, allowed.media); }
+    if (mediaPlan && !execution.handoff.executed) {
+      try { execution.media = await retailSendProductMedia(context, identity, allowed.media, mediaPlan); }
       catch (error) { execution.media = { status: 'failed', code: String(error?.message || error).slice(0, 120) }; }
     }
     if (allowed.notify && recipient?.ok && !alreadyNotified) {

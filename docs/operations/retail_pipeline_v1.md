@@ -40,7 +40,7 @@ Campos de identidade iguais aos do `services_v1` (`tenant_id`, `tenant_slug`, `i
 | `notify_specialist` | `reason` e `reasons` (`material_regra_propria`, `alto_padrao`, `cliente_decidido`), `materials` (ex.: `blend`, vindo do catálogo e da política) | Aviso ao destino configurado no tenant (ver abaixo); **não pausa a IA** |
 | `handoff` | `reason` | Handoff genérico já existente: pausa a IA, sem nome de atendente |
 
-Uma decisão `refused` ou malformada não autoriza nada e leva à contingência neutra já usada no `services_v1`.
+Uma decisão `refused` não autoriza nada e leva à contingência neutra (mensagem de encaminhamento à equipe, com handoff). Uma decisão malformada, de outra proveniência ou com identidade divergente também não autoriza nada: como no `services_v1`, o turno falha antes de qualquer efeito e o ciclo de vida da fila decide entre nova tentativa e revisão humana, sem resposta ao cliente.
 
 Regras da EXT JOYERÍA revisadas em 20/11/2026:
 
@@ -52,7 +52,8 @@ Regras da EXT JOYERÍA revisadas em 20/11/2026:
 
 - Destino somente em `tenant_settings.settings.specialist_notification.recipient` (número E.164 do tenant). Nunca vem do modelo nem da decisão.
 - Recusa se o destino for igual ao `remote_jid` do lead ou não for um número válido.
-- Chave de idempotência: `tenant_id + session_id + reason`. Uma reserva persistida por chave (inserção única, nunca upsert) antes da chamada ao provedor.
+- Chave de idempotência: conversa + sessão + motivo, dentro do tenant (`specialist_notice_<conversa>_<sessão>_<motivo>`). A conversa entra na chave porque toda conversa começa na sessão `initial` e o índice único da migration 003 não inclui a conversa (o de produção, `_v2`, inclui, mas não está nas migrations do repositório). Uma reserva persistida por chave (inserção única, nunca upsert) antes da chamada ao provedor; falha de banco na reserva vira evento "Falha ao avisar".
+- Fotos com reserva sem resultado ou com resultado desconhecido na sessão nunca são reenviadas automaticamente (exigem reconciliação) e contam como já apresentadas para a EXT; o plano real das fotos é montado antes da redação, para o texto só anunciar o que será enviado.
 - Estados: `reserved` → `sent` | `failed` | `unknown`. `unknown` (timeout, resposta sem ID) exige reconciliação e nunca dispara reenvio automático.
 - Conteúdo: resumo fiel dos fatos da sessão e o contato do lead derivado do `remote_jid`; campos ausentes aparecem como "não informado".
 - Registro em `channel_events` da conversa do lead (sem pausar a IA), para o painel mostrar "Especialista avisado".

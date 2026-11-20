@@ -88,12 +88,26 @@ function retailCandidates(rows, tenantId, limit) {
   };
 }
 
-// Itens cujas fotos já foram enviadas nesta sessão (para a EXT não repetir a apresentação automática).
-function retailMediaSentItemIds(history, sessionId) {
-  return [...new Set((Array.isArray(history) ? history : [])
-    .filter(row => row?.service === RETAIL_PHOTO_SERVICE && row.direction === 'outbound'
-      && String(row.raw_payload?.conversation_session_id || '') === String(sessionId || ''))
-    .map(row => String(row.raw_payload?.item_id || '')).filter(id => RETAIL_UUID.test(id)))];
+// Estado das fotos nesta sessão, a partir das reservas e resultados gravados em channel_events.
+// - sentItemIds: itens com foto confirmada pelo provedor.
+// - pendingAssetIds/pendingItemIds: reserva sem resultado ou com resultado desconhecido. Exigem reconciliação: a foto
+//   pode ter chegado ao cliente, então nunca é reenviada automaticamente, em nenhum turno.
+// Para a EXT, item pendente conta como já apresentado (não repete a apresentação automática).
+function retailMediaState(rows, sessionId) {
+  const inSession = (Array.isArray(rows) ? rows : []).filter(row => row?.direction === 'outbound'
+    && String(row.raw_payload?.conversation_session_id || '') === String(sessionId || ''));
+  const reservations = inSession.filter(row => row.service === RETAIL_PHOTO_SERVICE + '_attempt' && row.raw_payload?.status === 'reserved');
+  const outcomes = inSession.filter(row => row.raw_payload?.reservation_event_id);
+  const resolved = new Set(outcomes.filter(row => ['sent', 'failed'].includes(row.raw_payload.status)).map(row => String(row.raw_payload.reservation_event_id)));
+  const pending = [
+    ...reservations.filter(row => !resolved.has(String(row.id))),
+    ...outcomes.filter(row => row.raw_payload.status === 'unknown'),
+  ];
+  const ids = (list, key) => [...new Set(list.map(row => String(row.raw_payload?.[key] || '')).filter(id => RETAIL_UUID.test(id)))];
+  const sentItemIds = ids(outcomes.filter(row => row.service === RETAIL_PHOTO_SERVICE && row.raw_payload.status === 'sent'), 'item_id');
+  const pendingItemIds = ids(pending, 'item_id');
+  return { sentItemIds, pendingItemIds, pendingAssetIds: ids(pending, 'asset_id'),
+    presentedItemIds: [...new Set([...sentItemIds, ...pendingItemIds])] };
 }
 
 // ------------------------------------------------------------------- decisão da EXT (fase finalize)
@@ -190,12 +204,15 @@ function retailSpecialistRecipient(settings, remoteJid) {
   return { ok: true, number: digits };
 }
 
-// Chave de idempotência: um aviso por tenant, conversa, sessão e motivo (o índice único de channel_events garante).
-function retailSpecialistNoticeKey(sessionId, reason) {
+// Chave de idempotência: um aviso por conversa, sessão e motivo. A conversa entra na própria chave porque a sessão inicial
+// de toda conversa se chama "initial" e nem todo índice único de channel_events inclui a conversa (o da migration 003 não).
+function retailSpecialistNoticeKey(sessionId, reason, chatId) {
   if (!RETAIL_SPECIALIST_REASONS.includes(reason)) throw new Error('NORIA_RETAIL_NOTICE_REASON_INVALID');
   const session = String(sessionId || '').replace(/[^A-Za-z0-9_-]/g, '');
   if (!session) throw new Error('NORIA_RETAIL_NOTICE_SESSION_INVALID');
-  return 'specialist_notice_' + session + '_' + reason;
+  const chat = String(chatId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!chat) throw new Error('NORIA_RETAIL_NOTICE_CHAT_INVALID');
+  return 'specialist_notice_' + chat + '_' + session + '_' + reason;
 }
 
 const RETAIL_REASON_LABEL = {
@@ -251,7 +268,7 @@ function retailSpecialistCustomerLine(authorized, reservation) {
 // Registros em channel_events da conversa do LEAD. A reserva é inserida (nunca upsert) antes da chamada ao provedor;
 // se já existir, o aviso não é repetido. Nenhum registro pausa a IA (handoff=false).
 function retailNoticeReservation({ tenantId, tenantSlug, chatId, sessionId, requestId, reason, reasons, materials }) {
-  const key = retailSpecialistNoticeKey(sessionId, reason);
+  const key = retailSpecialistNoticeKey(sessionId, reason, chatId);
   return {
     tenant_id: tenantId, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
     external_message_id: key, direction: 'outbound', sender_type: 'system', message_text: '',
@@ -262,7 +279,7 @@ function retailNoticeReservation({ tenantId, tenantSlug, chatId, sessionId, requ
 }
 
 function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservationId, reason, outcome }) {
-  const key = retailSpecialistNoticeKey(sessionId, reason);
+  const key = retailSpecialistNoticeKey(sessionId, reason, chatId);
   return {
     tenant_id: tenantId, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
     external_message_id: key + '_' + outcome.status, direction: 'outbound', sender_type: 'system',
@@ -280,7 +297,7 @@ function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservat
 if (typeof module === 'object' && module && module.exports) {
   module.exports = {
     RETAIL_SEMANTIC_CONTRACT, RETAIL_SEMANTIC_RULES, RETAIL_SPECIALIST_REASONS, RETAIL_NOTICE_CONTRACT, RETAIL_PHOTO_SERVICE,
-    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaSentItemIds,
+    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaState,
     retailVerifiedDecision, retailAuthorized, retailMediaPlan, retailLeadPhone, retailSpecialistRecipient,
     retailSpecialistNoticeKey, retailSpecialistMessage, retailProviderOutcome, retailNoticeReservation, retailNoticeOutcome,
     retailSpecialistCustomerLine,

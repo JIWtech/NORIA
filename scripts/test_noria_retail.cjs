@@ -50,13 +50,24 @@ test('candidatos: consulta filtrada por tenant, ativos e ofertáveis; descarta l
   assert.equal(R.retailCandidates(many, T).complete, true);
 });
 
-test('fotos já enviadas são contadas só na sessão atual', () => {
-  const history = [
-    { service: 'retail_product_photo', direction: 'outbound', raw_payload: { conversation_session_id: 's1', item_id: id(1) } },
-    { service: 'retail_product_photo', direction: 'outbound', raw_payload: { conversation_session_id: 's0', item_id: id(2) } },
-    { service: 'sales_product_photo', direction: 'outbound', raw_payload: { conversation_session_id: 's1', item_id: id(3) } },
+test('estado das fotos: enviadas, pendentes (sem resultado ou desconhecido) e falhas, só na sessão atual', () => {
+  const res = (rid, item, asset, session = 's1') => ({ id: rid, service: 'retail_product_photo_attempt', direction: 'outbound',
+    raw_payload: { status: 'reserved', item_id: item, asset_id: asset, conversation_session_id: session } });
+  const out = (rid, status, item, asset, session = 's1') => ({ id: 'o' + rid, service: status === 'sent' ? 'retail_product_photo' : 'retail_product_photo_attempt',
+    direction: 'outbound', raw_payload: { status, reservation_event_id: rid, item_id: item, asset_id: asset, conversation_session_id: session } });
+  const rows = [
+    res('r1', id(1), id(11)), out('r1', 'sent', id(1), id(11)),          // enviada
+    res('r2', id(2), id(12)), out('r2', 'unknown', id(2), id(12)),       // desconhecida: pendente
+    res('r3', id(3), id(13)),                                            // reserva sem resultado: pendente
+    res('r4', id(4), id(14)), out('r4', 'failed', id(4), id(14)),        // falha definitiva: pode tentar de novo
+    res('r5', id(5), id(15), 's0'), out('r5', 'sent', id(5), id(15), 's0'), // outra sessão
+    { id: 'x', service: 'sales_product_photo', direction: 'outbound', raw_payload: { status: 'sent', reservation_event_id: 'r9', item_id: id(6), conversation_session_id: 's1' } },
   ];
-  assert.deepEqual(R.retailMediaSentItemIds(history, 's1'), [id(1)]);
+  const state = R.retailMediaState(rows, 's1');
+  assert.deepEqual(state.sentItemIds, [id(1)]);
+  assert.deepEqual(state.pendingAssetIds.sort(), [id(12), id(13)].sort());
+  assert.deepEqual(state.presentedItemIds.sort(), [id(1), id(2), id(3)].sort());
+  assert.ok(!state.presentedItemIds.includes(id(4)), 'falha definitiva não bloqueia nova tentativa');
 });
 
 const pipeline = { decision_contract: 'noria_retail_decision_v1', decision_provenance: 'joyeria_extension_commercial_decide_v1', contract_version: '1.0' };
@@ -131,10 +142,14 @@ test('destino do aviso só do cadastro; recusa ausente, inválido ou igual ao le
   assert.equal(R.retailLeadPhone(lead), '5522999990000');
 });
 
-test('chave do aviso é por sessão e motivo; motivo fora do contrato é recusado', () => {
-  assert.equal(R.retailSpecialistNoticeKey('s-1', 'alto_padrao'), 'specialist_notice_s-1_alto_padrao');
-  assert.throws(() => R.retailSpecialistNoticeKey('s1', 'blend'), /REASON_INVALID/);
-  assert.throws(() => R.retailSpecialistNoticeKey('', 'alto_padrao'), /SESSION_INVALID/);
+test('chave do aviso é por conversa, sessão e motivo: duas conversas na sessão "initial" não colidem', () => {
+  const a = R.retailSpecialistNoticeKey('initial', 'alto_padrao', '5522999990000@s.whatsapp.net');
+  const b = R.retailSpecialistNoticeKey('initial', 'alto_padrao', '5522888880000@s.whatsapp.net');
+  assert.equal(a, 'specialist_notice_5522999990000swhatsappnet_initial_alto_padrao');
+  assert.notEqual(a, b);
+  assert.throws(() => R.retailSpecialistNoticeKey('s1', 'blend', 'x@s.whatsapp.net'), /REASON_INVALID/);
+  assert.throws(() => R.retailSpecialistNoticeKey('', 'alto_padrao', 'x@s.whatsapp.net'), /SESSION_INVALID/);
+  assert.throws(() => R.retailSpecialistNoticeKey('s1', 'alto_padrao', ''), /CHAT_INVALID/);
 });
 
 test('mensagem ao especialista usa só fatos e citações; ausências aparecem como não informado', () => {
@@ -163,14 +178,14 @@ test('resultado do provedor: só ID prova envio; timeout e 5xx são desconhecido
 test('registros do aviso ficam na conversa do lead, não pausam a IA e usam a chave única', () => {
   const args = { tenantId: T, tenantSlug: 'joyeria', chatId: '5522999990000@s.whatsapp.net', sessionId: 's1', requestId: 'm1:tok', reason: 'alto_padrao' };
   const r = R.retailNoticeReservation({ ...args, reasons: ['alto_padrao'], materials: ['ouro_macico'] });
-  assert.equal(r.external_message_id, 'specialist_notice_s1_alto_padrao');
+  assert.equal(r.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_alto_padrao');
   assert.equal(r.handoff, false);
   assert.equal(r.external_conversation_id, args.chatId);
   assert.ok(!JSON.stringify(r).includes('recipient'), 'número do especialista não fica no evento');
   for (const status of ['sent', 'failed', 'unknown']) {
     const o = R.retailNoticeOutcome({ ...args, reservationId: 'e1', outcome: { status, provider_message_id: status === 'sent' ? 'P' : undefined } });
     assert.equal(o.handoff, false);
-    assert.equal(o.external_message_id, 'specialist_notice_s1_alto_padrao_' + status);
+    assert.equal(o.external_message_id, 'specialist_notice_5522999990000swhatsappnet_s1_alto_padrao_' + status);
     assert.equal(o.raw_payload.requires_reconciliation, status === 'unknown');
   }
 });
