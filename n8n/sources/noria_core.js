@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T21:52:17.319Z',
-  core_sha256: '9895b6ddd17c3417fd3a569235e1096c5a9bcd7bb1d7829b2037704b650cd6d8',
+  built_at: '2026-11-20T21:55:21.261Z',
+  core_sha256: '629be33db2e0b58f25e02d56bd9fcdd924623380a677d6218a0eb46a5bbda7cd',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5185,12 +5185,10 @@ const RETAIL_SEMANTIC_RULES = [
   'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
   'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
-  'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Querer fechar a compra ou perguntar "como faço o pedido" NÃO é pedido de humano.',
+  'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Não é pedido de humano: querer fechar a compra, perguntar "como faço o pedido" ou checar se há alguém respondendo ("tem alguém aí?", "oi??").',
   'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
-  'Perguntar se há alguém atendendo ("tem alguém aí?", "oi??") não é pedido de humano: é o cliente checando se foi ouvido.',
   'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
-  'home_visit só quando o cliente quer atendimento na casa dele. Agendar ida ao showroom ou à loja não é home_visit.',
-  'human (complemento): pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
+  'exchange: pedido de troca. home_visit: só quando o cliente quer atendimento na casa dele (agendar ida ao showroom ou à loja não é home_visit); preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
 ];
 
@@ -6426,14 +6424,13 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
   }, { type: 'OBJECT', properties: { reply: str }, required: ['reply'] }, [
     'Tarefa: redigir a resposta ao cliente em português do Brasil, no tom do negócio definido acima, coerente com recent_conversation.',
     'Descreva cada item só pelo que está em product_facts (model, line, width_mm); nunca atribua a um item o modelo ou a largura de outro.',
-    'Preços só os de product_facts, escritos exatamente como em price. Não cite preço, desconto, parcela, prazo ou condição que não esteja nas instruções do negócio ou em product_facts.',
-    'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro.',
-    'Nunca diga que um link está abaixo ou sendo enviado se site_link_will_be_appended for falso, nem que está enviando fotos se photos_being_sent for nulo.',
+    'Preços só os de product_facts, escritos exatamente como em price.',
+    'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro; se for falso, não mencione link. Só diga que está enviando fotos se photos_being_sent existir.',
     'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
     'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
     'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa; se for falso, não diga que alguém vai continuar o atendimento.',
-    'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa. Se contiver HOME_VISIT_LOCALITY_MISSING, pergunte a cidade ou bairro.',
-    'Se opening=false, não abra com saudação. Resposta CURTA: no máximo duas ou três frases curtas (cerca de 300 caracteres), sem repetir o que o cliente disse e sem inventar fatos.',
+    'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa.',
+    'Se opening=false, não abra com saudação.',
     ...(revisionNote ? [revisionNote] : []),
   ]);
   return { reply: cleanReplyText(String(generated.value?.reply || '')), model: generated.model, usage: generated.usage };

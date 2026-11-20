@@ -30,12 +30,10 @@ const RETAIL_SEMANTIC_RULES = [
   'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
   'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
-  'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Querer fechar a compra ou perguntar "como faço o pedido" NÃO é pedido de humano.',
+  'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Não é pedido de humano: querer fechar a compra, perguntar "como faço o pedido" ou checar se há alguém respondendo ("tem alguém aí?", "oi??").',
   'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
-  'Perguntar se há alguém atendendo ("tem alguém aí?", "oi??") não é pedido de humano: é o cliente checando se foi ouvido.',
   'complaint só para reclamação de pedido, entrega, defeito ou atendimento. Citar preço visto em anúncio, site ou Instagram, ou pedir desconto, não é reclamação.',
-  'home_visit só quando o cliente quer atendimento na casa dele. Agendar ida ao showroom ou à loja não é home_visit.',
-  'human (complemento): pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
+  'exchange: pedido de troca. home_visit: só quando o cliente quer atendimento na casa dele (agendar ida ao showroom ou à loja não é home_visit); preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
 ];
 
