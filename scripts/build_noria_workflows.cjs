@@ -43,6 +43,10 @@ const coreSourcePath = path.join(root, 'n8n/sources/noria_core.js');
 const extSourcePath = path.join(root, 'n8n/sources/genesis_extension.js');
 const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_identity.js');
 let coreCode = fs.readFileSync(coreSourcePath, 'utf8');
+// Capability retail_v1: as funções puras vivem em n8n/sources/noria_retail.js (fonte canônica, testada isoladamente) e são
+// projetadas numa região marcada do motor, para que noria_core.js continue autocontido. Ver docs/operations/retail_pipeline_v1.md.
+const { syncRetailRegion } = require('./lib/retail_region.cjs');
+coreCode = syncRetailRegion(coreCode, fs.readFileSync(path.join(root, 'n8n/sources/noria_retail.js'), 'utf8'));
 // O I&C Salon tem motor próprio (decisão de 2026-11-12): evolui separado do compartilhado.
 const salonEngineSourcePath = path.join(root, 'clients/ic_saloon/salon_engine.js');
 const salonEngineSource = fs.readFileSync(salonEngineSourcePath, 'utf8');

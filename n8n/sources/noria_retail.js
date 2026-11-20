@@ -1,5 +1,5 @@
 // NORIA — capability retail_v1 (venda consultiva de produtos): funções puras do CORE.
-// Fonte canônica ISOLADA: ainda não é embutida no motor por scripts/build_noria_workflows.cjs.
+// Fonte canônica. O gerador (scripts/build_noria_workflows.cjs) projeta este arquivo na região retail_v1 de noria_core.js.
 // Contrato: docs/operations/retail_pipeline_v1.md
 //
 // Regras deste arquivo:
@@ -276,6 +276,7 @@ function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservat
   };
 }
 
+// === fim das funções do retail_v1 projetadas no motor (o bloco abaixo só existe para os testes) ===
 if (typeof module === 'object' && module && module.exports) {
   module.exports = {
     RETAIL_SEMANTIC_CONTRACT, RETAIL_SEMANTIC_RULES, RETAIL_SPECIALIST_REASONS, RETAIL_NOTICE_CONTRACT, RETAIL_PHOTO_SERVICE,
