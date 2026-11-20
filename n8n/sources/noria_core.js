@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T15:48:19.504Z',
-  core_sha256: '0481288da07b5abe5aee2d3ea2a9bcc146579af484e5836f776651c3f30f14ec',
+  built_at: '2026-11-20T15:50:22.033Z',
+  core_sha256: 'caf0c5e30c02b6a4e2ef1ae75be0562ddfc6054b4f2b33779a044adc1139bf93',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6460,8 +6460,12 @@ async function retailSendProductMedia(context, identity, allowedMedia) {
     const outcome = retailProviderOutcome(response, error);
     try {
       await retailInsertEvent({ tenant_id: context.tenant.id, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
-        external_message_id: outcome.provider_message_id || key + '_' + outcome.status, direction: 'outbound', sender_type: 'assistant', message_text: '',
-        service: RETAIL_PHOTO_SERVICE, handoff: false, ai_provider: 'retail_product_photo', delivery_status: outcome.status === 'sent' ? 'sent' : 'internal',
+        // Só a foto confirmada pelo provedor vira retail_product_photo (exibida no painel e contada como já enviada);
+        // falha ou resultado desconhecido fica como registro interno, para reconciliação.
+        external_message_id: outcome.provider_message_id || key + '_' + outcome.status, direction: 'outbound',
+        sender_type: outcome.status === 'sent' ? 'assistant' : 'system', message_text: '',
+        service: outcome.status === 'sent' ? RETAIL_PHOTO_SERVICE : RETAIL_PHOTO_SERVICE + '_attempt', handoff: false, ai_provider: 'retail_product_photo',
+        delivery_status: outcome.status === 'sent' ? 'sent' : 'internal',
         raw_payload: { content_type: 'image', status: outcome.status, code: outcome.code || null, item_id: allowedMedia.item_id, asset_id: entry.asset_id,
           sha256: entry.sha256, reservation_event_id: reservation.id, conversation_session_id: identity.session_id, requires_reconciliation: outcome.status === 'unknown',
           media: { kind: 'image', category: 'image', origin: 'assistant', url: entry.url, mimeType: entry.mime_type, fileName: entry.file_name, caption: '' } } });

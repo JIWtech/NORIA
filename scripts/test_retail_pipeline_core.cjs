@@ -71,7 +71,7 @@ const ITEM = { id: id(1), tenant_id: T, name: 'Aliança Teste 2 mm', description
 const assetRow = n => ({ id: id(n), tenant_id: T, storage_bucket: 'product-catalog', storage_path: 'catalog/' + T + '/' + 'a'.repeat(63) + n + '.png',
   public_url: ORIGIN + '/storage/v1/object/public/product-catalog/catalog/' + T + '/' + 'a'.repeat(63) + n + '.png', sha256: 'a'.repeat(63) + n, mime_type: 'image/png' });
 
-function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'] } = {}) {
+function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'], mediaResponse = null } = {}) {
   const log = { inserts: [], provider: [], delivered: null, completed: false, events: [] };
   const identity = { tenant_id: T, tenant_slug: 'loja', instance: 'loja', remote_jid: LEAD, session_id: 's1', request_id: 'm1:tok', turn_token: 'tok', last_event_id: 'm1' };
   const decision = { contract: 'dec_r', provenance: 'prov_r', noria_contract_version: '1.0', status, ...identity, reason_codes: [], evidence_used: ['m1'], actions };
@@ -99,7 +99,11 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
       throw new Error('GET inesperado ' + url);
     },
     supabasePost: async (url, row) => { log.inserts.push(row); return [{ id: 'ev' + log.inserts.length, ...row }]; },
-    httpJson: async (method, url, headers, body) => { log.provider.push({ url, body }); return { key: { id: 'P' + log.provider.length } }; },
+    httpJson: async (method, url, headers, body) => {
+      log.provider.push({ url, body });
+      if (mediaResponse && url.includes('/sendMedia/')) return mediaResponse;
+      return { key: { id: 'P' + log.provider.length } };
+    },
   };
   const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue',
     'retailEvolution', 'retailSendProductMedia', 'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'runRetailTurnFinalize', 'salesMediaHttpsLocation'], globals);
@@ -159,6 +163,19 @@ test('fotos: reserva por foto, MIME real e nome neutro, só do tenant, depois do
   assert.equal(result.retail_execution.media.sent, 2);
   assert.equal(h.log.inserts.filter(row => row.service === 'retail_product_photo_attempt').length, 2);
   assert.equal(h.log.inserts.filter(row => row.service === 'retail_product_photo').length, 2);
+});
+
+test('foto com resultado desconhecido fica interna, não aparece como enviada e interrompe as próximas', async () => {
+  // Provedor responde sem ID de mensagem = resultado desconhecido (pode ter sido entregue).
+  const h = finalizeHarness({ actions: { ...present, send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(2), id(3)] } }, mediaResponse: {} });
+  const out = await h.run();
+  assert.equal(out.retail_execution.media.status, 'stopped_unknown');
+  assert.equal(h.log.provider.filter(p => p.url.includes('/sendMedia/')).length, 1, 'não tenta a segunda foto');
+  assert.equal(h.log.inserts.filter(row => row.service === 'retail_product_photo').length, 0);
+  const internal = h.log.inserts.filter(row => row.service === 'retail_product_photo_attempt');
+  assert.equal(internal.length, 2, 'reserva + resultado desconhecido, ambos internos');
+  assert.ok(internal.every(row => row.sender_type === 'system' && row.delivery_status === 'internal'));
+  assert.equal(internal[1].raw_payload.requires_reconciliation, true);
 });
 
 test('link do site anexado pelo sistema; decisão recusada e auditoria reprovada viram contingência sem efeitos', async () => {
