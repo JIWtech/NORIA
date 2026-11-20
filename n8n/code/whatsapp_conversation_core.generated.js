@@ -62,7 +62,7 @@ function salesDialogueCopy(key, fallback) {
 }
 // No tenant slug is hardcoded in the shared engine. Client ownership is checked
 // against the Supabase tenant and channel by each extension and loadTenantContext.
-const allowedBusinessProfiles = { nb_bronze_v1: 'standard', vehicle_sales_v1: 'sales_v1', services_booking_v2: 'standard' };
+const allowedBusinessProfiles = { nb_bronze_v1: 'standard', vehicle_sales_v1: 'sales_v1', services_booking_v2: 'standard', retail_consultative_v1: 'standard' };
 function validateTenantPolicyContract() {
   if (salesUsesStructuredDialogue() && (!salesSupportedContractVersion()
     || typeof salesCommercialContract().provenance !== 'string' || !salesCommercialContract().provenance
@@ -77,6 +77,9 @@ function validateTenantPolicyContract() {
     || tenantBusinessRules.tenant_id !== inputJson.tenant_id
     || tenantBusinessRules.audio_enabled !== true && tenantBusinessRules.audio_enabled !== false
     || (tenantBusinessRules.profile === 'services_booking_v2' && tenantBusinessRules.modules?.turn_pipeline?.contract !== 'noria_turn_pipeline_v1')
+    // Venda consultiva só existe como pipeline em fases retail_v1; sem ele, o perfil não tem caminho de atendimento.
+    || (tenantBusinessRules.profile === 'retail_consultative_v1' && (tenantBusinessRules.modules?.turn_pipeline?.contract !== 'noria_turn_pipeline_v1'
+      || tenantBusinessRules.modules?.turn_pipeline?.capability !== 'retail_v1'))
     || (tenantBusinessRules.profile === 'nb_bronze_v1' &&
       !['home_booking', 'home_info', 'clinic_prefix', 'clinic_home_note', 'home_schedule', 'spray_schedule'].every(
         key => typeof tenantBusinessRules.modules?.messages?.[key] === 'string'))) {
@@ -85,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T15:41:36.649Z',
-  core_sha256: '392609f634ce157de0ab988b11779d0ddad6aad1911edacb445d0ca3e53e175e',
+  built_at: '2026-11-20T15:48:19.504Z',
+  core_sha256: '0481288da07b5abe5aee2d3ea2a9bcc146579af484e5836f776651c3f30f14ec',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5147,7 +5150,7 @@ async function schedulingReserve(context, state) {
 // settings.noria_turn_pipeline explicitly enables it AND the validated EXT policy declares the very same contract.
 // The CORE only orchestrates and executes what a verified EXT decision authorises; it holds no commercial rule here.
 const TURN_PIPELINE_CONTRACT = 'noria_turn_pipeline_v1';
-const TURN_PIPELINE_CAPABILITIES = ['services_v1'];
+const TURN_PIPELINE_CAPABILITIES = ['services_v1', 'retail_v1'];
 const TURN_PIPELINE_FIELDS = ['contract', 'capability', 'contract_version', 'semantic_contract', 'decision_contract', 'decision_provenance'];
 
 // >>> retail_v1: projeção de n8n/sources/noria_retail.js (gerada por scripts/build_noria_workflows.cjs; não editar aqui)
@@ -5465,6 +5468,13 @@ function turnPipelineFor(context) {
   // An enabled but inconsistent declaration never falls back silently to another version.
   if (!valid) throw new Error('NORIA_TURN_PIPELINE_CONFIG_INVALID');
   if (salesEnabled(context)) throw new Error('NORIA_TURN_PIPELINE_CONFLICT');
+  // retail_v1 só com o perfil de venda consultiva, e esse perfil só com retail_v1. Os outros perfis seguem como antes.
+  if ((declared.capability === 'retail_v1') !== (tenantBusinessRules.profile === 'retail_consultative_v1')) throw new Error('NORIA_TURN_PIPELINE_CONFIG_INVALID');
+  if (declared.capability === 'retail_v1') {
+    let retailVocab;
+    try { retailVocab = retailVocabulary(offered); } catch (_) { throw new Error('NORIA_TURN_PIPELINE_CONFIG_INVALID'); }
+    return Object.freeze({ ...Object.fromEntries(TURN_PIPELINE_FIELDS.map(field => [field, declared[field]])), semantic_vocabulary: retailVocab });
+  }
   const vocabulary = offered.semantic_vocabulary;
   const listOf = key => Array.isArray(vocabulary?.[key]) && vocabulary[key].length && vocabulary[key].every(v => typeof v === 'string' && v) ? [...vocabulary[key]] : null;
   const semanticVocabulary = Object.fromEntries(['intents', 'roles', 'topics', 'dispositions', 'ambiguity_kinds', 'confidence'].map(key => [key, listOf(key)]));
@@ -6251,6 +6261,317 @@ async function runServicesTurnFinalize(context, pipeline, history, event, contro
   }
   await complete('done');
   return { ok: true, ...sent, appointment_id: execution.reservation.appointment?.id || null, assignment_status: assignmentStatus };
+}
+
+// ===================================================================== retail_v1 (venda consultiva)
+// Fases do pipeline em fases para a capability retail_v1. Contrato: docs/operations/retail_pipeline_v1.md.
+// Só são alcançadas por turnPipelineFor com perfil retail_consultative_v1; nenhum outro tenant passa por aqui.
+// As regras puras (autorização, fotos, aviso) estão na região retail_v1 projetada de n8n/sources/noria_retail.js.
+
+const RETAIL_DEFAULT_CANDIDATES = 250;
+
+function retailTenantPath(table, tenantId, query) {
+  return '/rest/v1/' + table + '?' + query + '&tenant_id=eq.' + encodeFilter(tenantId);
+}
+
+// Fotos já enviadas nesta sessão: consulta própria (o histórico do turno pode estar truncado).
+async function retailLoadMediaSent(context, sessionId) {
+  const rows = await supabaseGet(retailTenantPath('channel_events', context.tenant.id,
+    'select=service,direction,raw_payload&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId)
+    + '&service=eq.' + RETAIL_PHOTO_SERVICE + '&order=created_at.desc&limit=200'));
+  if (!Array.isArray(rows)) throw new Error('NORIA_RETAIL_MEDIA_HISTORY_UNAVAILABLE');
+  return retailMediaSentItemIds(rows, sessionId);
+}
+
+async function runRetailTurnPrepare(context, pipeline, history, event, control) {
+  const identity = pipelineIdentity(context);
+  const settings = settingsFor(context);
+  if (normalized === '/reset' || normalized === 'reset') {
+    if (!await commit()) return servicesTerminal({ ok: true, skipped: true }, pipeline);
+    event.ai_provider = 'conversation_reset'; event.service = 'conversation_closed'; event.stage = 'Reset';
+    await saveEvent(event);
+    const sent = await sendChannelMessage(context, 'Conversa reiniciada. Pode mandar sua próxima mensagem.', event);
+    await complete('done'); return servicesTerminal({ ok: true, ...sent }, pipeline);
+  }
+  if (settings.ai_enabled !== true || control.lockedByHuman) {
+    if (!await commit()) return servicesTerminal({ ok: true, skipped: true }, pipeline);
+    Object.assign(event, { handoff: control.lockedByHuman === true, stage: control.lockEvent?.stage || 'Atendimento humano',
+      service: control.lockEvent?.service || 'atendimento_humano', ai_provider: control.lockedByHuman ? 'human_lock' : 'retail_ai_disabled' });
+    await saveEvent(event); await complete('done');
+    return servicesTerminal({ ok: true, skipped: true, human_lock: control.lockedByHuman === true }, pipeline);
+  }
+  await transcribeTurnAudio(context);
+  const gate = usageGate(context);
+  if (!gate.allowed) {
+    if (!await commit()) return servicesTerminal({ ok: true, skipped: true }, pipeline);
+    Object.assign(event, { ai_provider: 'fallback_daily_limit', handoff: true, stage: 'Atendimento humano', ai_error: sessionUsageDiagnostic(gate).reason });
+    event.raw_payload = { ...(event.raw_payload || {}), ai_availability: sessionUsageDiagnostic(gate) };
+    await saveEvent(event);
+    const sent = await sendChannelMessage(context, sessionHandoffMessage(context), event);
+    await complete('done'); return servicesTerminal({ ok: true, handoff: true, ...sent }, pipeline);
+  }
+  const limit = Number.isInteger(settings.retail_policy?.candidate_limit) ? settings.retail_policy.candidate_limit : RETAIL_DEFAULT_CANDIDATES;
+  const candidates = retailCandidates(await supabaseGet('/rest/v1/' + retailCandidatePath(context.tenant.id, limit)), context.tenant.id, limit);
+  const mediaSent = await retailLoadMediaSent(context, identity.session_id);
+  const currentIds = new Set(turn.messages.map(item => item.event_id));
+  const sessionEvidence = history.filter(row => row.direction === 'inbound' && row.sender_type === 'contact' && row.ai_provider !== 'buffer' && !currentIds.has(row.id))
+    .slice(-60).map(row => ({ id: row.id, text: audioHistoryText(row), direction: 'inbound', sender_type: 'contact', session_id: identity.session_id, received_at: row.created_at })).filter(row => row.text);
+  let semantic = null, semanticFailure = '', model = null, usage = {};
+  try {
+    // Interpretação neutra (sem persona): o modelo descreve o que o cliente disse, com evidências; não decide nada comercial.
+    const generated = await servicesGeminiJson(context, 'retail_semantic_intent', {
+      current_message_ids: [...currentIds],
+      customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session' })),
+        ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current' }))],
+      assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
+      catalog: candidates.items, catalog_complete: candidates.complete, session_id: identity.session_id,
+    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)), RETAIL_SEMANTIC_RULES, { persona: false });
+    semantic = generated.value && typeof generated.value === 'object' ? { ...generated.value, contract: pipeline.semantic_contract } : null;
+    model = generated.model; usage = generated.usage;
+  } catch (error) { semanticFailure = String(error?.message || error).slice(0, 120); }
+  return {
+    contract: 'noria_intermediate_retail_turn_v1', noria_phase: 'commercial_decision', operation: 'commercial.decide',
+    tenant_id: identity.tenant_id, tenant_slug: tenantSlug, instance: identity.instance, remoteJid: chatId,
+    noria_extension: inputJson.noria_extension, noria_contract_version: pipeline.contract_version,
+    noria_client_policy: tenantBusinessRules, noria_business_context: inputJson.noria_business_context,
+    session_id: identity.session_id, request_id: identity.request_id, turn_token: identity.turn_token,
+    noria_preclaimed_turn: turn, turn, semantic_intent: semantic, semantic_failure: semanticFailure || null, semantic_model: model, semantic_usage: usage,
+    session_evidence: sessionEvidence,
+    retail_context: { media_sent_item_ids: mediaSent, catalog_complete: candidates.complete, catalog_size: candidates.items.length },
+  };
+}
+
+// Itens citados pela decisão, relidos do tenant: só ativos, ofertáveis e com preço aprovado viram fato para a redação.
+async function retailLoadItems(context, ids) {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (!wanted.length) return [];
+  const rows = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
+    'select=id,tenant_id,name,description,price_cents,currency,sale_unit,width_mm,material_class,site_url,offerable,active,price_status'
+    + '&id=in.(' + wanted.map(encodeFilter).join(',') + ')&limit=10'));
+  if (!Array.isArray(rows)) throw new Error('NORIA_RETAIL_ITEMS_UNAVAILABLE');
+  return rows.filter(row => row.tenant_id === context.tenant.id && row.active === true && row.offerable === true && row.price_status === 'aprovado');
+}
+
+function retailFormatPrice(cents) {
+  return 'R$ ' + (Number(cents) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Auditoria determinística da redação: só preços dos itens autorizados; nenhum link ou telefone gerado pelo modelo.
+function retailAuditReply(reply, items) {
+  const failures = [];
+  const text = String(reply || '');
+  if (!text.trim()) failures.push('EMPTY_REPLY');
+  const allowedPrices = new Set(items.map(item => Number(item.price_cents)));
+  for (const match of text.matchAll(/R\$\s*([\d.]+(?:,\d{1,2})?)/g)) {
+    const cents = Math.round(Number(match[1].replace(/\./g, '').replace(',', '.')) * 100);
+    if (!allowedPrices.has(cents)) failures.push('PRICE_NOT_AUTHORIZED');
+  }
+  if (/https?:\/\/|www\./i.test(text)) failures.push('URL_NOT_ALLOWED');
+  if (/\d[\d\s().-]{8,}\d/.test(text.replace(/R\$\s*[\d.,]+/g, ''))) failures.push('PHONE_NOT_ALLOWED');
+  return [...new Set(failures)];
+}
+
+async function retailComposeReply(context, { decision, allowed, items, media, siteLinkItem, customerLine, handoff, history, revisionNote = '' }) {
+  const str = { type: 'STRING' };
+  const facts = items.filter(item => allowed.present_item_ids.includes(item.id)).map(item => ({
+    item_id: item.id, name: item.name, description: item.description || '', price: retailFormatPrice(item.price_cents), sale_unit: item.sale_unit,
+    width_mm: item.width_mm === null ? null : Number(item.width_mm) }));
+  const generated = await servicesGeminiJson(context, 'retail_compose_reply', {
+    customer_messages: turn.messages.map(item => ({ id: item.event_id, text: item.text })),
+    opening: !servicesHasRecentBusiness(history),
+    recent_conversation: history.filter(row => row.message_text && row.ai_provider !== 'buffer').slice(-10).map(row => ({ from: row.direction === 'inbound' ? 'customer' : 'business', text: audioHistoryText(row) })),
+    product_facts: facts,
+    photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null } : null,
+    site_link_will_be_appended: Boolean(siteLinkItem), specialist_line_will_be_appended: Boolean(customerLine), team_handoff: Boolean(handoff),
+    reason_codes: decision.reason_codes || [],
+    business_hours: ((hours) => ({ configured: hours.configured, is_open: hours.is_open }))(tenantBusinessHoursStatus(context)),
+  }, { type: 'OBJECT', properties: { reply: str }, required: ['reply'] }, [
+    'Tarefa: redigir a resposta ao cliente em português do Brasil, no tom do negócio definido acima, coerente com recent_conversation.',
+    'Preços só os de product_facts, escritos exatamente como em price. Não cite preço, desconto, parcela, prazo ou condição que não esteja nas instruções do negócio ou em product_facts.',
+    'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro.',
+    'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
+    'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
+    'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa.',
+    'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa. Se contiver HOME_VISIT_LOCALITY_MISSING, pergunte a cidade ou bairro.',
+    'Se opening=false, não abra com saudação. Mensagens curtas, sem inventar fatos.',
+    ...(revisionNote ? [revisionNote] : []),
+  ]);
+  return { reply: cleanReplyText(String(generated.value?.reply || '')), model: generated.model, usage: generated.usage };
+}
+
+// Envio de uma reserva ou registro em channel_events; inserção única (o índice de external_message_id impede repetição).
+async function retailInsertEvent(row) {
+  const saved = await supabasePost('/rest/v1/channel_events', row);
+  const stored = Array.isArray(saved) ? saved[0] : saved;
+  if (!stored?.id) throw new Error('NORIA_RETAIL_EVENT_NOT_PERSISTED');
+  return stored;
+}
+
+// Após a entrega do texto: nova checagem de concorrência antes de cada efeito externo (Assumir, troca de lote, perda do lease).
+async function retailCanContinue(context) {
+  const queue = await turnQueueState();
+  if (queue?.token !== turn.token || !Number.isFinite(Date.parse(queue?.lease_until || '')) || Date.parse(queue.lease_until) <= Date.now()) return false;
+  const human = await supabaseGet(retailTenantPath('channel_events', context.tenant.id,
+    'select=id&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId)
+    + '&created_at=gt.' + encodeFilter(new Date(workflowStartedAtMs).toISOString())
+    + '&or=(service.eq.conversation_assigned,sender_type.eq.human)&limit=1'));
+  return Array.isArray(human) && human.length === 0;
+}
+
+function retailEvolution() {
+  const suffix = tenantEnvSuffix(tenantSlug);
+  const base = env('EVOLUTION_API_URL_' + suffix).replace(/\/$/, '');
+  const key = env('EVOLUTION_API_KEY_' + suffix);
+  const instance = env('EVOLUTION_INSTANCE_' + suffix);
+  if (!base || !key || instance !== inputJson.instance) throw new Error('Tenant Evolution credentials unavailable or mismatched');
+  return { base, key, instance };
+}
+
+async function retailSendProductMedia(context, identity, allowedMedia) {
+  const result = { status: 'not_sent', sent: 0, skipped: [] };
+  const items = await supabaseGet(retailTenantPath('product_catalog_items', context.tenant.id,
+    'select=id,tenant_id,active,offerable&id=eq.' + encodeFilter(allowedMedia.item_id) + '&limit=1'));
+  const assetFilter = 'in.(' + allowedMedia.asset_ids.map(encodeFilter).join(',') + ')';
+  const links = await supabaseGet(retailTenantPath('product_catalog_item_images', context.tenant.id,
+    'select=tenant_id,item_id,asset_id,display_order,review_status,shared_note&item_id=eq.' + encodeFilter(allowedMedia.item_id) + '&asset_id=' + assetFilter));
+  const assets = await supabaseGet(retailTenantPath('product_catalog_assets', context.tenant.id,
+    'select=id,tenant_id,storage_bucket,storage_path,public_url,sha256,mime_type&id=' + assetFilter));
+  const plan = retailMediaPlan({ tenantId: context.tenant.id, storageOrigin: salesMediaHttpsLocation(env('SUPABASE_URL'))?.origin,
+    authorized: allowedMedia, item: Array.isArray(items) ? items[0] : null, links, assets });
+  result.skipped = plan.skipped;
+  if (!plan.send.length) return result;
+  const evolution = retailEvolution();
+  for (const [index, entry] of plan.send.entries()) {
+    if (!await retailCanContinue(context)) { result.status = 'stopped_control_changed'; break; }
+    const key = 'retail_photo_' + identity.turn_token + '_' + (index + 1);
+    // Reserva antes do provedor: se já existir (reprocessamento), nada é reenviado.
+    let reservation;
+    try {
+      reservation = await retailInsertEvent({ tenant_id: context.tenant.id, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
+        external_message_id: key + '_attempt', direction: 'outbound', sender_type: 'system', message_text: '', service: RETAIL_PHOTO_SERVICE + '_attempt',
+        handoff: false, ai_provider: 'retail_product_photo', delivery_status: 'internal',
+        raw_payload: { status: 'reserved', item_id: allowedMedia.item_id, asset_id: entry.asset_id, conversation_session_id: identity.session_id, requires_reconciliation: true } });
+    } catch (_) { result.status = 'reservation_failed'; break; }
+    let response = null, error = null;
+    try {
+      response = await httpJson('POST', evolution.base + '/message/sendMedia/' + encodeFilter(evolution.instance),
+        { apikey: evolution.key, 'Content-Type': 'application/json' },
+        { number: chatId, mediatype: 'image', mimetype: entry.mime_type, media: entry.url, caption: '', fileName: entry.file_name });
+    } catch (caught) { error = caught; }
+    const outcome = retailProviderOutcome(response, error);
+    try {
+      await retailInsertEvent({ tenant_id: context.tenant.id, tenant_slug: tenantSlug, channel_type: 'whatsapp', external_conversation_id: chatId,
+        external_message_id: outcome.provider_message_id || key + '_' + outcome.status, direction: 'outbound', sender_type: 'assistant', message_text: '',
+        service: RETAIL_PHOTO_SERVICE, handoff: false, ai_provider: 'retail_product_photo', delivery_status: outcome.status === 'sent' ? 'sent' : 'internal',
+        raw_payload: { content_type: 'image', status: outcome.status, code: outcome.code || null, item_id: allowedMedia.item_id, asset_id: entry.asset_id,
+          sha256: entry.sha256, reservation_event_id: reservation.id, conversation_session_id: identity.session_id, requires_reconciliation: outcome.status === 'unknown',
+          media: { kind: 'image', category: 'image', origin: 'assistant', url: entry.url, mimeType: entry.mime_type, fileName: entry.file_name, caption: '' } } });
+    } catch (_) { /* a reserva fica como prova; a reconciliação usa o provider_message_id do log do provedor */ }
+    if (outcome.status !== 'sent') { result.status = 'stopped_' + outcome.status; break; }
+    result.sent++;
+    result.status = 'sent';
+  }
+  return result;
+}
+
+async function retailNoticeAlreadyReserved(context, key) {
+  const rows = await supabaseGet(retailTenantPath('channel_events', context.tenant.id,
+    'select=id&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId) + '&external_message_id=eq.' + encodeFilter(key) + '&limit=1'));
+  if (!Array.isArray(rows)) throw new Error('NORIA_RETAIL_NOTICE_STATE_UNAVAILABLE');
+  return rows.length > 0;
+}
+
+async function retailSendSpecialistNotice(context, identity, notify, recipient, { items, sessionEvidence }) {
+  const args = { tenantId: context.tenant.id, tenantSlug, chatId, sessionId: identity.session_id, requestId: identity.request_id, reason: notify.reason };
+  let reservation;
+  try { reservation = await retailInsertEvent(retailNoticeReservation({ ...args, reasons: notify.reasons, materials: notify.materials })); }
+  catch (_) { return { status: 'not_reserved' }; }
+  const settings = settingsFor(context);
+  const text = retailSpecialistMessage({ reasons: notify.reasons, materials: notify.materials,
+    leadName: turn.messages.at(-1)?.name || firstName || '', leadPhone: retailLeadPhone(chatId),
+    items: items.map(item => ({ name: item.name, price_cents: Number(item.price_cents), sale_unit: item.sale_unit })),
+    customerQuotes: [...(sessionEvidence || []).map(row => row.text), ...turn.messages.map(item => item.text)].filter(Boolean),
+    template: settings.specialist_notification?.template });
+  let response = null, error = null;
+  try {
+    if (!await retailCanContinue(context)) return { status: 'stopped_control_changed', reservation_event_id: reservation.id };
+    const evolution = retailEvolution();
+    response = await httpJson('POST', evolution.base + '/message/sendText/' + encodeFilter(evolution.instance),
+      { apikey: evolution.key, 'Content-Type': 'application/json' }, { number: recipient.number, text });
+  } catch (caught) { error = caught; }
+  const outcome = retailProviderOutcome(response, error);
+  try { await retailInsertEvent(retailNoticeOutcome({ ...args, reservationId: reservation.id, outcome })); } catch (_) { /* reserva permanece para reconciliação */ }
+  return { status: outcome.status, code: outcome.code || null, reservation_event_id: reservation.id };
+}
+
+async function runRetailTurnFinalize(context, pipeline, history, event, control) {
+  const identity = pipelineIdentity(context);
+  // 1. Autorização antes de qualquer efeito.
+  const decision = retailVerifiedDecision(inputJson.commercial_decision, inputJson.commercial_decision_status, pipeline, identity);
+  const allowed = retailAuthorized(decision);
+  if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
+  const settings = settingsFor(context);
+  const execution = { media: { status: 'not_requested' }, notice: { status: 'not_requested' }, handoff: { executed: false } };
+  let items = [], text = '', composed = null, audit = [], compositionError = null, customerLine = null, recipient = null, alreadyNotified = false;
+  try {
+    if (decision.status !== 'ok') throw new Error('RETAIL_DECISION_REFUSED');
+    items = await retailLoadItems(context, [...allowed.present_item_ids, allowed.media?.item_id, allowed.site_link?.item_id]);
+    // 2. Aviso ao especialista: estado prévio decide se a frase ao cliente entra (um aviso por sessão e motivo).
+    if (allowed.notify) {
+      recipient = retailSpecialistRecipient(settings, chatId);
+      if (!recipient.ok) execution.notice = { status: 'not_configured', code: recipient.code };
+      else {
+        alreadyNotified = await retailNoticeAlreadyReserved(context, retailSpecialistNoticeKey(identity.session_id, allowed.notify.reason));
+        execution.notice = { status: alreadyNotified ? 'already_notified' : 'pending' };
+        customerLine = retailSpecialistCustomerLine(allowed, { status: alreadyNotified ? 'already_reserved' : 'reserved_now' });
+      }
+    }
+    const siteLinkItem = allowed.site_link ? items.find(item => item.id === allowed.site_link.item_id && /^https:\/\/[^/\s]+\/\S*$/.test(item.site_url || '')) : null;
+    const mediaPreview = allowed.media ? { send: allowed.media.asset_ids.map(() => ({})) } : null;
+    // 3. Redação auditada (uma revisão); falhando, contingência neutra com handoff, como no services_v1.
+    const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
+      media: mediaPreview, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
+    composed = await compose('');
+    audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)));
+    if (audit.length) {
+      composed = await compose('Revise: a versão anterior falhou na conferência (' + audit.join(', ') + '). Corrija sem esses problemas.');
+      audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)));
+      if (audit.length) throw new Error('RETAIL_AUDIT_FAILED:' + audit.join(','));
+    }
+    text = [composed.reply, siteLinkItem ? siteLinkItem.site_url : '', customerLine || ''].filter(Boolean).join('\n\n');
+  } catch (error) {
+    compositionError = String(error?.message || error).slice(0, 200);
+    text = sessionHandoffMessage(context); composed = null; customerLine = null;
+    execution.handoff.executed = true;
+  }
+  if (allowed.handoff || execution.handoff.executed) {
+    execution.handoff.executed = true;
+    Object.assign(event, { handoff: true, stage: 'Atendimento humano', service: 'atendimento_humano' });
+  }
+  event.ai_provider = composed ? 'retail_pipeline' : 'retail_contingency';
+  event.ai_model = composed?.model || null; event.ai_usage = composed?.usage || {};
+  if (compositionError) event.ai_error = compositionError;
+  event.raw_payload = { ...(event.raw_payload || {}), retail_pipeline: {
+    contract: pipeline.contract, decision_contract: decision.contract, decision_provenance: decision.provenance, decision_status: decision.status,
+    request_id: identity.request_id, session_id: identity.session_id, turn_token: identity.turn_token,
+    reason_codes: decision.reason_codes || [], evidence_used: decision.evidence_used || [], audit, composition_error: compositionError,
+    authorized: { present_item_ids: allowed.present_item_ids, media: allowed.media, site_link: allowed.site_link,
+      notify: allowed.notify ? { reason: allowed.notify.reason, reasons: allowed.notify.reasons } : null, handoff: allowed.handoff } } };
+  // 4. Entrega ao lead pelo ciclo existente (begin -> provedor -> confirm). Cancelada (Assumir, novo lote) = nenhum efeito extra.
+  await saveEvent(event);
+  const sent = await sendChannelMessage(context, text, event);
+  if (!sent.cancelled && !compositionError) {
+    if (allowed.media && !execution.handoff.executed) {
+      try { execution.media = await retailSendProductMedia(context, identity, allowed.media); }
+      catch (error) { execution.media = { status: 'failed', code: String(error?.message || error).slice(0, 120) }; }
+    }
+    if (allowed.notify && recipient?.ok && !alreadyNotified) {
+      try { execution.notice = await retailSendSpecialistNotice(context, identity, allowed.notify, recipient, { items, sessionEvidence: inputJson.session_evidence }); }
+      catch (error) { execution.notice = { status: 'failed', code: String(error?.message || error).slice(0, 120) }; }
+    }
+  }
+  await complete('done');
+  return { ok: true, ...sent, retail_execution: execution };
 }
 
 function sessionHandoffMessage(context = {}) {
@@ -15636,6 +15957,12 @@ async function runTurn() {
   // legacy single-pass path below runs exactly as before. No silent fallback between the two once it is enabled.
   const turnPipeline = phasedPipeline;
   if (turnPipeline) {
+    // Venda consultiva (retail_v1): fases próprias; não há verificação de disponibilidade. services_v1 segue abaixo, intacto.
+    if (turnPipeline.capability === 'retail_v1') {
+      if (noriaPhase === 'prepare') return runRetailTurnPrepare(context, turnPipeline, history, event, control);
+      if (noriaPhase === 'finalize') return runRetailTurnFinalize(context, turnPipeline, history, event, control);
+      throw new Error('NORIA_RETAIL_PIPELINE_PHASE_INVALID');
+    }
     if (noriaPhase === 'prepare') return runServicesTurnPrepare(context, turnPipeline, history, event, control);
     if (noriaPhase === 'availability') return runServicesAvailability(context, turnPipeline, history);
     if (noriaPhase === 'finalize') return runServicesTurnFinalize(context, turnPipeline, history, event, control);
