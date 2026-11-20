@@ -83,9 +83,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_19',
-  built_at: '2026-11-19T18:08:36.431Z',
-  core_sha256: '4e37d1ce38f05cdfdc398c6c59ee78c52c37b008f3854ff655fd52973a75ba2c',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
+  built_at: '2026-11-20T09:16:40.499Z',
+  core_sha256: '5ffca43b5dc00c3a8f43e7c1d261ae94ee37b0bf6100542f610aa4f711aaff07',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -3206,8 +3206,6 @@ REGRAS OPERACIONAIS CURTAS
 - Exemplos de abertura que podem significar saudação/conversa casual: "coé", "coe", "fala tu", "salve", "qual a boa", "e aí", "opa", "oieee", "fala comigo". Responda naturalmente de acordo com o contexto, sem corrigir a pessoa.
 ${settings.conversation_style_instructions || settings.tone || ""}
 - IMPORTANTE: animação muda apenas a forma de falar. Nunca invente benefício, resultado, garantia, efeito, duração, tecnologia, conforto ou vantagem não presente no catálogo.
-- Se o catálogo disser apenas "hidratação da pele", NÃO transforme isso em "hidratação profunda", "pele super macia" ou outras promessas.
-- Se o catálogo disser apenas "máquina dupla", NÃO invente "tecnologia avançada", "tom mais intenso" ou benefício adicional.
 - Quando houver match fuzzy do catálogo, entenda que o cliente provavelmente quis dizer o serviço recuperado. Não corrija a ortografia do cliente e não peça para ele repetir o nome se o match estiver claro.
 - Se o catálogo recuperado trouxer descrição, preço ou observação do serviço perguntado, responda usando esses dados; não diga que precisa confirmar com a equipe.
 - Mesmo em perguntas objetivas, evite respostas secas como "O serviço custa X". Prefira uma construção curta com personalidade, mas use somente características realmente presentes no catálogo.

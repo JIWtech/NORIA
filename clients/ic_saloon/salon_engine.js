@@ -362,15 +362,23 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     };
   }
 
-  // Feriado cadastrado (business_hours.holiday_dates): vale o horário de feriado (business_hours.holiday) no lugar do dia da semana.
-  // Mesma regra do CORE compartilhado (n8n/sources/noria_core.js).
-  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(referenceDate);
-  const holidayHours = rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
-    && rawBh.holiday_dates.map(String).includes(localDate)
-    ? (rawBh.holiday.closed === true ? { closed: true }
-      : rawBh.holiday.start && rawBh.holiday.end ? { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() } : null)
-    : null;
-  const todayHours = holidayHours || resolveTenantDayHours(rawBh, dayKey);
+  // Feriado cadastrado: business_hours.holiday_dates (YYYY-MM-DD, com horário próprio ou fechado) ou business_hours.holidays (MM-DD, dia fechado).
+  // Uma exceção com data completa prevalece sobre o fechamento anual da mesma data.
+  const hoursForDate = (dateObj, dayName) => {
+    const isoDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateObj);
+    if (rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
+        && rawBh.holiday_dates.map(String).includes(isoDate)) {
+      if (rawBh.holiday.closed === true) return { closed: true };
+      if (rawBh.holiday.start && rawBh.holiday.end) {
+        return { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() };
+      }
+    }
+    if (Array.isArray(rawBh.holidays) && rawBh.holidays.map(String).includes(isoDate.slice(5))) {
+      return { closed: true };
+    }
+    return resolveTenantDayHours(rawBh, dayName);
+  };
+  const todayHours = hoursForDate(referenceDate, dayKey);
   let isOpen = false;
   if (todayHours?.is_24h) {
     isOpen = true;
@@ -409,7 +417,8 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
       for (let offset = 1; offset <= 7; offset++) {
         const nextIdx = (currentDayIdx + offset) % 7;
         const nextDayKey = daysOrder[nextIdx];
-        const nextDayH = resolveTenantDayHours(rawBh, nextDayKey);
+        const nextDate = new Date(referenceDate.getTime() + offset * 86400000);
+        const nextDayH = hoursForDate(nextDate, nextDayKey);
         if (nextDayH && !nextDayH.closed && nextDayH.start) {
           const label = offset === 1 ? 'amanhã' : dayLabels[nextDayKey];
           nextOpening = {
@@ -439,12 +448,6 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
 // Pedido para dia fechado ou horário fora do funcionamento configurado do tenant não é gravado. Sem configuração ou sem
 // regra conhecida para o dia, não bloqueia (a equipe confirma o pedido pendente).
 function appointmentOutsideBusinessHours(context, startsAt) {
-  // Feriados do cadastro (business_hours.holidays, no formato MM-DD) contam como dia fechado.
-  const holidays = settingsFor(context).business_hours?.holidays;
-  if (Array.isArray(holidays) && holidays.length) {
-    const monthDay = new Intl.DateTimeFormat('en-CA', { timeZone: tenantTimeZone(context), month: '2-digit', day: '2-digit' }).format(new Date(startsAt));
-    if (holidays.map(String).includes(monthDay)) return true;
-  }
   const status = tenantBusinessHoursStatus(context, new Date(startsAt));
   const day = status?.configured ? status.day_hours : null;
   if (!day || day.is_24h) return false;
@@ -2828,7 +2831,7 @@ AGENDAMENTOS CONHECIDOS PELO SISTEMA
 ${appointmentContext}
 
 REGRAS OPERACIONAIS CURTAS
-- O system_prompt acima continua sendo a fonte de verdade para personalidade, gênero, menores, descontos, agendamento, reclamações, emojis e handoff.
+- O system_prompt acima define a personalidade, as regras comerciais, agendamento, handoff e as informações obrigatórias para cada tipo de pergunta.
 - O catálogo recuperado nesta execução é a fonte de verdade para serviços, preços, descrições, categorias e observações comerciais.
 - Use todo o histórico enviado abaixo e não repita informações já fornecidas.
 - O nome em pessoa_atendida de um agendamento é da beneficiária daquele serviço, nunca prova do nome de quem escreve. Não use esse nome como vocativo sem confirmação de que é a própria pessoa. Se um novo serviço não disser para quem é e houver pedido anterior para outra pessoa, pergunte se é para ela novamente ou para outra pessoa antes de pedir dia e horário. Uma correção explícita do destinatário prevalece; não altere o pedido anterior sem confirmação.
@@ -2844,10 +2847,8 @@ REGRAS OPERACIONAIS CURTAS
 - Exemplos de abertura que podem significar saudação/conversa casual: "coé", "coe", "fala tu", "salve", "qual a boa", "e aí", "opa", "oieee", "fala comigo". Responda naturalmente de acordo com o contexto, sem corrigir a pessoa.
 ${settings.conversation_style_instructions || settings.tone || ""}
 - IMPORTANTE: animação muda apenas a forma de falar. Nunca invente benefício, resultado, garantia, efeito, duração, tecnologia, conforto ou vantagem não presente no catálogo.
-- Se o catálogo disser apenas "hidratação da pele", NÃO transforme isso em "hidratação profunda", "pele super macia" ou outras promessas.
-- Se o catálogo disser apenas "máquina dupla", NÃO invente "tecnologia avançada", "tom mais intenso" ou benefício adicional.
 - Quando houver match fuzzy do catálogo, entenda que o cliente provavelmente quis dizer o serviço recuperado. Não corrija a ortografia do cliente e não peça para ele repetir o nome se o match estiver claro.
-- Se o catálogo recuperado trouxer descrição ou observação do serviço perguntado, responda usando esses dados. Só informe o preço oficial quando a pessoa pedir valor ou orçamento; interesse em fazer ou marcar o serviço não é pedido de preço.
+- Use o catálogo para fatos do serviço e siga as exigências do system_prompt para compor a resposta, inclusive etapas obrigatórias que o catálogo não repete. Só informe o preço oficial quando a pessoa pedir valor ou orçamento; interesse em fazer ou marcar o serviço não é pedido de preço.
 - Quando a pessoa disser que quer fazer um serviço, conduza ao próximo dado do pedido ou à avaliação necessária com uma pergunta curta. Não divulgue preço nem duração sem pedido.
 - Mesmo em perguntas objetivas, evite respostas secas como "O serviço custa X". Prefira uma construção curta com personalidade, mas use somente características realmente presentes no catálogo.
 - Durante agendamento, conduza a conversa ate registrar o agendamento no sistema, sem chamar humano apenas para conferir agenda.

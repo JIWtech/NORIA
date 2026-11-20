@@ -90,6 +90,8 @@ test('v12 elimina o contrato antigo e o desconto/percentual inventado', () => {
   assert.match(V12, /Desconto de amiga[^\n]*equipe humana/);
   assert.match(V12, /Acompanhante que não fará procedimento não pode ficar/);
   assert.match(V12, /Cliente e amiga podem agendar juntas/);
+  assert.match(V12, /hidratação da pele/);
+  assert.match(V12, /máquina dupla/);
 });
 
 test('não aplica sobre outra revisão nem sobre outro tenant', async () => {

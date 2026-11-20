@@ -1167,3 +1167,29 @@ test('pediu a lista de serviços e a IA escreveu a lista ela mesma: vira abertur
   const withPrice = await run({ draft: 'Olha só:', currentText: 'Quais serviços e quanto custam?', verdict: { ...verdict, price_request_quote: 'quanto custam' } });
   assert.equal(withPrice.text, 'Olha só: [CATALOGO_COMPLETO_COM_PRECOS]');
 });
+
+test('dia fechado tem prioridade sobre rejeição geral e usa o texto do salão sem chamada extra', async () => {
+  const closedText = 'Nesse dia o salão não abre. Qual outro dia fica bom para você?';
+  const result = await run({
+    draft: 'Qual nome para o seu corte na segunda?',
+    currentText: 'Quero marcar corte segunda às 14h',
+    verdict: { ...okVerdict, allowed: false, fact_mismatch: true, closed_day: true },
+    settings: { appointment_request: { closed_day_template: closedText } },
+  });
+  assert.equal(result.text, closedText);
+  assert.equal(result.diagnostics.adapter_outcome, 'closed_day_template');
+  assert.deepEqual(result.diagnostics.adapter_trail, ['closed_day']);
+  assert.equal(result.generations.length, 1);
+});
+
+test('sinal por falta anterior chega ao modelo sem a chave Pix e o titular do cadastro', async () => {
+  const result = await run({
+    draft: 'Para reagendar, o sinal é de metade do valor via Pix. Você concorda?',
+    verdict: okVerdict,
+    appointments: [past('missed', 'no_show', '2026-01-01T13:00:00Z')],
+    settings: { payment: { pix_key: 'sentinela@example.invalid', pix_holder: 'Titular Sentinela' } },
+  });
+  const system = result.generations[0].map(part => part.text).join(' ');
+  assert.match(system, /sinal de 50% via Pix/);
+  assert.doesNotMatch(system, /sentinela@example\.invalid|Titular Sentinela/);
+});

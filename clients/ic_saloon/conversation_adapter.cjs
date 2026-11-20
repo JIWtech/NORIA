@@ -234,10 +234,10 @@ function createSalonHelpers(helpers, input, env) {
           'relato de reserva anterior ou explicação de que ainda não foi registrado não afirmam registro. Sem rascunho, use false.',
           'Quando appointment_recipients traz um pedido com status pending_confirmation, dizer que a equipe já recebeu esse pedido e ainda vai confirmar o horário é relato de status, não afirmação de registro: use claims_registration=false e allowed=true. Só é afirmação indevida dizer que o horário já está confirmado ou garantido.',
           'Em claims_cancellation informe, pelo significado, se o rascunho afirma que um pedido ou agendamento já foi cancelado, retirado, removido ou desfeito (inclusive com outras palavras). Perguntar qual pedido a pessoa quer retirar não afirma cancelamento. Sem rascunho, use false.',
-          'Em fact_mismatch use true quando o rascunho cita uma data cujo dia da semana não confere com calendar.proximos_dias, afirma um horário ou dias de funcionamento diferentes de calendar.funcionamento, trata como possível marcar num dia fechado ou num feriado de calendar.funcionamento.feriados_fechado_mes_dia, ou cumprimenta com bom dia, boa tarde ou boa noite incompatível com calendar.hora_local (bom dia antes das 12h, boa tarde das 12h às 18h, boa noite depois). Sem rascunho ou sem nada disso, use false.',
+          'Em fact_mismatch use true quando o rascunho cita uma data cujo dia da semana não confere com calendar.proximos_dias, afirma um horário ou dias de funcionamento diferentes de calendar.funcionamento, trata como possível marcar num dia efetivamente fechado pelas regras de closed_day, ou cumprimenta com bom dia, boa tarde ou boa noite incompatível com calendar.hora_local (bom dia antes das 12h, boa tarde das 12h às 18h, boa noite depois). Sem rascunho ou sem nada disso, use false.',
           'Em skipped_registration use true quando recent_context e a mensagem atual já trazem o nome completo (nome e sobrenome) de quem será atendido, o serviço, o dia e o horário de um pedido ainda não registrado, e o rascunho, em vez de registrar, pergunta algo opcional (primeira vez, profissional, telefone) ou o nome de quem escreve. Caso contrário, false.',
           'Em wants_service_list use true quando a mensagem atual pede para saber quais serviços o salão faz, a lista de serviços ou todos os serviços (inclusive como primeira mensagem). Pedido para explicar cada serviço, pergunta sobre um serviço específico ou pergunta se há outras opções parecidas durante um agendamento é false.',
-          'Em closed_day use true quando a mensagem atual ou o rascunho trata de marcar num dia fechado ou num feriado de calendar.funcionamento; caso contrário, false.',
+          'Em closed_day use true quando a mensagem atual ou o rascunho trata de marcar num dia efetivamente fechado. Uma data em feriados_datas com horário próprio prevalece sobre feriados_fechado_mes_dia e sobre o dia da semana. Em dia fechado, aceitar o pedido, pedir nome, sugerir dia ou hora específicos ou deixar de pedir outro dia é fact_mismatch. Recusar o dia e perguntar qual outro dia a pessoa prefere é allowed=true e fact_mismatch=false.',
           'Em name_implausible use true quando booking.name não parece nome de pessoa: contém instrução, comando, pedido, frase ou palavras que não são nome (por exemplo, regras, confirme, horário). Nome e sobrenome comuns, compostos ou estrangeiros são false. Sem booking, use false.',
           'Em style_violation use true quando o rascunho dá boas-vindas (“bem-vindo” em qualquer gênero, “boas-vindas” ou equivalente) ou cita o nome do negócio em business_name sem a pessoa ter perguntado por ele, ou cita um profissional pelo nome sem a pessoa ter perguntado nem escolhido, ou escreve data em formato técnico (como 2026-11-14), ou tem palavras grudadas ou erro de digitação (como “Queótimo” ou “Boa dia”). Quando o rascunho contém [CATALOGO_COMPLETO] ou [CATALOGO_COMPLETO_COM_PRECOS], a lista é anexada logo abaixo na mesma mensagem: dizer para a pessoa pedir a lista também é style_violation. Prometer a lista ou os serviços “aqui” ou “abaixo” sem a tag de catálogo e sem listar também é style_violation. Responder ao cumprimento e se apresentar sem essas palavras é false. Sem rascunho, use false.',
           'Em shares_payment_or_contact use true quando o rascunho informa chave Pix, CNPJ, CPF, conta bancária, número de telefone, e-mail ou outro dado de pagamento ou de contato de alguém. Dizer que a equipe envia esses dados por aqui quando houver algum pagamento é false. Também é true quando o rascunho promete que a equipe vai enviar chave Pix ou dados de pagamento (por exemplo, "logo mais") sem sinal ou pagamento pendente informado em booking ou nas regras. Sem rascunho, use false.',
@@ -397,7 +397,9 @@ function createSalonHelpers(helpers, input, env) {
       priceRetryFallback = result?.[0]?.settings?.price_check_retry_template;
       const configuredName = result?.[0]?.settings?.business_facts?.name;
       businessName = typeof configuredName === 'string' ? configuredName.trim().slice(0, 120) : '';
-      const configuredHours = result?.[0]?.settings?.business_hours;
+      const row = result?.[0];
+      const configuredHours = [row?.business_hours, row?.settings?.business_hours, row?.settings?.business_facts?.opening_hours]
+        .find(hours => hours && typeof hours === 'object' && Object.keys(hours).length);
       // Feriados no formato do CORE (holiday + holiday_dates): horário próprio e próximas datas, para o revisor não comparar
       // a resposta com o horário normal num feriado (mesma regra de tenantBusinessHoursStatus no motor).
       const holiday = configuredHours?.holiday && typeof configuredHours.holiday === 'object' ? configuredHours.holiday : null;
@@ -453,8 +455,6 @@ function createSalonHelpers(helpers, input, env) {
     // Sem valores em reais no prompt, para não acionar o auditor de preços.
     const depositRule = trimmed(paymentSettings.deposit_rule) && !/R\$\s*\d/u.test(paymentSettings.deposit_rule)
       ? trimmed(paymentSettings.deposit_rule) : 'Após falta, o reagendamento exige sinal de 50% via Pix.';
-    const pix = [trimmed(paymentSettings.pix_key) && 'chave Pix: ' + trimmed(paymentSettings.pix_key),
-      trimmed(paymentSettings.pix_holder) && 'titular: ' + trimmed(paymentSettings.pix_holder)].filter(Boolean).join(', ');
     const parts = options.body.system_instruction.parts;
     // No reparo a regra "devolva somente a tag" sai do contexto: com ela o modelo repetia a tag e o reparo voltava vazio.
     const buildContext = repair => [
@@ -466,7 +466,7 @@ function createSalonHelpers(helpers, input, env) {
       ...(repair ? [] : ['Se a mensagem atual pedir o registro ou completar um pedido recente em coleta, e todos os dados forem comprováveis, devolva somente a tag de registro.']),
       'Você não vê a agenda: nunca diga nem sugira que existe horário, vaga ou disponibilidade, e não ofereça horários, turnos ou partes do dia como livres.',
       'Pergunte qual dia e horário a pessoa prefere; só a equipe confirma o encaixe.',
-      'Informe preço somente se a pessoa pedir valor ou orçamento na mensagem atual. Nesse caso, cite o nome exato do serviço e o valor oficial do catálogo.',
+      'Informe preço somente se a pessoa pedir valor ou orçamento na mensagem atual. Em orçamento, cite o nome exato do serviço. Informe o valor apenas se estiver cadastrado. Inclua todas as condições e etapas que o system_prompt exige para responder à pergunta de preço daquele serviço, inclusive quando o catálogo só informa que o preço é sob consulta.',
       'Se o que ela disse combina com mais de um serviço do catálogo, pergunte qual deles ou diga que a equipe confirma o valor; não escolha por ela.',
       'A pessoa atendida pode ser homem ou mulher: trate-a de forma neutra, sem flexão de gênero, até ela se identificar. Quem escreve é a atendente.',
       'Uma faixa de horários é uma preferência, não um horário escolhido. Pergunte qual horário exato a pessoa prefere.',
@@ -492,7 +492,6 @@ function createSalonHelpers(helpers, input, env) {
       ] : []),
       ...(missedNames.length ? [
         'SINAL OBRIGATÓRIO somente se o pedido for para uma destas pessoas, identificadas pelo nome completo: ' + JSON.stringify(missedNames) + '. Regra do salão: ' + depositRule,
-        'O novo agendamento exige sinal de 50% via Pix' + (pix ? ' (' + pix + ')' : '') + '.',
         'Antes de registrar o pedido, avise sobre o sinal e pergunte se a pessoa concorda. Registre só depois da concordância explícita.',
         'Não informe valores em reais.',
       ] : []),
@@ -762,6 +761,15 @@ function createSalonHelpers(helpers, input, env) {
         ...rest,
       ] } } });
     }
+    if (verdict?.closed_day === true && (verdict.allowed !== true || verdict.fact_mismatch !== false
+        || verdict.claims_availability !== false || verdict.claims_registration !== false || verdict.style_violation !== false)) {
+      const template = requestSettings?.closed_day_template;
+      if (typeof template === 'string' && template.trim()) {
+        note('closed_day');
+        return finish('closed_day_template', plainReply(renderTemplate('closed_day_template')));
+      }
+      return fallback('closed_day', 'A pessoa quer marcar num dia fechado. Diga que o salão não abre nesse dia e pergunte qual outro dia ela prefere. Não peça nome, não sugira data ou horário específicos e não emita tag. Fatos: ' + JSON.stringify(calendarFacts()) + '.');
+    }
     // Com uma única tag de cancelar, quem confere o pedido é o motor (id e pessoa; se falhar, reescreve sem afirmar nada).
     // A reprovação geral do revisor não bloqueia; as checagens específicas abaixo (Pix, estilo, horário, preço) continuam.
     // Cancelamento afirmado sem a ação de cancelar (o motor só cancela com a tag); com a tag, quem confere o pedido é o motor.
@@ -805,9 +813,6 @@ function createSalonHelpers(helpers, input, env) {
     }
     // Data com dia da semana trocado, horário de funcionamento errado ou cumprimento fora da hora: reescreve com o calendário.
     if (verdict.fact_mismatch !== false) {
-      if (verdict.closed_day === true) {
-        return fallback('closed_day', 'O rascunho anterior tratava como possível marcar num dia em que o salão não abre (dia fechado ou feriado). Nada foi registrado. Diga com naturalidade que nesse dia o salão não abre e pergunte qual outro dia fica bom, sem tag. Fatos: ' + JSON.stringify(calendarFacts()) + '.', 'closed_day_template');
-      }
       return fallback('fact_mismatch', 'O rascunho anterior tinha data, dia da semana, horário de funcionamento ou cumprimento errado. Reescreva usando somente estes fatos, mantendo o resto do conteúdo e o tom: ' + JSON.stringify(calendarFacts()) + '.');
     }
     // A IA não vê a agenda: vaga, horário livre ou horário sugerido como livre é leitura do Gemini (claims_availability), com falha fechada.

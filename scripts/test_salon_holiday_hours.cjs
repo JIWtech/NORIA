@@ -19,7 +19,7 @@ function loadSalon(names, globals) {
 }
 
 const hours = { start: '09:00', end: '19:00', days: ['terca', 'quarta', 'quinta', 'sexta', 'sabado'], timezone: 'America/Sao_Paulo' };
-const salon = loadSalon(['tenantBusinessHoursStatus', 'resolveTenantDayHours', 'normalizeText', 'tenantTimeZone'],
+const salon = loadSalon(['tenantBusinessHoursStatus', 'appointmentOutsideBusinessHours', 'resolveTenantDayHours', 'normalizeText', 'tenantTimeZone'],
   { settingsFor: (context) => context.settings?.settings || {} });
 
 test('Salon: em data de feriado vale o horário do feriado', () => {
@@ -88,4 +88,26 @@ test('Salon: feriado fechado aparece como fechado para o revisor', async () => {
 test('Salon: sem holiday_dates nada muda', () => {
   const context = { settings: { business_hours: { ...hours, holiday: { start: '10:00', end: '14:00' } } } };
   assert.equal(salon.tenantBusinessHoursStatus(context, new Date('2026-11-20T18:00:00Z')).is_open, true);
+});
+
+test('Salon: feriado em business_hours.holidays (MM-DD) fecha o dia e pula para a próxima abertura útil', () => {
+  const context = { settings: { settings: { business_hours: { ...hours, holidays: ['11-20'] } } } };
+  // 20/11/2026 é sexta-feira (feriado 11-20); sábado 21/11 abre às 09:00.
+  const status = salon.tenantBusinessHoursStatus(context, new Date('2026-11-20T14:00:00Z'));
+  assert.equal(status.is_open, false);
+  assert.equal(status.day_hours?.closed, true);
+  assert.equal(status.next_opening?.day_key, 'sabado');
+  assert.equal(status.next_opening?.formatted, 'amanhã às 09:00');
+});
+
+test('Salon: abertura excepcional prevalece sobre MM-DD na consulta e na guarda do pedido', () => {
+  const starts = new Date('2026-11-20T14:00:00Z');
+  const business_hours = { ...hours, holidays: ['11-20'], holiday_dates: ['2026-11-20'], holiday: { start: '10:00', end: '14:00' } };
+  for (const config of [{ settings: { business_hours } }, { business_hours }]) {
+    const context = { settings: config };
+    assert.equal(salon.tenantBusinessHoursStatus(context, starts).is_open, true);
+    assert.equal(salon.appointmentOutsideBusinessHours(context, starts), false);
+    assert.equal(salon.appointmentOutsideBusinessHours(context, '2026-11-20T18:00:00Z'), true);
+  }
+  assert.equal(salon.appointmentOutsideBusinessHours({ settings: { business_hours: { ...hours, holidays: ['11-20'] } } }, starts), true);
 });
