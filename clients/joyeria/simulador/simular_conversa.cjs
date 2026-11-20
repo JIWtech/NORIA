@@ -64,12 +64,24 @@ function query(url) {
 
 // ------------------------------------------------------------------- Gemini real; Evolution simulada
 const outbox = [];
+const usage = {};
+process.on('exit', () => {
+  const total = Object.entries(usage);
+  if (!total.length) return;
+  console.log('\n==================== tokens por modelo ====================');
+  for (const [model, u] of total) console.log(model + ': ' + u.calls + ' chamadas, entrada ' + u.input + ', saída (inclui raciocínio) ' + u.output);
+});
 async function httpJson(method, url, headers, body) {
   if (url.startsWith('https://generativelanguage.googleapis.com/')) {
     const response = await fetch(url, { method, headers: { ...headers, 'x-goog-api-key': GEMINI_KEY }, body: JSON.stringify(body) });
     const text = await response.text();
     if (!response.ok) throw Object.assign(new Error('Gemini HTTP ' + response.status + ': ' + text.slice(0, 300)), { statusCode: response.status });
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    // Soma de tokens por modelo, como o próprio Gemini informa (para estimar custo).
+    const model = (/\/models\/([^:]+):/.exec(url) || [])[1] || '?';
+    const u = parsed.usageMetadata || {}, acc = (usage[model] ||= { calls: 0, input: 0, output: 0 });
+    acc.calls++; acc.input += u.promptTokenCount || 0; acc.output += (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0);
+    return parsed;
   }
   if (url.includes('/message/sendMedia/') || url.includes('/message/sendText/')) {
     outbox.push({ kind: url.includes('sendMedia') ? 'foto' : 'texto', to: body.number, body });
