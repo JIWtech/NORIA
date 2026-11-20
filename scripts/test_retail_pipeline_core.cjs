@@ -67,6 +67,10 @@ test('auditoria da redação: preço não autorizado, link e telefone são recus
   assert.deepEqual(retailAuditReply('O link para finalizar está abaixo.', items, { linkAppended: false }), ['LINK_CLAIM_WITHOUT_LINK']);
   assert.deepEqual(retailAuditReply('Estou enviando as fotos.', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
   assert.deepEqual(retailAuditReply('Estou enviando as fotos e o link.', items, { linkAppended: true, photosSent: true }), []);
+  assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: false }), ['TEAM_CLAIM_WITHOUT_HANDOFF']);
+  assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: true }), []);
+  assert.deepEqual(retailAuditReply('Ola. Alguem pode ajudar voce.', items), ['ACCENT_MISSING']);
+  assert.deepEqual(retailAuditReply('Olá. Essa joia é linda e a equipe confirma o valor.', items), []);
 });
 
 // ------------------------------------------------------------------- finalize com efeitos simulados

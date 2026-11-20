@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T21:46:55.396Z',
-  core_sha256: 'b40b356f8de5c871edab05b1c527a348f6ba5394667562fcff916cc0f2d5e7d7',
+  built_at: '2026-11-20T21:52:17.319Z',
+  core_sha256: '9895b6ddd17c3417fd3a569235e1096c5a9bcd7bb1d7829b2037704b650cd6d8',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6388,8 +6388,12 @@ function retailFormatPrice(cents) {
 }
 
 // Auditoria determinística da redação: só preços dos itens autorizados; nenhum link ou telefone gerado pelo modelo.
-function retailAuditReply(reply, items, { linkAppended = true, photosSent = true } = {}) {
+function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, teamHandoff = true } = {}) {
   const failures = [];
+  // Anunciar que a equipe assume sem que a conversa tenha sido passada à equipe engana o cliente.
+  if (!teamHandoff && /\b(continuar|seguir|assumir)\b[^.!?]{0,30}\b(atendimento|por aqui)\b/i.test(String(reply || ''))) failures.push('TEAM_CLAIM_WITHOUT_HANDOFF');
+  // Ortografia (verificação técnica, não semântica): palavras comuns escritas sem o acento obrigatório.
+  if (/\b(voce|nao|ola|alguem|tambem|ate|ja|so|entao|numeracao|informacao|alianca|aliancas)\b/i.test(String(reply || ''))) failures.push('ACCENT_MISSING');
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
   if (!photosSent && /\b(enviando|envio|mandando|segue|seguem)\b[^.!?]{0,40}\bfotos?\b/i.test(String(reply || ''))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
@@ -6427,7 +6431,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     'Nunca diga que um link está abaixo ou sendo enviado se site_link_will_be_appended for falso, nem que está enviando fotos se photos_being_sent for nulo.',
     'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
     'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
-    'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa.',
+    'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa; se for falso, não diga que alguém vai continuar o atendimento.',
     'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa. Se contiver HOME_VISIT_LOCALITY_MISSING, pergunte a cidade ou bairro.',
     'Se opening=false, não abra com saudação. Resposta CURTA: no máximo duas ou três frases curtas (cerca de 300 caracteres), sem repetir o que o cliente disse e sem inventar fatos.',
     ...(revisionNote ? [revisionNote] : []),
@@ -6590,11 +6594,13 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
       media: mediaForText, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
     composed = await compose('');
-    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText) };
+    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff) };
     audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
     if (audit.length) {
       composed = await compose('Revise: a versão anterior falhou na conferência (' + audit.join(', ') + '). Corrija sem esses problemas.');
       audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
+      // Acentuação é refeita uma vez; persistindo só ela, a resposta segue (não derruba o atendimento por ortografia).
+      audit = audit.filter(code => code !== 'ACCENT_MISSING');
       if (audit.length) throw new Error('RETAIL_AUDIT_FAILED:' + audit.join(','));
     }
     text = [composed.reply, siteLinkItem ? siteLinkItem.site_url : '', customerLine || ''].filter(Boolean).join('\n\n');
