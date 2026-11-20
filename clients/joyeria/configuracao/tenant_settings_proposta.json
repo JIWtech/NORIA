@@ -1,0 +1,57 @@
+{
+  "noria_client_policy": {
+    "contract": "noria_policy_v2",
+    "profile": "retail_consultative_v1",
+    "capability": "standard",
+    "tenant_slug": "joyeria",
+    "tenant_id": "<TENANT_ID>",
+    "audio_enabled": false,
+    "scheduling_enabled": false,
+    "modules": {
+      "turn_pipeline": {
+        "contract": "noria_turn_pipeline_v1",
+        "capability": "retail_v1",
+        "contract_version": "1.0",
+        "semantic_contract": "noria_retail_semantic_intent_v1",
+        "decision_contract": "noria_retail_decision_v1",
+        "decision_provenance": "joyeria_extension_commercial_decide_v1",
+        "semantic_vocabulary": {
+          "intents": ["product_inquiry", "price_inquiry", "browsing", "purchase_intent", "exchange_request", "home_visit_request", "care_or_warranty", "store_info", "human_request", "complaint", "other", "ambiguous"],
+          "roles": ["mentioned", "asked_about", "compared", "interested", "selected"],
+          "materials": ["ouro_macico", "material_nobre", "blend", "banhado_revestido", "prata", "aco", "outro", "desconhecido", "none"],
+          "decisions": ["decided", "exploring", "undefined"],
+          "confidence": ["low", "medium", "high"]
+        }
+      }
+    }
+  },
+  "noria_turn_pipeline": {
+    "enabled": false,
+    "rollout": "pilot",
+    "pilot": { "allowed_contacts": ["<NUMERO_DE_TESTE>"] },
+    "contract": "noria_turn_pipeline_v1",
+    "capability": "retail_v1",
+    "contract_version": "1.0",
+    "semantic_contract": "noria_retail_semantic_intent_v1",
+    "decision_contract": "noria_retail_decision_v1",
+    "decision_provenance": "joyeria_extension_commercial_decide_v1"
+  },
+  "ai_enabled": true,
+  "whatsapp_audio_enabled": false,
+  "appointment_scheduling": { "enabled": false },
+  "retail_policy": {
+    "specialist": {
+      "enabled": true,
+      "own_rule_materials": ["blend"],
+      "high_end_materials": ["ouro_macico", "material_nobre"],
+      "decided_customer": true,
+      "customer_message": "Uma especialista irá entrar em contato"
+    },
+    "max_photos_per_turn": 2,
+    "site_link": { "enabled": true },
+    "candidate_limit": 250
+  },
+  "specialist_notification": {
+    "recipient": "5522997963611"
+  }
+}
