@@ -107,6 +107,19 @@ export function canCloseConversation(conversation, pendingClose) {
     && conversation.lastInboundId
     && conversation.lastInboundId !== pendingClose.lastInboundId);
 }
+// "Assumir" só vale com o evento gravado pelo roteador: é ele que pausa a IA no CORE.
+// Na revisão da equipe (sem pausar a IA), o roteador grava atendimento_humano.
+export function requirePersistedAssignment(result, { reviewOnly = false } = {}) {
+  const expected = reviewOnly ? 'atendimento_humano' : 'conversation_assigned';
+  // O RPC de controle pode devolver uma linha ou uma lista; o insert REST devolve lista.
+  const rows = Array.isArray(result?.saved) ? result.saved : (result?.saved ? [result.saved] : []);
+  const event = rows.find(item => item?.id && item.service === expected);
+  if (result?.ok !== true || !event) {
+    throw new Error('A atribuição não foi confirmada pelo servidor. A IA pode continuar respondendo; tente novamente.');
+  }
+  return event;
+}
+
 export function requirePersistedClosure(result) {
   const closed = result?.saved?.find?.(event => event.id && event.service === 'conversation_closed');
   if (result?.ok !== true || !closed) {

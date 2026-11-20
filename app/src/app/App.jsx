@@ -73,6 +73,7 @@ import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
 import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
 import { placeKanbanCard, reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
+import { requirePersistedAssignment } from '../services/conversations/conversationLifecycle.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
 import { AuthShell } from '../features/auth/components/AuthShell';
 import { LoginPage } from '../features/auth/components/LoginPage';
@@ -607,6 +608,30 @@ function App() {
     const reviewOnly = (selectedConversation?.channelType || selectedConversation?.channel?.toLowerCase()) === 'whatsapp'
       && request?.mode === 'operator_confirmation' && request.team_review_control === 'manual_reply';
 
+    if (!selectedConversation) throw new Error('Conversa não encontrada para atribuição.');
+    if (isGenesisSalesTenant(activeTenantSlug)) {
+      try {
+        await moveKanbanCard(activeTenantSlug, selectedConversation, 'sales_human', agent.name);
+      } catch (e) {
+        console.warn('Falha ao sincronizar etapa Genesis com sales_human:', e.message || e);
+      }
+    }
+    // A tela só mostra o responsável depois que o roteador confirma o evento que pausa a IA.
+    // Sem confirmação, o erro sobe para quem clicou: "assumido" na tela com a IA ativa é o pior caso.
+    const result = await sendN8nCommand('assign_conversation', {
+      channel_type: selectedConversation.channelType || selectedConversation.channel?.toLowerCase(),
+      external_conversation_id: selectedConversation.externalConversationId || selectedConversation.id.replace(/^conv-/, ''),
+      contact_name: selectedConversation.contact,
+      message_text: `Conversa atribuida a ${agent.name}`,
+      sent_by_user: agent.name,
+      assignee: {
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+      },
+    }, activeTenantSlug);
+    requirePersistedAssignment(result, { reviewOnly });
+
     setAppData((prev) => {
       if (reviewOnly) return prev;
       const nextConversations = prev.conversations.map((conv) => {
@@ -658,30 +683,11 @@ function App() {
 
     if (!reviewOnly) setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
 
-    if (!selectedConversation) return;
+    // A atribuição já está gravada; falha só no recarregamento não desfaz nem esconde a confirmação.
     try {
-      if (isGenesisSalesTenant(activeTenantSlug)) {
-        try {
-          await moveKanbanCard(activeTenantSlug, selectedConversation, 'sales_human', agent.name);
-        } catch (e) {
-          console.warn('Falha ao sincronizar etapa Genesis com sales_human:', e.message || e);
-        }
-      }
-      await sendN8nCommand('assign_conversation', {
-        channel_type: selectedConversation.channelType || selectedConversation.channel?.toLowerCase(),
-        external_conversation_id: selectedConversation.externalConversationId || selectedConversation.id.replace(/^conv-/, ''),
-        contact_name: selectedConversation.contact,
-        message_text: `Conversa atribuida a ${agent.name}`,
-        sent_by_user: agent.name,
-        assignee: {
-          id: agent.id,
-          name: agent.name,
-          role: agent.role,
-        },
-      }, activeTenantSlug);
       await refreshData();
     } catch (error) {
-      console.warn('Falha ao persistir atribuicao de conversa:', error.message || error);
+      console.warn('Atribuição confirmada, mas o recarregamento falhou:', error.message || error);
     }
   }
 

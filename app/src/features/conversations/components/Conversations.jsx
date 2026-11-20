@@ -163,7 +163,8 @@ export function Conversations({
 
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignToast, setAssignToast] = useState('');
+  const [assignToast, setAssignToast] = useState(null);
+  const assignInFlight = useRef(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -221,6 +222,27 @@ export function Conversations({
     setTimeout(() => {
       closeActionBtnRef.current?.focus();
     }, 40);
+  }
+
+  // A confirmação só aparece depois que o servidor grava a atribuição; a falha fica visível,
+  // pois "assumido" na tela com a IA ainda ativa levaria a dois atendimentos simultâneos.
+  async function assignConversationTo(agent) {
+    if (assignInFlight.current) return;
+    assignInFlight.current = true;
+    handleCloseAssignModal();
+    try {
+      await onAssignAgent?.(selected, agent);
+      setAssignToast({ tone: 'success', text: `Conversa atribuída a ${agent.name}` });
+      setTimeout(() => setAssignToast(null), 3000);
+    } catch (error) {
+      setAssignToast({
+        tone: 'error',
+        text: userFacingError(error, 'A atribuição não foi confirmada. A IA pode continuar respondendo; tente novamente.'),
+      });
+      setTimeout(() => setAssignToast(null), 6000);
+    } finally {
+      assignInFlight.current = false;
+    }
   }
 
   function handleCloseAssignModal() {
@@ -1184,25 +1206,14 @@ export function Conversations({
                         key={agent.id}
                         className={`assign-agent-row ${isCurrent ? 'is-current' : ''}`}
                         onClick={() => {
-
-                          if (!isCurrent) {
-                            onAssignAgent?.(selected, agent);
-                            handleCloseAssignModal();
-                            setAssignToast(`Conversa atribuída a ${agent.name}`);
-                            setTimeout(() => setAssignToast(''), 3000);
-                          }
+                          if (!isCurrent) assignConversationTo(agent);
                         }}
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            if (!isCurrent) {
-                              onAssignAgent?.(selected, agent);
-                              handleCloseAssignModal();
-                              setAssignToast(`Conversa atribuída a ${agent.name}`);
-                              setTimeout(() => setAssignToast(''), 3000);
-                            }
+                            if (!isCurrent) assignConversationTo(agent);
                           }
                         }}
                       >
@@ -1248,9 +1259,11 @@ export function Conversations({
         </div>
       )}
       {assignToast && (
-        <div className="toast-notification">
-          <CheckCircle2 size={18} color="#10b981" />
-          <span>{assignToast}</span>
+        <div className="toast-notification" role={assignToast.tone === 'error' ? 'alert' : 'status'}>
+          {assignToast.tone === 'error'
+            ? <AlertCircle size={18} color="#ef4444" />
+            : <CheckCircle2 size={18} color="#10b981" />}
+          <span>{assignToast.text}</span>
         </div>
       )}
     </section>
