@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T22:28:42.573Z',
-  core_sha256: 'b57ce522a061411bf79306e3e2ec4ffceb89dd85286bc5e9b757b8ad5d3d0e49',
+  built_at: '2026-11-20T22:43:35.714Z',
+  core_sha256: '0d138db2a427201d5d418bef05400fd5acf1a67b97ae79eab47b4936c6032e68',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5171,14 +5171,7 @@ const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cli
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';
 const RETAIL_PHOTO_SERVICE = 'retail_product_photo';
 const RETAIL_ENUM_LIMIT = 40;
-
-// Mantém só produtos citados que existem entre os candidatos do tenant; os demais são descartados (nunca viram fato).
-function retailKnownProducts(semantic, itemIds) {
-  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
-  const known = new Set(retailStrings(itemIds));
-  const products = semantic.products.filter(product => known.has(String(product?.item_id || '')));
-  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
-}
+const RETAIL_SHORTLIST_DEFAULT = 30;
 
 const retailIsObj = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const retailStrings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string' && item) : [];
@@ -5206,7 +5199,7 @@ function retailSemanticSchema(vocabulary, itemIds) {
   const str = { type: 'STRING' }, bool = { type: 'BOOLEAN' }, ids = { type: 'ARRAY', items: str };
   const enumOf = values => ({ type: 'STRING', enum: values });
   // Lista fechada só para catálogos pequenos: com muitos itens o Gemini recusa o esquema ("too many states"). Acima do
-  // limite o campo é livre e o motor descarta qualquer item fora do catálogo (retailKnownProducts).
+  // limite o campo é livre e o motor descarta qualquer item fora do recorte (retailResolveProducts).
   const itemId = Array.isArray(itemIds) && itemIds.length && itemIds.length <= RETAIL_ENUM_LIMIT ? enumOf(itemIds) : str;
   const flag = (name, extra = {}) => ({ type: 'OBJECT', properties: { [name]: bool, ...extra, evidence_ids: ids }, required: [name, 'evidence_ids'] });
   return {
@@ -5258,6 +5251,121 @@ function retailCandidates(rows, tenantId, limit) {
       line: row.product_line || null, model: row.model || null,
       width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
   };
+}
+
+// ------------------------------------------------------------------- recorte do catálogo (pré-filtro da interpretação)
+// O Gemini não precisa ver o catálogo inteiro a cada mensagem: o recorte leva só os itens que o texto da conversa cita
+// (nome, modelo, linha, categoria e largura), com tolerância a erro de digitação. Palavra comum a muitos itens não
+// discrimina; sem nenhum acerto discriminante, vai o catálogo inteiro (o cliente nunca fica sem resposta).
+// Palavras genéricas de conversa, ignoradas na busca (não descrevem produto).
+const RETAIL_STOPWORDS = new Set(['que', 'com', 'para', 'por', 'uma', 'umas', 'uns', 'dos', 'das', 'mais', 'menos', 'qual', 'quais',
+  'quanto', 'quanta', 'quantos', 'custa', 'custam', 'valor', 'preco', 'precos', 'par', 'quero', 'queria', 'gostaria', 'tem', 'tens',
+  'temos', 'voces', 'vcs', 'voce', 'sim', 'nao', 'esse', 'essa', 'esses', 'essas', 'isso', 'este', 'esta', 'aqui', 'ela', 'ele', 'dela',
+  'dele', 'foto', 'fotos', 'link', 'manda', 'mande', 'mandar', 'pode', 'favor', 'obrigado', 'obrigada', 'como', 'muito', 'muita', 'bem',
+  'meu', 'minha', 'seu', 'sua', 'tudo', 'ola', 'bom', 'boa', 'dia', 'tarde', 'noite']);
+
+function retailNormalize(text) {
+  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2').replace(/[^a-z0-9.]+/g, ' ').trim();
+}
+
+function retailWords(text) {
+  return retailNormalize(text).split(' ').map(word => word.replace(/\.+$/, ''))
+    .filter(word => word.length >= 3 && /^[a-z]/.test(word) && !RETAIL_STOPWORDS.has(word));
+}
+
+function retailWidths(text) {
+  return [...retailNormalize(text).matchAll(/(\d+(?:\.\d+)?)\s*mm\b/g)].map(match => Number(match[1]));
+}
+
+// Distância de edição com corte: devolve max + 1 assim que passa do limite.
+function retailEditDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Igual vale 1; com erro de digitação (1 letra até 7 letras, 2 a partir de 8) vale 0,8.
+function retailWordMatch(textWord, itemWord) {
+  if (textWord === itemWord) return 1;
+  const shortest = Math.min(textWord.length, itemWord.length);
+  const tolerance = shortest >= 8 ? 2 : shortest >= 4 ? 1 : 0;
+  return tolerance && retailEditDistance(textWord, itemWord, tolerance) <= tolerance ? 0.8 : 0;
+}
+
+// texts.current: mensagens do turno (peso 1); texts.context: sessão e respostas recentes (peso 0,5).
+// options.limit: itens pelo texto (padrão 30; 0 desliga o recorte); options.keepIds: itens já apresentados na sessão.
+// Cada item recebe um código curto (c1, c2…) que é o que o Gemini vê; retailResolveProducts traduz de volta.
+function retailCatalogShortlist(items, texts = {}, options = {}) {
+  const all = Array.isArray(items) ? items.filter(item => retailIsObj(item) && item.item_id) : [];
+  const limit = Number.isInteger(options.limit) && options.limit >= 0 ? Math.min(options.limit, RETAIL_ENUM_LIMIT) : RETAIL_SHORTLIST_DEFAULT;
+  const withCodes = list => list.map((item, index) => ({ ...item, code: 'c' + (index + 1) }));
+  if (!limit || all.length <= limit) return { mode: 'all', items: withCodes(all) };
+  const itemWords = all.map(item => new Set(retailWords([item.name, item.model, item.line, item.category].filter(Boolean).join(' '))));
+  const df = new Map();
+  for (const words of itemWords) for (const word of words) df.set(word, (df.get(word) || 0) + 1);
+  const credit = new Map(), widths = new Map();
+  for (const [list, weight] of [[retailStrings(texts.current), 1], [retailStrings(texts.context), 0.5]]) {
+    for (const text of list) {
+      for (const word of new Set(retailWords(text))) {
+        for (const vocab of df.keys()) {
+          const value = retailWordMatch(word, vocab) * weight;
+          if (value > (credit.get(vocab) || 0)) credit.set(vocab, value);
+        }
+      }
+      for (const width of retailWidths(text)) if (weight > (widths.get(width) || 0)) widths.set(width, weight);
+    }
+  }
+  const matched = all.map((item, index) => {
+    let score = 0;
+    for (const word of itemWords[index]) {
+      if (credit.has(word) && df.get(word) <= limit) score += credit.get(word) * Math.log(1 + all.length / df.get(word));
+    }
+    const width = item.width_mm === null || item.width_mm === undefined ? null : Number(item.width_mm);
+    if (score > 0 && widths.has(width)) score += widths.get(width);
+    return { item, index, score };
+  }).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score || a.index - b.index);
+  if (!matched.length) return { mode: 'all', items: withCodes(all) };
+  const keep = all.filter(item => retailStrings(options.keepIds).includes(item.item_id));
+  const budget = Math.max(0, RETAIL_ENUM_LIMIT - keep.length);
+  const chosen = [], seen = new Set();
+  const add = item => { if (chosen.length < budget && !seen.has(item.item_id)) { seen.add(item.item_id); chosen.push(item); } };
+  matched.slice(0, limit).forEach(entry => add(entry.item));
+  // Variações com o mesmo nome entram juntas (o cliente não distingue uma da outra pelo nome).
+  const chosenNames = new Set(chosen.map(item => retailNormalize(item.name)));
+  all.filter(item => chosenNames.has(retailNormalize(item.name))).forEach(add);
+  keep.forEach(item => { if (!seen.has(item.item_id)) { seen.add(item.item_id); chosen.push(item); } });
+  return { mode: 'match', items: withCodes(chosen) };
+}
+
+// O que o Gemini vê de cada item: código curto no lugar do id interno.
+function retailCatalogForModel(shortlist) {
+  return (Array.isArray(shortlist) ? shortlist : []).map(item => ({ item_id: item.code, name: item.name, category: item.category,
+    line: item.line, model: item.model, width_mm: item.width_mm }));
+}
+
+// Traduz os códigos citados pelo Gemini para o item_id; código desconhecido ou item fora do recorte é descartado
+// (nunca vira fato). Um item_id do recorte citado diretamente também é aceito.
+function retailResolveProducts(semantic, shortlist) {
+  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
+  const byKey = new Map();
+  for (const item of Array.isArray(shortlist) ? shortlist : []) { byKey.set(item.code, item.item_id); byKey.set(item.item_id, item.item_id); }
+  const products = [];
+  for (const product of semantic.products) {
+    const itemId = byKey.get(String(product?.item_id || ''));
+    if (itemId) products.push({ ...product, item_id: itemId });
+  }
+  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
 }
 
 // Estado das fotos nesta sessão, a partir das reservas e resultados gravados em channel_events.
@@ -6355,6 +6463,15 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
   const currentIds = new Set(turn.messages.map(item => item.event_id));
   const sessionEvidence = history.filter(row => row.direction === 'inbound' && row.sender_type === 'contact' && row.ai_provider !== 'buffer' && !currentIds.has(row.id))
     .slice(-60).map(row => ({ id: row.id, text: audioHistoryText(row), direction: 'inbound', sender_type: 'contact', session_id: identity.session_id, received_at: row.created_at })).filter(row => row.text);
+  const assistantContext = history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer')
+    .slice(-4).map(row => audioHistoryText(row));
+  // Recorte do catálogo: o Gemini vê só os itens que a conversa cita (ou o catálogo inteiro, se nada discrimina), com
+  // códigos curtos no lugar do id. settings.retail_policy.prefilter_limit ajusta o tamanho; 0 desliga o recorte.
+  const prefilterLimit = settings.retail_policy?.prefilter_limit;
+  const shortlist = retailCatalogShortlist(candidates.items, {
+    current: turn.messages.map(item => item.text),
+    context: [...sessionEvidence.slice(-10).map(row => row.text), ...assistantContext],
+  }, { limit: Number.isInteger(prefilterLimit) ? prefilterLimit : undefined, keepIds: mediaState.presentedItemIds });
   let semantic = null, semanticFailure = '', model = null, usage = {};
   try {
     // Interpretação neutra (sem persona): o modelo descreve o que o cliente disse, com evidências; não decide nada comercial.
@@ -6362,16 +6479,16 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
       current_message_ids: [...currentIds],
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session' })),
         ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current' }))],
-      assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
-      catalog: candidates.items, catalog_complete: candidates.complete, session_id: identity.session_id,
-    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)),
+      assistant_context: assistantContext,
+      catalog: retailCatalogForModel(shortlist.items), catalog_complete: candidates.complete && shortlist.mode === 'all', session_id: identity.session_id,
+    }, retailSemanticSchema(pipeline.semantic_vocabulary, shortlist.items.map(item => item.code)),
     // Regras genéricas do contrato + orientações de interpretação do próprio tenant (settings.retail_policy.semantic_guidance).
     [...RETAIL_SEMANTIC_RULES, ...retailStrings(settings.retail_policy?.semantic_guidance).slice(0, 20)],
     // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.
     { persona: false, model: /^gemini-[a-z0-9.-]+$/.test(String(settings.semantic_model || '')) ? settings.semantic_model : '' });
-    // Sem lista fechada no esquema (catálogo grande), produto fora dos candidatos é descartado aqui.
+    // Códigos do recorte voltam a ser item_id; código desconhecido ou item fora do recorte é descartado aqui.
     semantic = generated.value && typeof generated.value === 'object'
-      ? { ...retailKnownProducts(generated.value, candidates.items.map(item => item.item_id)), contract: pipeline.semantic_contract } : null;
+      ? { ...retailResolveProducts(generated.value, shortlist.items), contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
   } catch (error) { semanticFailure = String(error?.message || error).slice(0, 120); }
   return {
@@ -6381,6 +6498,7 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     noria_client_policy: tenantBusinessRules, noria_business_context: inputJson.noria_business_context,
     session_id: identity.session_id, request_id: identity.request_id, turn_token: identity.turn_token,
     noria_preclaimed_turn: turn, turn, semantic_intent: semantic, semantic_failure: semanticFailure || null, semantic_model: model, semantic_usage: usage,
+    semantic_catalog: { mode: shortlist.mode, sent: shortlist.items.length, total: candidates.items.length },
     session_evidence: sessionEvidence,
     // Para a EXT, item com foto pendente de reconciliação conta como já apresentado.
     retail_context: { media_sent_item_ids: mediaState.presentedItemIds, catalog_complete: candidates.complete, catalog_size: candidates.items.length },
@@ -6403,6 +6521,21 @@ function retailFormatPrice(cents) {
 }
 
 // Auditoria determinística da redação: só preços dos itens autorizados; nenhum link ou telefone gerado pelo modelo.
+// O que cada falha da conferência significa, para a revisão da redação saber o que corrigir.
+function retailAuditHint(code) {
+  return {
+    TEAM_CLAIM_WITHOUT_HANDOFF: 'não diga que alguém vai continuar ou assumir o atendimento',
+    ACCENT_MISSING: 'escreva todas as palavras com a acentuação correta do português (você, não, até, já, só, cartão, finalização)',
+    UNAVAILABILITY_CLAIM: 'não afirme que o negócio não tem, não vende ou não trabalha com algo; diga que vai verificar',
+    LINK_CLAIM_WITHOUT_LINK: 'não mencione link',
+    PHOTO_CLAIM_WITHOUT_PHOTO: 'não diga que está enviando fotos',
+    EMPTY_REPLY: 'escreva uma resposta',
+    PRICE_NOT_AUTHORIZED: 'use só os preços de product_facts, exatamente como estão',
+    URL_NOT_ALLOWED: 'não escreva endereços de site',
+    PHONE_NOT_ALLOWED: 'não escreva números de telefone',
+  }[code] || code;
+}
+
 function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, teamHandoff = true } = {}) {
   const failures = [];
   // Anunciar que a equipe assume sem que a conversa tenha sido passada à equipe engana o cliente.
@@ -6611,7 +6744,8 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff) };
     audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
     if (audit.length) {
-      composed = await compose('Revise: a versão anterior falhou na conferência (' + audit.join(', ') + '). Corrija sem esses problemas.');
+      composed = await compose('Revise: a versão anterior falhou na conferência. Corrija: '
+        + audit.map(retailAuditHint).join('; ') + '. Versão anterior: "' + String(composed.reply || '').slice(0, 600) + '"');
       audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
       // Acentuação e afirmação de ausência são refeitas uma vez; persistindo só elas, a resposta segue (verificação
       // por padrão de texto pode errar, e não deve derrubar o atendimento).

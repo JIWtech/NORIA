@@ -15,14 +15,7 @@ const RETAIL_SPECIALIST_REASONS = ['material_regra_propria', 'alto_padrao', 'cli
 const RETAIL_NOTICE_CONTRACT = 'noria_specialist_notice_v1';
 const RETAIL_PHOTO_SERVICE = 'retail_product_photo';
 const RETAIL_ENUM_LIMIT = 40;
-
-// Mantém só produtos citados que existem entre os candidatos do tenant; os demais são descartados (nunca viram fato).
-function retailKnownProducts(semantic, itemIds) {
-  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
-  const known = new Set(retailStrings(itemIds));
-  const products = semantic.products.filter(product => known.has(String(product?.item_id || '')));
-  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
-}
+const RETAIL_SHORTLIST_DEFAULT = 30;
 
 const retailIsObj = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const retailStrings = value => Array.isArray(value) ? value.filter(item => typeof item === 'string' && item) : [];
@@ -50,7 +43,7 @@ function retailSemanticSchema(vocabulary, itemIds) {
   const str = { type: 'STRING' }, bool = { type: 'BOOLEAN' }, ids = { type: 'ARRAY', items: str };
   const enumOf = values => ({ type: 'STRING', enum: values });
   // Lista fechada só para catálogos pequenos: com muitos itens o Gemini recusa o esquema ("too many states"). Acima do
-  // limite o campo é livre e o motor descarta qualquer item fora do catálogo (retailKnownProducts).
+  // limite o campo é livre e o motor descarta qualquer item fora do recorte (retailResolveProducts).
   const itemId = Array.isArray(itemIds) && itemIds.length && itemIds.length <= RETAIL_ENUM_LIMIT ? enumOf(itemIds) : str;
   const flag = (name, extra = {}) => ({ type: 'OBJECT', properties: { [name]: bool, ...extra, evidence_ids: ids }, required: [name, 'evidence_ids'] });
   return {
@@ -102,6 +95,121 @@ function retailCandidates(rows, tenantId, limit) {
       line: row.product_line || null, model: row.model || null,
       width_mm: row.width_mm === null || row.width_mm === undefined ? null : Number(row.width_mm) })),
   };
+}
+
+// ------------------------------------------------------------------- recorte do catálogo (pré-filtro da interpretação)
+// O Gemini não precisa ver o catálogo inteiro a cada mensagem: o recorte leva só os itens que o texto da conversa cita
+// (nome, modelo, linha, categoria e largura), com tolerância a erro de digitação. Palavra comum a muitos itens não
+// discrimina; sem nenhum acerto discriminante, vai o catálogo inteiro (o cliente nunca fica sem resposta).
+// Palavras genéricas de conversa, ignoradas na busca (não descrevem produto).
+const RETAIL_STOPWORDS = new Set(['que', 'com', 'para', 'por', 'uma', 'umas', 'uns', 'dos', 'das', 'mais', 'menos', 'qual', 'quais',
+  'quanto', 'quanta', 'quantos', 'custa', 'custam', 'valor', 'preco', 'precos', 'par', 'quero', 'queria', 'gostaria', 'tem', 'tens',
+  'temos', 'voces', 'vcs', 'voce', 'sim', 'nao', 'esse', 'essa', 'esses', 'essas', 'isso', 'este', 'esta', 'aqui', 'ela', 'ele', 'dela',
+  'dele', 'foto', 'fotos', 'link', 'manda', 'mande', 'mandar', 'pode', 'favor', 'obrigado', 'obrigada', 'como', 'muito', 'muita', 'bem',
+  'meu', 'minha', 'seu', 'sua', 'tudo', 'ola', 'bom', 'boa', 'dia', 'tarde', 'noite']);
+
+function retailNormalize(text) {
+  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2').replace(/[^a-z0-9.]+/g, ' ').trim();
+}
+
+function retailWords(text) {
+  return retailNormalize(text).split(' ').map(word => word.replace(/\.+$/, ''))
+    .filter(word => word.length >= 3 && /^[a-z]/.test(word) && !RETAIL_STOPWORDS.has(word));
+}
+
+function retailWidths(text) {
+  return [...retailNormalize(text).matchAll(/(\d+(?:\.\d+)?)\s*mm\b/g)].map(match => Number(match[1]));
+}
+
+// Distância de edição com corte: devolve max + 1 assim que passa do limite.
+function retailEditDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Igual vale 1; com erro de digitação (1 letra até 7 letras, 2 a partir de 8) vale 0,8.
+function retailWordMatch(textWord, itemWord) {
+  if (textWord === itemWord) return 1;
+  const shortest = Math.min(textWord.length, itemWord.length);
+  const tolerance = shortest >= 8 ? 2 : shortest >= 4 ? 1 : 0;
+  return tolerance && retailEditDistance(textWord, itemWord, tolerance) <= tolerance ? 0.8 : 0;
+}
+
+// texts.current: mensagens do turno (peso 1); texts.context: sessão e respostas recentes (peso 0,5).
+// options.limit: itens pelo texto (padrão 30; 0 desliga o recorte); options.keepIds: itens já apresentados na sessão.
+// Cada item recebe um código curto (c1, c2…) que é o que o Gemini vê; retailResolveProducts traduz de volta.
+function retailCatalogShortlist(items, texts = {}, options = {}) {
+  const all = Array.isArray(items) ? items.filter(item => retailIsObj(item) && item.item_id) : [];
+  const limit = Number.isInteger(options.limit) && options.limit >= 0 ? Math.min(options.limit, RETAIL_ENUM_LIMIT) : RETAIL_SHORTLIST_DEFAULT;
+  const withCodes = list => list.map((item, index) => ({ ...item, code: 'c' + (index + 1) }));
+  if (!limit || all.length <= limit) return { mode: 'all', items: withCodes(all) };
+  const itemWords = all.map(item => new Set(retailWords([item.name, item.model, item.line, item.category].filter(Boolean).join(' '))));
+  const df = new Map();
+  for (const words of itemWords) for (const word of words) df.set(word, (df.get(word) || 0) + 1);
+  const credit = new Map(), widths = new Map();
+  for (const [list, weight] of [[retailStrings(texts.current), 1], [retailStrings(texts.context), 0.5]]) {
+    for (const text of list) {
+      for (const word of new Set(retailWords(text))) {
+        for (const vocab of df.keys()) {
+          const value = retailWordMatch(word, vocab) * weight;
+          if (value > (credit.get(vocab) || 0)) credit.set(vocab, value);
+        }
+      }
+      for (const width of retailWidths(text)) if (weight > (widths.get(width) || 0)) widths.set(width, weight);
+    }
+  }
+  const matched = all.map((item, index) => {
+    let score = 0;
+    for (const word of itemWords[index]) {
+      if (credit.has(word) && df.get(word) <= limit) score += credit.get(word) * Math.log(1 + all.length / df.get(word));
+    }
+    const width = item.width_mm === null || item.width_mm === undefined ? null : Number(item.width_mm);
+    if (score > 0 && widths.has(width)) score += widths.get(width);
+    return { item, index, score };
+  }).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score || a.index - b.index);
+  if (!matched.length) return { mode: 'all', items: withCodes(all) };
+  const keep = all.filter(item => retailStrings(options.keepIds).includes(item.item_id));
+  const budget = Math.max(0, RETAIL_ENUM_LIMIT - keep.length);
+  const chosen = [], seen = new Set();
+  const add = item => { if (chosen.length < budget && !seen.has(item.item_id)) { seen.add(item.item_id); chosen.push(item); } };
+  matched.slice(0, limit).forEach(entry => add(entry.item));
+  // Variações com o mesmo nome entram juntas (o cliente não distingue uma da outra pelo nome).
+  const chosenNames = new Set(chosen.map(item => retailNormalize(item.name)));
+  all.filter(item => chosenNames.has(retailNormalize(item.name))).forEach(add);
+  keep.forEach(item => { if (!seen.has(item.item_id)) { seen.add(item.item_id); chosen.push(item); } });
+  return { mode: 'match', items: withCodes(chosen) };
+}
+
+// O que o Gemini vê de cada item: código curto no lugar do id interno.
+function retailCatalogForModel(shortlist) {
+  return (Array.isArray(shortlist) ? shortlist : []).map(item => ({ item_id: item.code, name: item.name, category: item.category,
+    line: item.line, model: item.model, width_mm: item.width_mm }));
+}
+
+// Traduz os códigos citados pelo Gemini para o item_id; código desconhecido ou item fora do recorte é descartado
+// (nunca vira fato). Um item_id do recorte citado diretamente também é aceito.
+function retailResolveProducts(semantic, shortlist) {
+  if (!retailIsObj(semantic) || !Array.isArray(semantic.products)) return semantic;
+  const byKey = new Map();
+  for (const item of Array.isArray(shortlist) ? shortlist : []) { byKey.set(item.code, item.item_id); byKey.set(item.item_id, item.item_id); }
+  const products = [];
+  for (const product of semantic.products) {
+    const itemId = byKey.get(String(product?.item_id || ''));
+    if (itemId) products.push({ ...product, item_id: itemId });
+  }
+  return { ...semantic, products, discarded_products: semantic.products.length - products.length };
 }
 
 // Estado das fotos nesta sessão, a partir das reservas e resultados gravados em channel_events.
@@ -313,8 +421,9 @@ function retailNoticeOutcome({ tenantId, tenantSlug, chatId, sessionId, reservat
 // === fim das funções do retail_v1 projetadas no motor (o bloco abaixo só existe para os testes) ===
 if (typeof module === 'object' && module && module.exports) {
   module.exports = {
-    RETAIL_SEMANTIC_CONTRACT, RETAIL_SEMANTIC_RULES, RETAIL_SPECIALIST_REASONS, RETAIL_NOTICE_CONTRACT, RETAIL_PHOTO_SERVICE,
-    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaState, retailKnownProducts,
+    RETAIL_SEMANTIC_CONTRACT, RETAIL_SEMANTIC_RULES, RETAIL_SPECIALIST_REASONS, RETAIL_NOTICE_CONTRACT, RETAIL_PHOTO_SERVICE, RETAIL_ENUM_LIMIT,
+    retailSemanticSchema, retailVocabulary, retailCandidatePath, retailCandidates, retailMediaState,
+    retailCatalogShortlist, retailCatalogForModel, retailResolveProducts,
     retailVerifiedDecision, retailAuthorized, retailMediaPlan, retailLeadPhone, retailSpecialistRecipient,
     retailSpecialistNoticeKey, retailSpecialistMessage, retailProviderOutcome, retailNoticeReservation, retailNoticeOutcome,
     retailSpecialistCustomerLine,

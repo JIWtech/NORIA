@@ -100,7 +100,7 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
     sendChannelMessage: async (context, text) => { log.delivered = text; return cancelled ? { cancelled: true } : { sent: true }; },
     sessionHandoffMessage: () => 'CONTINGENCIA', servicesHasRecentBusiness: () => true, audioHistoryText: row => row.message_text || '',
     tenantBusinessHoursStatus: () => ({ configured: true, is_open: true }), cleanReplyText: text => text,
-    servicesGeminiJson: async (context, label, input) => { log.composeInputs.push(input);
+    servicesGeminiJson: async (context, label, input, schema, rules) => { log.composeInputs.push(input); (log.composeRules ||= []).push(rules);
       return { value: { reply: replies[Math.min(replyIndex++, replies.length - 1)] }, model: 'gemini-x', usage: {} }; },
     turnQueueState: async () => ({ token: 'tok', lease_until: new Date(Date.now() + 60000).toISOString() }),
     env: name => ({ SUPABASE_URL: ORIGIN, EVOLUTION_API_URL_LOJA: 'https://evo.test', EVOLUTION_API_KEY_LOJA: 'k', EVOLUTION_INSTANCE_LOJA: 'loja' }[name] || ''),
@@ -124,7 +124,7 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
       return { key: { id: 'P' + log.provider.length } };
     },
   };
-  const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue',
+  const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue',
     'retailEvolution', 'retailSendProductMedia', 'retailPlanProductMedia', 'retailLoadMediaState', 'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'runRetailTurnFinalize', 'salesMediaHttpsLocation'], globals);
   const pipeline = { contract: 'noria_turn_pipeline_v1', contract_version: '1.0', decision_contract: 'dec_r', decision_provenance: 'prov_r' };
   return { run: () => core.runRetailTurnFinalize({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), log };
@@ -251,4 +251,16 @@ test('handoff genérico pausa a IA (evento com handoff) e não envia fotos', asy
   await h.run();
   assert.equal(h.log.events[0].handoff, true);
   assert.equal(h.log.provider.filter(p => p.url.includes('/sendMedia/')).length, 0);
+});
+
+test('revisão da redação explica a falha em português e cita a versão anterior; persistindo só falha suave, a resposta segue', async () => {
+  const h = finalizeHarness({ actions: present, replies: ['Não temos esse modelo, R$ 980,00 o par.', 'Vou verificar esse modelo, R$ 980,00 o par.'] });
+  await h.run();
+  assert.match(h.log.delivered, /^Vou verificar esse modelo/);
+  const revision = h.log.composeRules[1].at(-1);
+  assert.match(revision, /não afirme que o negócio não tem/);
+  assert.match(revision, /Não temos esse modelo/);
+  const stubborn = finalizeHarness({ actions: present, replies: ['Não temos esse modelo, R$ 980,00 o par.'] });
+  await stubborn.run();
+  assert.match(stubborn.log.delivered, /^Não temos esse modelo/);
 });

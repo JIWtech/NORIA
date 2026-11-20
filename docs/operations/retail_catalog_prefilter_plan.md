@@ -1,6 +1,8 @@
 # Plano — pré-filtro do catálogo na interpretação (retail_v1)
 
-Status: proposta, 2026-11-20. Nada implementado.
+Status: implementado em 2026-11-20 (`retailCatalogShortlist`, `retailCatalogForModel` e `retailResolveProducts` em
+`n8n/sources/noria_retail.js`; ligado no prepare do CORE). Regra de discriminação adotada: palavra presente em mais itens
+do que o limite do recorte não conta; sem palavra discriminante, vai o catálogo inteiro.
 
 ## Problema
 
@@ -30,9 +32,9 @@ O motor já carrega os candidatos do tenant numa consulta leve (só nome, catego
    conta quando o número citado coincide com `width_mm`.
 4. **Recorte:** os 30 itens de maior pontuação, mais os já apresentados na sessão (fotos e produtos citados), sem
    repetir. Variações com o mesmo nome entram juntas.
-5. **Sem nenhum acerto** (mensagem vaga: "quero ver alianças", "qual a mais barata?"): envia um recorte por categoria
-   citada; se nem categoria houver, envia o catálogo compacto completo (comportamento de hoje). O cliente nunca fica
-   sem resposta.
+5. **Sem nenhum acerto discriminante** (mensagem vaga: "quero ver alianças", "qual a mais barata?"): envia o catálogo
+   compacto completo (comportamento de hoje). Palavra comum a mais itens do que o limite, como a categoria principal,
+   não discrimina. O cliente nunca fica sem resposta.
 6. **Códigos curtos:** o Gemini recebe `c1…c30` em vez do UUID (menos tokens e lista fechada sempre válida). O motor
    traduz de volta para o `item_id` antes de entregar à EXT; código desconhecido é descartado.
 7. `catalog_complete` passa a dizer se o recorte cobre o catálogo inteiro. Item fora do recorte segue a regra que já

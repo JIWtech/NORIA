@@ -107,7 +107,7 @@ const coreCode = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), '
 const region = extractRetailRegion(coreCode);
 const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const CORE_FUNCTIONS = ['runRetailTurnPrepare', 'runRetailTurnFinalize', 'retailTenantPath', 'retailLoadMediaState', 'retailLoadItems', 'retailFormatPrice',
-  'retailAuditReply', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue', 'retailEvolution', 'retailPlanProductMedia', 'retailSendProductMedia',
+  'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue', 'retailEvolution', 'retailPlanProductMedia', 'retailSendProductMedia',
   'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'servicesGeminiJson', 'servicesTerminal', 'pipelineIdentity', 'salesMediaHttpsLocation', 'settingsFor'];
 const coreSource = ast.statements.filter(ts.isFunctionDeclaration).filter(n => CORE_FUNCTIONS.includes(n.name.text)).map(n => n.getText(ast)).join('\n');
 const extCode = fs.readFileSync(path.join(root, 'n8n/sources/joyeria_extension.js'), 'utf8');
@@ -176,7 +176,7 @@ async function runTurn(chatId, text, turnIndex, name) {
   // 3. finalize
   const before = outbox.length;
   const result = await load(decided).runRetailTurnFinalize(context, pipeline, history, { raw_payload: {} }, { lockedByHuman: false });
-  return { semantic: prepared.semantic_intent, semanticFailure: prepared.semantic_failure, decision: decided.commercial_decision, delivered, execution: result.retail_execution, error: savedError,
+  return { semantic: prepared.semantic_intent, semanticFailure: prepared.semantic_failure, semanticCatalog: prepared.semantic_catalog, decision: decided.commercial_decision, delivered, execution: result.retail_execution, error: savedError,
     sent: outbox.slice(before) };
 }
 
@@ -188,7 +188,8 @@ function report(label, text, r) {
   const s = r.semantic || {};
   console.log('  [interpretação] intenção=' + s.primary_intent + ' confiança=' + s.confidence + ' decisão=' + s.customer_decision?.value
     + ' interesse=' + s.commercial_interest?.present + ' material=' + s.material_requested?.value
-    + ' produtos=' + (s.products || []).map(p => nameOf(p.item_id) + '(' + p.role + ')').join('; '));
+    + ' produtos=' + (s.products || []).map(p => nameOf(p.item_id) + '(' + p.role + ')').join('; ')
+    + (r.semanticCatalog ? ' | catálogo=' + r.semanticCatalog.mode + ' ' + r.semanticCatalog.sent + '/' + r.semanticCatalog.total : ''));
   console.log('  [EXT] status=' + d.status + ' motivos=' + (d.reason_codes || []).join(',')
     + ' | aviso=' + (a.notify_specialist?.required ? a.notify_specialist.reasons.join('+') : 'não')
     + ' | handoff=' + (a.handoff?.required ? a.handoff.reason : 'não')

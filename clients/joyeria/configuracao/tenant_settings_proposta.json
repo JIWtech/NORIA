@@ -55,7 +55,8 @@
     ],
     "max_photos_per_turn": 2,
     "site_link": { "enabled": true },
-    "candidate_limit": 250
+    "candidate_limit": 250,
+    "prefilter_limit": 30
   },
   "specialist_notification": {
     "recipient": "5522997963611"

@@ -28,6 +28,13 @@ Vocabulário declarado pela EXT em `modules.turn_pipeline.semantic_vocabulary`. 
 - `human`: pedido explícito de pessoa; `exchange`: pedido de troca; `home_visit`: visita domiciliar com localidade.
 - `conversation`: mudança de assunto, correção de intenção, necessidade de esclarecimento.
 
+**Recorte do catálogo** (`retailCatalogShortlist`): o Gemini não recebe o catálogo inteiro. O motor escolhe os itens que a
+conversa cita (nome, modelo, linha, categoria e largura, com tolerância a erro de digitação), soma os já apresentados na
+sessão e envia cada item com um código curto (`c1`, `c2`…) no lugar do id; `retailResolveProducts` traduz de volta e
+descarta código desconhecido. Sem nenhum acerto discriminante, vai o catálogo inteiro. Tamanho em
+`settings.retail_policy.prefilter_limit` (padrão 30, máximo 40; `0` desliga). O resultado fica em `semantic_catalog`
+(`mode`, `sent`, `total`). Plano e motivação: [retail_catalog_prefilter_plan.md](retail_catalog_prefilter_plan.md).
+
 ## Decisão da EXT (contrato)
 
 Campos de identidade iguais aos do `services_v1` (`tenant_id`, `tenant_slug`, `instance`, `remote_jid`, `session_id`, `request_id`, `turn_token`, `contract`, `provenance`, `noria_contract_version`, `status`). Ações:

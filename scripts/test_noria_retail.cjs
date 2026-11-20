@@ -27,15 +27,88 @@ test('esquema semântico usa o vocabulário declarado e restringe item_id aos ca
   }
 });
 
-test('catálogo grande: item_id sem lista fechada no esquema e produto fora dos candidatos é descartado', () => {
-  const many = Array.from({ length: 200 }, (_, i) => id(i + 1));
+test('catálogo grande: item_id sem lista fechada no esquema', () => {
+  const many = Array.from({ length: 200 }, (_, i) => 'c' + (i + 1));
   const schema = R.retailSemanticSchema(VOCAB, many);
   assert.equal(schema.properties.products.items.properties.item_id.enum, undefined);
   assert.equal(schema.properties.products.items.properties.item_id.type, 'STRING');
-  const filtered = R.retailKnownProducts({ products: [{ item_id: id(3) }, { item_id: 'inventado' }, {}] }, many);
-  assert.deepEqual(filtered.products, [{ item_id: id(3) }]);
-  assert.equal(filtered.discarded_products, 2);
-  assert.equal(R.retailKnownProducts(null, many), null);
+});
+
+// ------------------------------------------------------------------- recorte do catálogo (pré-filtro)
+// Catálogo genérico: 50 itens "comuns" com a mesma palavra e alguns itens com nomes próprios, larguras e variações.
+const uid = n => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+const CAT = [
+  ...Array.from({ length: 50 }, (_, i) => ({ item_id: uid(i + 1), name: 'Camiseta Lisa ' + (i + 1), category: 'vestuario', line: null, model: null, width_mm: null })),
+  { item_id: uid(101), name: 'Pulseira Elegance 4 mm', category: 'acessorio', line: 'Premium', model: 'Elegance', width_mm: 4 },
+  { item_id: uid(102), name: 'Pulseira Elegance 6 mm', category: 'acessorio', line: 'Premium', model: 'Elegance', width_mm: 6 },
+  { item_id: uid(103), name: 'Pulseira Prisma 4 mm', category: 'acessorio', line: 'Premium', model: 'Prisma', width_mm: 4 },
+  { item_id: uid(104), name: 'Bolsa Abaulada Couro', category: 'bolsa', line: null, model: null, width_mm: null },
+  { item_id: uid(105), name: 'Bolsa Abaulada Couro', category: 'bolsa', line: null, model: null, width_mm: null },
+];
+const names = list => list.map(item => item.name);
+
+test('recorte: catálogo pequeno ou recorte desligado envia tudo, com códigos curtos', () => {
+  const small = R.retailCatalogShortlist(CAT.slice(48), { current: ['oi'] });
+  assert.equal(small.mode, 'all');
+  assert.equal(small.items.length, 7);
+  assert.deepEqual(small.items.map(item => item.code), ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7']);
+  const off = R.retailCatalogShortlist(CAT, { current: ['Elegance'] }, { limit: 0 });
+  assert.equal(off.mode, 'all');
+  assert.equal(off.items.length, CAT.length);
+});
+
+test('recorte: tolera erro de digitação e prioriza a largura citada', () => {
+  const r = R.retailCatalogShortlist(CAT, { current: ['quanto custa a Eleganci de 6mm?'] });
+  assert.equal(r.mode, 'match');
+  assert.equal(r.items[0].item_id, uid(102));
+  assert.ok(names(r.items).includes('Pulseira Elegance 4 mm'));
+  assert.ok(!r.items.some(item => item.name.startsWith('Camiseta')));
+  const p = R.retailCatalogShortlist(CAT, { current: ['e a Prizma de 4,0 mm?'] });
+  assert.equal(p.items[0].item_id, uid(103));
+});
+
+test('recorte: variações com o mesmo nome entram juntas', () => {
+  const r = R.retailCatalogShortlist(CAT, { current: ['tem a bolsa abalada?'] });
+  assert.equal(r.mode, 'match');
+  assert.deepEqual(r.items.filter(item => item.name === 'Bolsa Abaulada Couro').map(item => item.item_id), [uid(104), uid(105)]);
+});
+
+test('recorte: contexto da sessão e itens já apresentados continuam no recorte', () => {
+  const ctx = R.retailCatalogShortlist(CAT, { current: ['manda as fotos dela'], context: ['gostei da Prisma'] });
+  assert.equal(ctx.mode, 'match');
+  assert.equal(ctx.items[0].item_id, uid(103));
+  const kept = R.retailCatalogShortlist(CAT, { current: ['e a Elegance?'] }, { keepIds: [uid(7)] });
+  assert.ok(kept.items.some(item => item.item_id === uid(7)));
+});
+
+test('recorte: mensagem vaga ou só com palavra comum a muitos itens envia o catálogo inteiro', () => {
+  assert.equal(R.retailCatalogShortlist(CAT, { current: ['qual o mais barato?'] }).mode, 'all');
+  const common = R.retailCatalogShortlist(CAT, { current: ['tem camiseta?'] });
+  assert.equal(common.mode, 'all');
+  assert.equal(common.items.length, CAT.length);
+});
+
+test('recorte: nunca passa do limite da lista fechada do esquema', () => {
+  // 27 itens casam com "Elegance" e 15 já foram apresentados: o total passaria de 40.
+  const crowded = [...CAT, ...Array.from({ length: 25 }, (_, i) => ({ item_id: uid(200 + i), name: 'Pulseira Elegance Variante', category: 'acessorio', line: null, model: 'Elegance', width_mm: null }))];
+  const keepIds = Array.from({ length: 15 }, (_, i) => uid(i + 1));
+  const r = R.retailCatalogShortlist(crowded, { current: ['Elegance'] }, { keepIds });
+  assert.equal(r.mode, 'match');
+  assert.equal(r.items.length, R.RETAIL_ENUM_LIMIT);
+  assert.ok(keepIds.every(itemId => r.items.some(item => item.item_id === itemId)));
+  assert.ok(R.retailSemanticSchema(VOCAB, r.items.map(item => item.code)).properties.products.items.properties.item_id.enum);
+});
+
+test('códigos curtos voltam ao item_id; código inventado ou item fora do recorte é descartado', () => {
+  const r = R.retailCatalogShortlist(CAT, { current: ['Elegance'] });
+  const catalog = R.retailCatalogForModel(r.items);
+  assert.ok(catalog.every(entry => /^c\d+$/.test(entry.item_id)));
+  assert.ok(!JSON.stringify(catalog).includes(uid(101)));
+  const code = r.items.find(item => item.item_id === uid(101)).code;
+  const out = R.retailResolveProducts({ products: [{ item_id: code, role: 'selected' }, { item_id: 'c999' }, { item_id: uid(7) }, { item_id: uid(102) }, {}] }, r.items);
+  assert.deepEqual(out.products, [{ item_id: uid(101), role: 'selected' }, { item_id: uid(102) }]);
+  assert.equal(out.discarded_products, 3);
+  assert.equal(R.retailResolveProducts(null, r.items), null);
 });
 
 test('vocabulário incompleto ou com item inválido é configuração inválida', () => {
