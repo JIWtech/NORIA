@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T22:22:59.003Z',
-  core_sha256: 'ccf28a06426a447161849da8b30bc8bce4b5234db238d790aa2265acf04f1f08',
+  built_at: '2026-11-20T22:28:42.573Z',
+  core_sha256: 'b57ce522a061411bf79306e3e2ec4ffceb89dd85286bc5e9b757b8ad5d3d0e49',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6409,6 +6409,8 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   if (!teamHandoff && /\b(continuar|seguir|assumir)\b[^.!?]{0,30}\b(atendimento|por aqui)\b/i.test(String(reply || ''))) failures.push('TEAM_CLAIM_WITHOUT_HANDOFF');
   // Ortografia (verificação técnica, não semântica): palavras comuns escritas sem o acento obrigatório.
   if (/\b(voce|nao|ola|alguem|tambem|ate|ja|so|entao|informacao|opcao|opcoes)\b/i.test(String(reply || ''))) failures.push('ACCENT_MISSING');
+  // Afirmar que o negócio não tem um produto (os dados só provam presença, nunca ausência). "Não temos pronta entrega" é condição, não ausência.
+  if (/\bn[aã]o\s+(temos|trabalhamos\s+com|vendemos|possu[ií]mos)\b(?!\s+pronta)/i.test(String(reply || ''))) failures.push('UNAVAILABILITY_CLAIM');
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
   if (!photosSent && /\b(enviando|envio|mandando|segue|seguem)\b[^.!?]{0,40}\bfotos?\b/i.test(String(reply || ''))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
@@ -6444,7 +6446,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     'Tarefa: redigir a resposta ao cliente seguindo as instruções do negócio acima, coerente com recent_conversation.',
     'Fatos de produto só de product_facts: nome, modelo, linha, medida e preço exatamente como estão (price). Não crie nome de produto nem atribua a um item dados de outro.',
     'Ausência de um produto, categoria ou serviço nos dados não prova que o negócio não o tenha: nunca afirme que não tem; diga que vai verificar.',
-    'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir (com photos_already_in_conversation, diga que já estão acima na conversa); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
+    'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir; elas chegam logo depois desta mensagem, então não diga que já foram enviadas (com photos_already_in_conversation, já estão na conversa); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
     'Especialista: se specialist_line_will_be_appended for verdadeiro, não anuncie nem ofereça contato de especialista (o sistema acrescenta a frase aprovada). Equipe: só diga que alguém vai continuar o atendimento se team_handoff for verdadeiro, sem citar nome.',
     ...(revisionNote ? [revisionNote] : []),
   ]);
@@ -6611,8 +6613,9 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     if (audit.length) {
       composed = await compose('Revise: a versão anterior falhou na conferência (' + audit.join(', ') + '). Corrija sem esses problemas.');
       audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
-      // Acentuação é refeita uma vez; persistindo só ela, a resposta segue (não derruba o atendimento por ortografia).
-      audit = audit.filter(code => code !== 'ACCENT_MISSING');
+      // Acentuação e afirmação de ausência são refeitas uma vez; persistindo só elas, a resposta segue (verificação
+      // por padrão de texto pode errar, e não deve derrubar o atendimento).
+      audit = audit.filter(code => !['ACCENT_MISSING', 'UNAVAILABILITY_CLAIM'].includes(code));
       if (audit.length) throw new Error('RETAIL_AUDIT_FAILED:' + audit.join(','));
     }
     text = [composed.reply, siteLinkItem ? siteLinkItem.site_url : '', customerLine || ''].filter(Boolean).join('\n\n');

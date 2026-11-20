@@ -71,6 +71,9 @@ test('auditoria da redação: preço não autorizado, link e telefone são recus
   assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: true }), []);
   assert.deepEqual(retailAuditReply('Ola. Alguem pode ajudar voce.', items), ['ACCENT_MISSING']);
   assert.deepEqual(retailAuditReply('Olá. Essa joia é linda e a equipe confirma o valor.', items), []);
+  assert.deepEqual(retailAuditReply('Não temos esses itens, só alianças.', items), ['UNAVAILABILITY_CLAIM']);
+  assert.deepEqual(retailAuditReply('Nós não trabalhamos com relógios.', items), ['UNAVAILABILITY_CLAIM']);
+  assert.deepEqual(retailAuditReply('São feitas sob medida: não temos pronta entrega.', items), []);
 });
 
 // ------------------------------------------------------------------- finalize com efeitos simulados
