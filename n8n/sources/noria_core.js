@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T21:39:23.163Z',
-  core_sha256: '1097437cc084bb08775838cc1e94baf0705cfa94a78bdf5ec3db0352fc5b968c',
+  built_at: '2026-11-20T21:46:55.396Z',
+  core_sha256: 'b40b356f8de5c871edab05b1c527a348f6ba5394667562fcff916cc0f2d5e7d7',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5567,10 +5567,11 @@ function servicesAuthorized(decision) {
   };
 }
 
-async function servicesGeminiJson(context, label, input, schema, extraRules = [], { persona = true, thinkingBudget = 512, maxOutputTokens = 4096 } = {}) {
+async function servicesGeminiJson(context, label, input, schema, extraRules = [], { persona = true, thinkingBudget = 512, maxOutputTokens = 4096, model: modelOverride = '' } = {}) {
   const settings = settingsFor(context);
   const prompt = persona ? String(settings.system_prompt || '').trim() : '';
-  const model = String(settings.ai_model || '');
+  // Modelo da chamada: o informado pela fase (ex.: modelo de interpretação do tenant) ou o ai_model do tenant, como antes.
+  const model = String(modelOverride || settings.ai_model || '');
   if ((persona && !prompt) || !/^gemini-[a-z0-9.-]+$/.test(model)) throw new Error('SERVICES_GEMINI_CONFIG_MISSING');
   if (!usageGate(context).allowed) throw new Error('SERVICES_USAGE_LIMIT');
   const body = await httpJson('POST', 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent',
@@ -6352,7 +6353,9 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
         ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current' }))],
       assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
       catalog: candidates.items, catalog_complete: candidates.complete, session_id: identity.session_id,
-    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)), RETAIL_SEMANTIC_RULES, { persona: false });
+    }, retailSemanticSchema(pipeline.semantic_vocabulary, candidates.items.map(item => item.item_id)), RETAIL_SEMANTIC_RULES,
+    // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.
+    { persona: false, model: /^gemini-[a-z0-9.-]+$/.test(String(settings.semantic_model || '')) ? settings.semantic_model : '' });
     semantic = generated.value && typeof generated.value === 'object' ? { ...generated.value, contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
   } catch (error) { semanticFailure = String(error?.message || error).slice(0, 120); }
@@ -6426,7 +6429,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
     'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa.',
     'Se reason_codes contiver CLARIFICATION_REQUIRED, faça uma pergunta curta para entender o que o cliente procura antes de afirmar qualquer coisa. Se contiver HOME_VISIT_LOCALITY_MISSING, pergunte a cidade ou bairro.',
-    'Se opening=false, não abra com saudação. Mensagens curtas, sem inventar fatos.',
+    'Se opening=false, não abra com saudação. Resposta CURTA: no máximo duas ou três frases curtas (cerca de 300 caracteres), sem repetir o que o cliente disse e sem inventar fatos.',
     ...(revisionNote ? [revisionNote] : []),
   ]);
   return { reply: cleanReplyText(String(generated.value?.reply || '')), model: generated.model, usage: generated.usage };

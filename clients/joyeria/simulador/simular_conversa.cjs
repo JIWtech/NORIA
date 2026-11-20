@@ -25,7 +25,7 @@ const TENANT = '9f3c1e2a-5b7d-4c8e-9a1b-2c3d4e5f6a7b';
 const ORIGIN = 'https://simulador.supabase.co';
 const uuid = seed => { const h = crypto.createHash('sha1').update(seed).digest('hex'); return h.slice(0, 8) + '-' + h.slice(8, 12) + '-4' + h.slice(13, 16) + '-8' + h.slice(17, 20) + '-' + h.slice(20, 32); };
 const proposta = JSON.parse(fs.readFileSync(path.join(root, 'clients/joyeria/configuracao/tenant_settings_proposta.json'), 'utf8').replace('<TENANT_ID>', TENANT).replace('<NUMERO_DE_TESTE>', '5500000000000'));
-const settings = { ...proposta, ai_model: MODEL, system_prompt: fs.readFileSync(path.join(root, 'clients/joyeria/prompts/system_prompt_v1.txt'), 'utf8'),
+const settings = { ...proposta, ai_model: MODEL, ...(process.env.SIM_SEMANTIC_MODEL ? { semantic_model: process.env.SIM_SEMANTIC_MODEL } : {}), system_prompt: fs.readFileSync(path.join(root, 'clients/joyeria/prompts/system_prompt_v1.txt'), 'utf8'),
   noria_turn_pipeline: { ...proposta.noria_turn_pipeline, enabled: true, rollout: 'all' } };
 const policy = settings.noria_client_policy;
 
