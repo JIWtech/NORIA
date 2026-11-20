@@ -71,9 +71,13 @@ Fonte: migration pendente `20261120200000_product_catalog` e carga gerada por `s
 | --- | --- | --- |
 | Catálogo (schema) | `supabase/migrations_pending_review/20261120200000_product_catalog.sql` | Pronto, testado em PGlite, **não aplicado** |
 | Carga do catálogo | `scripts/product_catalog_load.cjs` + `clients/joyeria/catalogo_pdf/carga/` | Pronto, testado em PGlite, **não executado** |
-| EXT JOYERÍA | `n8n/sources/joyeria_extension.js` | Pronta, 18 testes, não ligada ao gerador |
-| Funções puras do CORE | `n8n/sources/noria_retail.js` | Prontas, 14 testes, não embutidas no motor |
-| Integração ao CORE, roteador, gerador e painel | — | Plano abaixo |
+| EXT JOYERÍA | `n8n/sources/joyeria_extension.js` | Pronta e testada; gerada como workflow próprio para importação (`NORIA-EXT-JOYERIA-Decisao-Comercial.json`) |
+| Funções puras do CORE | `n8n/sources/noria_retail.js` | Projetadas na região `retail_v1` do motor pelo gerador |
+| Fases do CORE (prepare, finalize, fotos, aviso) | `n8n/sources/noria_core.js` | Implementadas e testadas com funções reais do motor (etapas 1–6) |
+| Roteador e gerador | `n8n/sources/noria_router.js`, `scripts/build_noria_workflows.cjs` | Implementados (etapas 7–8); cadeia `CORE \| Retail \| …` gerada |
+| Painel | `app/src/…` | Eventos do aviso e das fotos reconhecidos (etapa 9) |
+| Configuração da JOYERÍA | `clients/joyeria/configuracao/tenant_settings_proposta.json` | Proposta testada, **não aplicada** (etapa 10) |
+| Publicação | — | **Não feita**: exige autorização (exports regenerados, workflow da EXT criado no n8n, migration, carga, variáveis de ambiente) |
 
 ## Plano de integração ao CORE (sem quebrar os tenants atuais)
 
