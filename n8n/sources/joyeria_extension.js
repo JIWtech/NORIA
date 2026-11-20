@@ -241,7 +241,7 @@ if (interestedItems.some(item => !presentable.includes(item))) decision.reason_c
 //    na sessão (o CORE informa em media_sent_item_ids o que já foi enviado nesta sessão, para não repetir a cada mensagem).
 const focus = presentable.length === 1 ? presentable[0] : null;
 const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
-const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'purchase_intent'].includes(v.primary_intent);
+const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'price_inquiry', 'purchase_intent'].includes(v.primary_intent);
 if (maxPhotos > 0 && focus && !A.handoff.required && !uncertain && (v.photos.on || firstPresentation)) {
   const links = await get('product_catalog_item_images?select=asset_id,display_order,review_status&tenant_id=eq.' + enc(tenantId)
     + '&item_id=eq.' + enc(focus.id) + '&review_status=eq.aprovada&order=display_order.asc&limit=' + maxPhotos);

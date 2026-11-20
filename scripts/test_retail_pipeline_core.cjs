@@ -64,6 +64,9 @@ test('auditoria da redação: preço não autorizado, link e telefone são recus
   assert.deepEqual(retailAuditReply('Chame no 22 99999-0000', items), ['PHONE_NOT_ALLOWED']);
   assert.deepEqual(retailAuditReply('Prazo de até 10 dias úteis, 2 mm.', items), []);
   assert.deepEqual(retailAuditReply('   ', items), ['EMPTY_REPLY']);
+  assert.deepEqual(retailAuditReply('O link para finalizar está abaixo.', items, { linkAppended: false }), ['LINK_CLAIM_WITHOUT_LINK']);
+  assert.deepEqual(retailAuditReply('Estou enviando as fotos.', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
+  assert.deepEqual(retailAuditReply('Estou enviando as fotos e o link.', items, { linkAppended: true, photosSent: true }), []);
 });
 
 // ------------------------------------------------------------------- finalize com efeitos simulados

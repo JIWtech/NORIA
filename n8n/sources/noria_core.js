@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T16:13:30.523Z',
-  core_sha256: '88ca16cf4cdb79345f0785ad027b67a785ab28c07f88c30f4769fa51e114780b',
+  built_at: '2026-11-20T21:07:00.491Z',
+  core_sha256: 'c3b25bb611077b121c96e6c3cca9c41a82c5dc714c0473871d308ba90f9b44c2',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5185,7 +5185,9 @@ const RETAIL_SEMANTIC_RULES = [
   'customer_decision: refere-se a uma compra NOVA nesta conversa. decided quando o cliente já sabe exatamente o que quer comprar agora, seja desde a primeira mensagem ou depois de conversar; exploring quando está escolhendo; undefined quando não há sinal ou quando fala de uma peça que já comprou (pós-venda, cuidados, troca).',
   'Use model e width_mm de cada item de catalog para casar o pedido do cliente (ex.: abaulada x reta); não cite item de outro modelo.',
   'material_requested: material que o próprio cliente pediu (ex.: ouro maciço). Peça banhada, folheada, revestida ou encapada nunca é ouro maciço. Sem pedido de material, use none.',
-  'human: pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
+  'human: só verdadeiro quando o cliente pede expressamente para falar com uma pessoa, atendente ou humano. Querer fechar a compra ou perguntar "como faço o pedido" NÃO é pedido de humano.',
+  'wants_photos: só verdadeiro quando o cliente pede para ver ou receber foto. Perguntar sobre uma foto já enviada (ex.: "essa da foto é a de 6 mm?") não é pedido de nova foto.',
+  'human (complemento): pedido explícito para falar com uma pessoa. exchange: pedido de troca. home_visit: pedido de atendimento em casa; preencha locality só se o cliente disse a cidade ou bairro.',
   'Marque requires_clarification ou ambiguities quando não for possível saber a que produto ou pedido o cliente se refere. Na dúvida, prefira confidence low.',
 ];
 
@@ -6380,8 +6382,11 @@ function retailFormatPrice(cents) {
 }
 
 // Auditoria determinística da redação: só preços dos itens autorizados; nenhum link ou telefone gerado pelo modelo.
-function retailAuditReply(reply, items) {
+function retailAuditReply(reply, items, { linkAppended = true, photosSent = true } = {}) {
   const failures = [];
+  // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
+  if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
+  if (!photosSent && /\b(enviando|envio|mandando|segue|seguem)\b[^.!?]{0,40}\bfotos?\b/i.test(String(reply || ''))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
   const text = String(reply || '');
   if (!text.trim()) failures.push('EMPTY_REPLY');
   const allowedPrices = new Set(items.map(item => Number(item.price_cents)));
@@ -6413,6 +6418,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     'Descreva cada item só pelo que está em product_facts (model, line, width_mm); nunca atribua a um item o modelo ou a largura de outro.',
     'Preços só os de product_facts, escritos exatamente como em price. Não cite preço, desconto, parcela, prazo ou condição que não esteja nas instruções do negócio ou em product_facts.',
     'Não escreva links, endereços de site nem números de telefone: o sistema anexa o link quando site_link_will_be_appended for verdadeiro.',
+    'Nunca diga que um link está abaixo ou sendo enviado se site_link_will_be_appended for falso, nem que está enviando fotos se photos_being_sent for nulo.',
     'Se photos_being_sent existir, diga com naturalidade que está enviando as fotos; se shared_note existir, deixe claro que a foto mostra o modelo e informe a largura do item no texto.',
     'Se specialist_line_will_be_appended for verdadeiro, não anuncie especialista nem repasse de atendimento: o sistema acrescenta a frase aprovada.',
     'Se team_handoff for verdadeiro, diga que alguém da equipe vai continuar por aqui, sem citar nome de pessoa.',
@@ -6578,10 +6584,11 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
       media: mediaForText, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
     composed = await compose('');
-    audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)));
+    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText) };
+    audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
     if (audit.length) {
       composed = await compose('Revise: a versão anterior falhou na conferência (' + audit.join(', ') + '). Corrija sem esses problemas.');
-      audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)));
+      audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
       if (audit.length) throw new Error('RETAIL_AUDIT_FAILED:' + audit.join(','));
     }
     text = [composed.reply, siteLinkItem ? siteLinkItem.site_url : '', customerLine || ''].filter(Boolean).join('\n\n');
