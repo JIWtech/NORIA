@@ -17,7 +17,8 @@ const { buildSpec } = require(path.join(root, 'clients/joyeria/catalogo_pdf/gera
 const envFile = fs.readFileSync(path.join(root, '.env'), 'utf8');
 const GEMINI_KEY = (/^GEMINI_API_KEY=(.+)$/m.exec(envFile) || [])[1]?.trim().replace(/^["']|["']$/g, '');
 if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY ausente no .env');
-const MODEL = 'gemini-3.5-flash-lite';
+// Modelo de produção por padrão; SIM_MODEL permite comparar outro modelo sem mudar nada no tenant.
+const MODEL = process.env.SIM_MODEL || 'gemini-3.5-flash-lite';
 
 // ------------------------------------------------------------------- dados do tenant em memória
 const TENANT = '9f3c1e2a-5b7d-4c8e-9a1b-2c3d4e5f6a7b';
