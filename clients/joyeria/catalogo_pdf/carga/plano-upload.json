@@ -1,0 +1,242 @@
+[
+  {
+    "sha256": "6ee41b6bc04bae3cf47f00d86ff2dec4047bcc99686d31e2f7b8507c09770714",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 179594,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-05-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/6ee41b6bc04bae3cf47f00d86ff2dec4047bcc99686d31e2f7b8507c09770714.jpg"
+  },
+  {
+    "sha256": "9ac0fa441d098171319907a186c2a3083bd1fa7ac07862b6dcb0605240e5bff0",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 138202,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-05-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/9ac0fa441d098171319907a186c2a3083bd1fa7ac07862b6dcb0605240e5bff0.jpg"
+  },
+  {
+    "sha256": "0763fdef7a028b1ee3cb8571966ee9446a63ec18a82b1d59bed067ff1378e204",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 126904,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-06-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/0763fdef7a028b1ee3cb8571966ee9446a63ec18a82b1d59bed067ff1378e204.jpg"
+  },
+  {
+    "sha256": "55b6e41a5847cf2417c26da7a64534b9d5de119dd70085a1a11474f6776d6a07",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 145727,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-06-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/55b6e41a5847cf2417c26da7a64534b9d5de119dd70085a1a11474f6776d6a07.jpg"
+  },
+  {
+    "sha256": "6926188bf2ce5dd98624921475a4e185db304071b0fc2d9fe948f344fd1cfb24",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 139973,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-07-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/6926188bf2ce5dd98624921475a4e185db304071b0fc2d9fe948f344fd1cfb24.jpg"
+  },
+  {
+    "sha256": "616cd02de121e6020f4839207441f9a2b33adc9e49cb8d8c247506b3beac7f01",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 119274,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-07-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/616cd02de121e6020f4839207441f9a2b33adc9e49cb8d8c247506b3beac7f01.jpg"
+  },
+  {
+    "sha256": "d45ea3ddc5bd59e719b26232aa305119f0be35a3b82aec3cdd7b87db3c0985df",
+    "mime_type": "image/png",
+    "file_size_bytes": 573868,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-08-imagem-01.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/d45ea3ddc5bd59e719b26232aa305119f0be35a3b82aec3cdd7b87db3c0985df.png"
+  },
+  {
+    "sha256": "ad2fdd7a86234e5ec47db4179ec7f30095bfb0b5289c2e28847a09aee62f304b",
+    "mime_type": "image/png",
+    "file_size_bytes": 514193,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-08-imagem-02.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/ad2fdd7a86234e5ec47db4179ec7f30095bfb0b5289c2e28847a09aee62f304b.png"
+  },
+  {
+    "sha256": "a3e38aa2c9f0d384fa992cb51123a14ab7be8507d3c40e6b66c394a3be5c8c21",
+    "mime_type": "image/png",
+    "file_size_bytes": 578825,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-09-imagem-01.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/a3e38aa2c9f0d384fa992cb51123a14ab7be8507d3c40e6b66c394a3be5c8c21.png"
+  },
+  {
+    "sha256": "80c8400905d7ea259a334883c18b5c2a3a57d4199529813a0da6020046656c9e",
+    "mime_type": "image/png",
+    "file_size_bytes": 514630,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-09-imagem-02.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/80c8400905d7ea259a334883c18b5c2a3a57d4199529813a0da6020046656c9e.png"
+  },
+  {
+    "sha256": "c473a74800e27488151c1af13269af19ea462cafff58462d5fbbef82c7c50216",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 140574,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-10-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/c473a74800e27488151c1af13269af19ea462cafff58462d5fbbef82c7c50216.jpg"
+  },
+  {
+    "sha256": "9dec3b7fb87b45a71f2a25725a3f0fd502706d9f027d06a5bb58e6ae948f84bd",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 132349,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-10-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/9dec3b7fb87b45a71f2a25725a3f0fd502706d9f027d06a5bb58e6ae948f84bd.jpg"
+  },
+  {
+    "sha256": "5c43c08a7005a26ab0c5331f10113318f309a439899e36758d7e91d372f9864e",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 143038,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-11-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/5c43c08a7005a26ab0c5331f10113318f309a439899e36758d7e91d372f9864e.jpg"
+  },
+  {
+    "sha256": "9ee21608d3c3373a4b02fe88e969e3cb9a3c8c1c5790dfade1a0a3720d3e204c",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 142374,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-11-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/9ee21608d3c3373a4b02fe88e969e3cb9a3c8c1c5790dfade1a0a3720d3e204c.jpg"
+  },
+  {
+    "sha256": "fe73c3d9152a095891abba376ce6ea8ce75d5b7c67728b4f20b4faa2c57f9f20",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 137957,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-12-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/fe73c3d9152a095891abba376ce6ea8ce75d5b7c67728b4f20b4faa2c57f9f20.jpg"
+  },
+  {
+    "sha256": "672691caead230a969d1c6252c75152d57c8dee4032c7e86139cbcd2e4744173",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 237222,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-12-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/672691caead230a969d1c6252c75152d57c8dee4032c7e86139cbcd2e4744173.jpg"
+  },
+  {
+    "sha256": "cfa412c4d13b94a0cfea03a5683a7e31e97c6d4ef9271aeb281c08eae5ce50d0",
+    "mime_type": "image/png",
+    "file_size_bytes": 553293,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-13-imagem-01.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/cfa412c4d13b94a0cfea03a5683a7e31e97c6d4ef9271aeb281c08eae5ce50d0.png"
+  },
+  {
+    "sha256": "52ad4c9a112fa9aee7086a2728d6912f946ee3229e75d9a340b3f1f123cd8750",
+    "mime_type": "image/png",
+    "file_size_bytes": 514577,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-13-imagem-02.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/52ad4c9a112fa9aee7086a2728d6912f946ee3229e75d9a340b3f1f123cd8750.png"
+  },
+  {
+    "sha256": "16cfa049ed25830547a10c938c9c771dc36024095a0b1151101c412f68e65de0",
+    "mime_type": "image/png",
+    "file_size_bytes": 553070,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-14-imagem-01.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/16cfa049ed25830547a10c938c9c771dc36024095a0b1151101c412f68e65de0.png"
+  },
+  {
+    "sha256": "e9dccfd0a74c7d4a76da7c6c71de0cfeefc46976f1a17484dfe9fdc9bc7638a5",
+    "mime_type": "image/png",
+    "file_size_bytes": 521177,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-14-imagem-02.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/e9dccfd0a74c7d4a76da7c6c71de0cfeefc46976f1a17484dfe9fdc9bc7638a5.png"
+  },
+  {
+    "sha256": "e3f317984697ddb5fbee6177f6c104ad56e8aee2a1a9d5e1246c61769c806ce8",
+    "mime_type": "image/png",
+    "file_size_bytes": 559983,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-15-imagem-01.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/e3f317984697ddb5fbee6177f6c104ad56e8aee2a1a9d5e1246c61769c806ce8.png"
+  },
+  {
+    "sha256": "0932f97faf4a2dc3cf9824e1b3c8881f1cb873c86e8f76a3a159d4e85b419b3c",
+    "mime_type": "image/png",
+    "file_size_bytes": 528134,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-15-imagem-02.png",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/0932f97faf4a2dc3cf9824e1b3c8881f1cb873c86e8f76a3a159d4e85b419b3c.png"
+  },
+  {
+    "sha256": "408d9ee4d6adc5b247eee7e6b3fb5820e56d722fde96e79460fa5faaba1c20d1",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 155403,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-16-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/408d9ee4d6adc5b247eee7e6b3fb5820e56d722fde96e79460fa5faaba1c20d1.jpg"
+  },
+  {
+    "sha256": "921f5ee8260d6beb0bd7b7a13b4c373a7e01646238686461b306ffa8db6cb85d",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 103323,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-16-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/921f5ee8260d6beb0bd7b7a13b4c373a7e01646238686461b306ffa8db6cb85d.jpg"
+  },
+  {
+    "sha256": "efcd4ed3b79723160f2cd561e6ee32cb0a8020687251b95bca5e28d322382978",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 152806,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-17-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/efcd4ed3b79723160f2cd561e6ee32cb0a8020687251b95bca5e28d322382978.jpg"
+  },
+  {
+    "sha256": "37c3220cdea5b47b2ddeb6d878f1cba9ac56b140a68abbdb73386d43ffa03ea1",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 110881,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-17-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/37c3220cdea5b47b2ddeb6d878f1cba9ac56b140a68abbdb73386d43ffa03ea1.jpg"
+  },
+  {
+    "sha256": "14688ad58e8b42d6d12b8fedf3dc787040a0da41f914b943401d1953d2d0fa19",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 209838,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-18-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/14688ad58e8b42d6d12b8fedf3dc787040a0da41f914b943401d1953d2d0fa19.jpg"
+  },
+  {
+    "sha256": "d02322227c2fa2d451d2d4db5a0ba5d883c9ada88849fbcd9ee08da31027e4bc",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 109686,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-18-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/d02322227c2fa2d451d2d4db5a0ba5d883c9ada88849fbcd9ee08da31027e4bc.jpg"
+  },
+  {
+    "sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 210980,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-19-imagem-01.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d.jpg"
+  },
+  {
+    "sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8",
+    "mime_type": "image/jpeg",
+    "file_size_bytes": 96143,
+    "local_file": "clients/joyeria/catalogo_pdf/imagens/pagina-19-imagem-02.jpg",
+    "storage_bucket": "product-catalog",
+    "storage_path_template": "catalog/{tenant_id}/4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8.jpg"
+  }
+]

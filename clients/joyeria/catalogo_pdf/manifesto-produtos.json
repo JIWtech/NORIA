@@ -1,0 +1,357 @@
+{
+  "origem": "catalogo-aliancas-joyeria-2026.pdf",
+  "sha256_pdf": "1ffa9bf2b2fb0a00d9c273a64c0abe459049b808ad226bcc12b555b461a7db7d",
+  "unidade": "par",
+  "moeda": "BRL",
+  "status": "rascunho local; não é carga aprovada",
+  "composicao": {
+    "classe": "blend",
+    "descricao": "Base em aço com ouro 18k incorporado (tecnologia BLEND); não é ouro maciço.",
+    "fonte": "catalogo-aliancas-joyeria-2026.pdf, página 3"
+  },
+  "precos": "Valores por par conforme o PDF, conferidos com o texto extraído em 20/11/2026; a IA usa os preços do catálogo.",
+  "imagens_compartilhadas": [
+    {
+      "id_fonte": ["pdf-2026-p19", "pdf-2026-p20"],
+      "observacao": "O próprio PDF usa a mesma foto para Prisma 5 mm e 6 mm (hashes idênticos, conferido na página renderizada). Informar a largura no texto que acompanha a imagem."
+    }
+  ],
+  "produtos": [
+    {
+      "id_fonte": "pdf-2026-p05",
+      "pagina_pdf": 5,
+      "linha": "Essence",
+      "modelo": "abaulada",
+      "largura_mm": 2,
+      "preco_par_brl": 980,
+      "descricao_pdf": "Delicadas e discretas, as alianças abauladas de 2 mm e 3 mm são perfeitas para quem busca leveza e sofisticação. Ideais para casais que desejam um símbolo sutil, elegante e confortável para o dia a dia.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-05-imagem-01.jpg",
+          "sha256": "6ee41b6bc04bae3cf47f00d86ff2dec4047bcc99686d31e2f7b8507c09770714"
+        },
+        {
+          "arquivo": "imagens/pagina-05-imagem-02.jpg",
+          "sha256": "9ac0fa441d098171319907a186c2a3083bd1fa7ac07862b6dcb0605240e5bff0"
+        }
+      ],
+      "revisao": "preco_confirmado_pelo_usuario",
+      "observacao": "Usuário confirmou R$ 980 por par em 20/11/2026; persona informa R$ 880."
+    },
+    {
+      "id_fonte": "pdf-2026-p06",
+      "pagina_pdf": 6,
+      "linha": "Essence",
+      "modelo": "abaulada",
+      "largura_mm": 3,
+      "preco_par_brl": 1396,
+      "descricao_pdf": "Delicadas e discretas, as alianças abauladas de 2 mm e 3 mm são perfeitas para quem busca leveza e sofisticação. Ideais para casais que desejam um símbolo sutil, elegante e confortável para o dia a dia.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-06-imagem-01.jpg",
+          "sha256": "0763fdef7a028b1ee3cb8571966ee9446a63ec18a82b1d59bed067ff1378e204"
+        },
+        {
+          "arquivo": "imagens/pagina-06-imagem-02.jpg",
+          "sha256": "55b6e41a5847cf2417c26da7a64534b9d5de119dd70085a1a11474f6776d6a07"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p07",
+      "pagina_pdf": 7,
+      "linha": "Classic",
+      "modelo": "abaulada",
+      "largura_mm": 4,
+      "preco_par_brl": 1540,
+      "descricao_pdf": "As alianças abauladas de 4 mm e 5 mm trazem equilíbrio entre a delicadeza e a presença marcante. São versáteis, atemporais e combinam perfeitamente com diferentes estilos, tornando-se uma escolha clássica para celebrar o amor.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-07-imagem-01.jpg",
+          "sha256": "6926188bf2ce5dd98624921475a4e185db304071b0fc2d9fe948f344fd1cfb24"
+        },
+        {
+          "arquivo": "imagens/pagina-07-imagem-02.jpg",
+          "sha256": "616cd02de121e6020f4839207441f9a2b33adc9e49cb8d8c247506b3beac7f01"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p08",
+      "pagina_pdf": 8,
+      "linha": "Classic",
+      "modelo": "abaulada",
+      "largura_mm": 5,
+      "preco_par_brl": 1640,
+      "descricao_pdf": "As alianças abauladas de 4 mm e 5 mm trazem equilíbrio entre a delicadeza e a presença marcante. São versáteis, atemporais e combinam perfeitamente com diferentes estilos, tornando-se uma escolha clássica para celebrar o amor.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-08-imagem-01.png",
+          "sha256": "d45ea3ddc5bd59e719b26232aa305119f0be35a3b82aec3cdd7b87db3c0985df"
+        },
+        {
+          "arquivo": "imagens/pagina-08-imagem-02.png",
+          "sha256": "ad2fdd7a86234e5ec47db4179ec7f30095bfb0b5289c2e28847a09aee62f304b"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p09",
+      "pagina_pdf": 9,
+      "linha": "Eternity",
+      "modelo": "abaulada",
+      "largura_mm": 6,
+      "preco_par_brl": 1824,
+      "descricao_pdf": "Imponentes e sofisticadas, as alianças abauladas de 6 mm e 7 mm se destacam pela presença e conforto. Uma escolha ideal para casais que desejam um símbolo de união com personalidade e elegância duradoura.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-09-imagem-01.png",
+          "sha256": "a3e38aa2c9f0d384fa992cb51123a14ab7be8507d3c40e6b66c394a3be5c8c21"
+        },
+        {
+          "arquivo": "imagens/pagina-09-imagem-02.png",
+          "sha256": "80c8400905d7ea259a334883c18b5c2a3a57d4199529813a0da6020046656c9e"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p10",
+      "pagina_pdf": 10,
+      "linha": "Eternity",
+      "modelo": "abaulada",
+      "largura_mm": 7,
+      "preco_par_brl": 1924,
+      "descricao_pdf": "Imponentes e sofisticadas, as alianças abauladas de 6 mm e 7 mm se destacam pela presença e conforto. Uma escolha ideal para casais que desejam um símbolo de união com personalidade e elegância duradoura.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-10-imagem-01.jpg",
+          "sha256": "c473a74800e27488151c1af13269af19ea462cafff58462d5fbbef82c7c50216"
+        },
+        {
+          "arquivo": "imagens/pagina-10-imagem-02.jpg",
+          "sha256": "9dec3b7fb87b45a71f2a25725a3f0fd502706d9f027d06a5bb58e6ae948f84bd"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p11",
+      "pagina_pdf": 11,
+      "linha": "Harmony",
+      "modelo": "reta",
+      "largura_mm": 2,
+      "preco_par_brl": 1020,
+      "descricao_pdf": "Minimalistas e discretas, traduzem modernidade com um toque de elegância. Ideais para quem busca conforto sem abrir mão do estilo.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-11-imagem-01.jpg",
+          "sha256": "5c43c08a7005a26ab0c5331f10113318f309a439899e36758d7e91d372f9864e"
+        },
+        {
+          "arquivo": "imagens/pagina-11-imagem-02.jpg",
+          "sha256": "9ee21608d3c3373a4b02fe88e969e3cb9a3c8c1c5790dfade1a0a3720d3e204c"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p12",
+      "pagina_pdf": 12,
+      "linha": "Harmony",
+      "modelo": "reta",
+      "largura_mm": 3,
+      "preco_par_brl": 1452,
+      "descricao_pdf": "Minimalistas e discretas, traduzem modernidade com um toque de elegância. Ideais para quem busca conforto sem abrir mão do estilo.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-12-imagem-01.jpg",
+          "sha256": "fe73c3d9152a095891abba376ce6ea8ce75d5b7c67728b4f20b4faa2c57f9f20"
+        },
+        {
+          "arquivo": "imagens/pagina-12-imagem-02.jpg",
+          "sha256": "672691caead230a969d1c6252c75152d57c8dee4032c7e86139cbcd2e4744173"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p13",
+      "pagina_pdf": 13,
+      "linha": "Versati",
+      "modelo": "reta",
+      "largura_mm": 4,
+      "preco_par_brl": 1588,
+      "descricao_pdf": "O equilíbrio entre tradição e modernidade. Com design versátil, são perfeitas para casais que valorizam sofisticação em cada detalhe.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-13-imagem-01.png",
+          "sha256": "cfa412c4d13b94a0cfea03a5683a7e31e97c6d4ef9271aeb281c08eae5ce50d0"
+        },
+        {
+          "arquivo": "imagens/pagina-13-imagem-02.png",
+          "sha256": "52ad4c9a112fa9aee7086a2728d6912f946ee3229e75d9a340b3f1f123cd8750"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p14",
+      "pagina_pdf": 14,
+      "linha": "Versati",
+      "modelo": "reta",
+      "largura_mm": 5,
+      "preco_par_brl": 1720,
+      "descricao_pdf": "O equilíbrio entre tradição e modernidade. Com design versátil, são perfeitas para casais que valorizam sofisticação em cada detalhe.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-14-imagem-01.png",
+          "sha256": "16cfa049ed25830547a10c938c9c771dc36024095a0b1151101c412f68e65de0"
+        },
+        {
+          "arquivo": "imagens/pagina-14-imagem-02.png",
+          "sha256": "e9dccfd0a74c7d4a76da7c6c71de0cfeefc46976f1a17484dfe9fdc9bc7638a5"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p15",
+      "pagina_pdf": 15,
+      "linha": "Queem",
+      "modelo": "reta",
+      "largura_mm": 6,
+      "preco_par_brl": 1924,
+      "descricao_pdf": "Fortes e marcantes, representam imponência e personalidade. A escolha certa para quem deseja um símbolo de união inesquecível.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-15-imagem-01.png",
+          "sha256": "e3f317984697ddb5fbee6177f6c104ad56e8aee2a1a9d5e1246c61769c806ce8"
+        },
+        {
+          "arquivo": "imagens/pagina-15-imagem-02.png",
+          "sha256": "0932f97faf4a2dc3cf9824e1b3c8881f1cb873c86e8f76a3a159d4e85b419b3c"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p16",
+      "pagina_pdf": 16,
+      "linha": "Elegance",
+      "modelo": "reta com friso lateral",
+      "largura_mm": 4,
+      "preco_par_brl": 1758,
+      "descricao_pdf": "O friso lateral adiciona um detalhe moderno e sofisticado às alianças clássicas. Uma escolha refinada para casais que buscam exclusividade com equilíbrio perfeito entre presença e conforto.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-16-imagem-01.jpg",
+          "sha256": "408d9ee4d6adc5b247eee7e6b3fb5820e56d722fde96e79460fa5faaba1c20d1"
+        },
+        {
+          "arquivo": "imagens/pagina-16-imagem-02.jpg",
+          "sha256": "921f5ee8260d6beb0bd7b7a13b4c373a7e01646238686461b306ffa8db6cb85d"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p17",
+      "pagina_pdf": 17,
+      "linha": "Elegance",
+      "modelo": "reta com friso lateral",
+      "largura_mm": 6,
+      "preco_par_brl": 1885,
+      "descricao_pdf": "O friso lateral adiciona um detalhe moderno e sofisticado às alianças clássicas. Uma escolha refinada para casais que buscam exclusividade com equilíbrio perfeito entre presença e conforto.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-17-imagem-01.jpg",
+          "sha256": "efcd4ed3b79723160f2cd561e6ee32cb0a8020687251b95bca5e28d322382978"
+        },
+        {
+          "arquivo": "imagens/pagina-17-imagem-02.jpg",
+          "sha256": "37c3220cdea5b47b2ddeb6d878f1cba9ac56b140a68abbdb73386d43ffa03ea1"
+        }
+      ],
+      "revisao": "preco_e_correspondencia_site_confirmados_pelo_usuario",
+      "observacao": "João confirmou: Elegance 6 mm é a mesma do site anunciado por R$ 1.185; preço correto R$ 1.885 por par. Site ainda não foi alterado."
+    },
+    {
+      "id_fonte": "pdf-2026-p18",
+      "pagina_pdf": 18,
+      "linha": "Prisma",
+      "modelo": "reta italiana chanfrada",
+      "largura_mm": 4,
+      "preco_par_brl": 1720,
+      "descricao_pdf": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-18-imagem-01.jpg",
+          "sha256": "14688ad58e8b42d6d12b8fedf3dc787040a0da41f914b943401d1953d2d0fa19"
+        },
+        {
+          "arquivo": "imagens/pagina-18-imagem-02.jpg",
+          "sha256": "d02322227c2fa2d451d2d4db5a0ba5d883c9ada88849fbcd9ee08da31027e4bc"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p19",
+      "pagina_pdf": 19,
+      "linha": "Prisma",
+      "modelo": "reta italiana chanfrada",
+      "largura_mm": 5,
+      "preco_par_brl": 1898,
+      "descricao_pdf": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-19-imagem-01.jpg",
+          "sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d"
+        },
+        {
+          "arquivo": "imagens/pagina-19-imagem-02.jpg",
+          "sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    },
+    {
+      "id_fonte": "pdf-2026-p20",
+      "pagina_pdf": 20,
+      "linha": "Prisma",
+      "modelo": "reta italiana chanfrada",
+      "largura_mm": 6,
+      "preco_par_brl": 1976,
+      "descricao_pdf": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "imagens": [
+        {
+          "arquivo": "imagens/pagina-20-imagem-01.jpg",
+          "sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d"
+        },
+        {
+          "arquivo": "imagens/pagina-20-imagem-02.jpg",
+          "sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8"
+        }
+      ],
+      "revisao": "preco_do_catalogo_pdf",
+      "observacao": null
+    }
+  ]
+}

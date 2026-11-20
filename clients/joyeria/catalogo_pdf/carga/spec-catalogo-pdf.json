@@ -1,0 +1,1187 @@
+{
+  "tenant_slug": "joyeria",
+  "managed_by": "joyeria-pdf-2026",
+  "storage_base_url": "https://gfwwawazivmuqyctjsxj.supabase.co",
+  "items": [
+    {
+      "item_code": "blend-essence-2mm",
+      "name": "Aliança Blend Essence 2 mm",
+      "description": "Delicadas e discretas, as alianças abauladas de 2 mm e 3 mm são perfeitas para quem busca leveza e sofisticação. Ideais para casais que desejam um símbolo sutil, elegante e confortável para o dia a dia.",
+      "category": "aliancas_blend",
+      "product_line": "Essence",
+      "model": "abaulada",
+      "width_mm": 2,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 98000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 5; valor confirmado por João em 20/11/2026",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p05"
+      }
+    },
+    {
+      "item_code": "blend-essence-3mm",
+      "name": "Aliança Blend Essence 3 mm",
+      "description": "Delicadas e discretas, as alianças abauladas de 2 mm e 3 mm são perfeitas para quem busca leveza e sofisticação. Ideais para casais que desejam um símbolo sutil, elegante e confortável para o dia a dia.",
+      "category": "aliancas_blend",
+      "product_line": "Essence",
+      "model": "abaulada",
+      "width_mm": 3,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 139600,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 6",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p06"
+      }
+    },
+    {
+      "item_code": "blend-classic-4mm",
+      "name": "Aliança Blend Classic 4 mm",
+      "description": "As alianças abauladas de 4 mm e 5 mm trazem equilíbrio entre a delicadeza e a presença marcante. São versáteis, atemporais e combinam perfeitamente com diferentes estilos, tornando-se uma escolha clássica para celebrar o amor.",
+      "category": "aliancas_blend",
+      "product_line": "Classic",
+      "model": "abaulada",
+      "width_mm": 4,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 154000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 7",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p07"
+      }
+    },
+    {
+      "item_code": "blend-classic-5mm",
+      "name": "Aliança Blend Classic 5 mm",
+      "description": "As alianças abauladas de 4 mm e 5 mm trazem equilíbrio entre a delicadeza e a presença marcante. São versáteis, atemporais e combinam perfeitamente com diferentes estilos, tornando-se uma escolha clássica para celebrar o amor.",
+      "category": "aliancas_blend",
+      "product_line": "Classic",
+      "model": "abaulada",
+      "width_mm": 5,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 164000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 8",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p08"
+      }
+    },
+    {
+      "item_code": "blend-eternity-6mm",
+      "name": "Aliança Blend Eternity 6 mm",
+      "description": "Imponentes e sofisticadas, as alianças abauladas de 6 mm e 7 mm se destacam pela presença e conforto. Uma escolha ideal para casais que desejam um símbolo de união com personalidade e elegância duradoura.",
+      "category": "aliancas_blend",
+      "product_line": "Eternity",
+      "model": "abaulada",
+      "width_mm": 6,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 182400,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 9",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p09"
+      }
+    },
+    {
+      "item_code": "blend-eternity-7mm",
+      "name": "Aliança Blend Eternity 7 mm",
+      "description": "Imponentes e sofisticadas, as alianças abauladas de 6 mm e 7 mm se destacam pela presença e conforto. Uma escolha ideal para casais que desejam um símbolo de união com personalidade e elegância duradoura.",
+      "category": "aliancas_blend",
+      "product_line": "Eternity",
+      "model": "abaulada",
+      "width_mm": 7,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 192400,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 10",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p10"
+      }
+    },
+    {
+      "item_code": "blend-harmony-2mm",
+      "name": "Aliança Blend Harmony 2 mm",
+      "description": "Minimalistas e discretas, traduzem modernidade com um toque de elegância. Ideais para quem busca conforto sem abrir mão do estilo.",
+      "category": "aliancas_blend",
+      "product_line": "Harmony",
+      "model": "reta",
+      "width_mm": 2,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 102000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 11",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p11"
+      }
+    },
+    {
+      "item_code": "blend-harmony-3mm",
+      "name": "Aliança Blend Harmony 3 mm",
+      "description": "Minimalistas e discretas, traduzem modernidade com um toque de elegância. Ideais para quem busca conforto sem abrir mão do estilo.",
+      "category": "aliancas_blend",
+      "product_line": "Harmony",
+      "model": "reta",
+      "width_mm": 3,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 145200,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 12",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p12"
+      }
+    },
+    {
+      "item_code": "blend-versati-4mm",
+      "name": "Aliança Blend Versati 4 mm",
+      "description": "O equilíbrio entre tradição e modernidade. Com design versátil, são perfeitas para casais que valorizam sofisticação em cada detalhe.",
+      "category": "aliancas_blend",
+      "product_line": "Versati",
+      "model": "reta",
+      "width_mm": 4,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 158800,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 13",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p13"
+      }
+    },
+    {
+      "item_code": "blend-versati-5mm",
+      "name": "Aliança Blend Versati 5 mm",
+      "description": "O equilíbrio entre tradição e modernidade. Com design versátil, são perfeitas para casais que valorizam sofisticação em cada detalhe.",
+      "category": "aliancas_blend",
+      "product_line": "Versati",
+      "model": "reta",
+      "width_mm": 5,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 172000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 14",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p14"
+      }
+    },
+    {
+      "item_code": "blend-queem-6mm",
+      "name": "Aliança Blend Queem 6 mm",
+      "description": "Fortes e marcantes, representam imponência e personalidade. A escolha certa para quem deseja um símbolo de união inesquecível.",
+      "category": "aliancas_blend",
+      "product_line": "Queem",
+      "model": "reta",
+      "width_mm": 6,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 192400,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 15",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p15",
+        "grafia_alternativa": "Queen"
+      }
+    },
+    {
+      "item_code": "blend-elegance-4mm",
+      "name": "Aliança Blend Elegance 4 mm",
+      "description": "O friso lateral adiciona um detalhe moderno e sofisticado às alianças clássicas. Uma escolha refinada para casais que buscam exclusividade com equilíbrio perfeito entre presença e conforto.",
+      "category": "aliancas_blend",
+      "product_line": "Elegance",
+      "model": "reta com friso lateral",
+      "width_mm": 4,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 175800,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 16",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p16"
+      }
+    },
+    {
+      "item_code": "blend-elegance-6mm",
+      "name": "Aliança Blend Elegance 6 mm",
+      "description": "O friso lateral adiciona um detalhe moderno e sofisticado às alianças clássicas. Uma escolha refinada para casais que buscam exclusividade com equilíbrio perfeito entre presença e conforto.",
+      "category": "aliancas_blend",
+      "product_line": "Elegance",
+      "model": "reta com friso lateral",
+      "width_mm": 6,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 188500,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 17; valor confirmado por João em 20/11/2026",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p17"
+      }
+    },
+    {
+      "item_code": "blend-prisma-4mm",
+      "name": "Aliança Blend Prisma 4 mm",
+      "description": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "category": "aliancas_blend",
+      "product_line": "Prisma",
+      "model": "reta italiana chanfrada",
+      "width_mm": 4,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 172000,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 18",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p18"
+      }
+    },
+    {
+      "item_code": "blend-prisma-5mm",
+      "name": "Aliança Blend Prisma 5 mm",
+      "description": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "category": "aliancas_blend",
+      "product_line": "Prisma",
+      "model": "reta italiana chanfrada",
+      "width_mm": 5,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 189800,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 19",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p19"
+      }
+    },
+    {
+      "item_code": "blend-prisma-6mm",
+      "name": "Aliança Blend Prisma 6 mm",
+      "description": "O chanfrado traz ângulos modernos que refletem a luz de forma única, criando um brilho especial em cada movimento. Uma escolha elegante e marcante para casais que buscam inovação sem perder a tradição.",
+      "category": "aliancas_blend",
+      "product_line": "Prisma",
+      "model": "reta italiana chanfrada",
+      "width_mm": 6,
+      "sale_unit": "par",
+      "material_class": "blend",
+      "material_evidence": "Catálogo PDF 2026, p. 3: ouro 18k incorporado de forma permanente a base de aço (tecnologia BLEND); não é ouro maciço.",
+      "price_cents": 197600,
+      "price_status": "aprovado",
+      "price_source": "Catálogo PDF 2026, p. 20",
+      "availability": "sob_encomenda",
+      "site_url": null,
+      "offerable": true,
+      "metadata": {
+        "pdf_id": "pdf-2026-p20"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "item_code": "blend-essence-2mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p05",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 5,
+        "preco_par_brl": 980,
+        "revisao": "preco_confirmado_pelo_usuario"
+      }
+    },
+    {
+      "item_code": "blend-essence-2mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117012",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-2mm-lisa-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada 2mm lisa o par",
+        "preco_site_brl": 980
+      }
+    },
+    {
+      "item_code": "blend-essence-3mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p06",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 6,
+        "preco_par_brl": 1396,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-essence-3mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117022",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-3mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada lisa 3mm o par",
+        "preco_site_brl": 1396
+      }
+    },
+    {
+      "item_code": "blend-classic-4mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p07",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 7,
+        "preco_par_brl": 1540,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-classic-4mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117031",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-lisa-4mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada lisa 4mm o par",
+        "preco_site_brl": 1540
+      }
+    },
+    {
+      "item_code": "blend-classic-5mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p08",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 8,
+        "preco_par_brl": 1640,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-classic-5mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117036",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-lisa-5mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada lisa 5mm o par",
+        "preco_site_brl": 1640
+      }
+    },
+    {
+      "item_code": "blend-eternity-6mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p09",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 9,
+        "preco_par_brl": 1824,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-eternity-6mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117040",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-lisa-6mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada lisa 6mm o par",
+        "preco_site_brl": 1824
+      }
+    },
+    {
+      "item_code": "blend-eternity-7mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p10",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 10,
+        "preco_par_brl": 1924,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-eternity-7mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117045",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-abaulada-lisa-7mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend abaulada lisa 7mm o par",
+        "preco_site_brl": 1924
+      }
+    },
+    {
+      "item_code": "blend-harmony-2mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p11",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 11,
+        "preco_par_brl": 1020,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-harmony-2mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117052",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-lisa-2mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas lisa 2mm o par",
+        "preco_site_brl": 1020
+      }
+    },
+    {
+      "item_code": "blend-harmony-3mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p12",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 12,
+        "preco_par_brl": 1452,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-harmony-3mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117056",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-lisa-2mm-o-par-1",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas lisa 3mm o par",
+        "preco_site_brl": 1452
+      }
+    },
+    {
+      "item_code": "blend-versati-4mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p13",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 13,
+        "preco_par_brl": 1588,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-versati-4mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117068",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-lisa-4mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas lisa 4mm o par",
+        "preco_site_brl": 1588
+      }
+    },
+    {
+      "item_code": "blend-versati-5mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p14",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 14,
+        "preco_par_brl": 1720,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-versati-5mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117088",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-lisa-5mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas lisa 5mm o par",
+        "preco_site_brl": 1720
+      }
+    },
+    {
+      "item_code": "blend-queem-6mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p15",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 15,
+        "preco_par_brl": 1924,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-queem-6mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117089",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-lisa-6mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas lisa 6mm o par",
+        "preco_site_brl": 1924
+      }
+    },
+    {
+      "item_code": "blend-elegance-4mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p16",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 16,
+        "preco_par_brl": 1758,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-elegance-4mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117095",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-friso-lateral-4mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas friso lateral 4mm o par",
+        "preco_site_brl": 1758
+      }
+    },
+    {
+      "item_code": "blend-elegance-6mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p17",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 17,
+        "preco_par_brl": 1885,
+        "revisao": "preco_e_correspondencia_site_confirmados_pelo_usuario"
+      }
+    },
+    {
+      "item_code": "blend-elegance-6mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117133",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-friso-lateral-6mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "nome": "Aliança blend retas friso lateral 6mm o par",
+        "preco_site_brl": 1185,
+        "observacao": "Preço do site diverge do PDF; prevalece o PDF confirmado. Site ainda não corrigido."
+      }
+    },
+    {
+      "item_code": "blend-prisma-4mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p18",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 18,
+        "preco_par_brl": 1720,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-prisma-4mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117136",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-chanfrado-4mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas chanfrado 4mm o par",
+        "preco_site_brl": 1720
+      }
+    },
+    {
+      "item_code": "blend-prisma-5mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p19",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 19,
+        "preco_par_brl": 1898,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-prisma-5mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117140",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-chanfrado-5mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas chanfrado liso 5mm o par",
+        "preco_site_brl": 1898
+      }
+    },
+    {
+      "item_code": "blend-prisma-6mm",
+      "source_type": "pdf",
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p20",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "confirmado",
+      "payload": {
+        "arquivo": "catalogo-aliancas-joyeria-2026.pdf",
+        "pagina": 20,
+        "preco_par_brl": 1976,
+        "revisao": "preco_do_catalogo_pdf"
+      }
+    },
+    {
+      "item_code": "blend-prisma-6mm",
+      "source_type": "site",
+      "source_ref": "joyeria.com.br:10117156",
+      "source_url": "https://www.joyeria.com.br/alianca-blend-retas-chanfrado-liso-6mm-o-par",
+      "captured_at": "2026-11-20T00:00:00-03:00",
+      "reconciliation_status": "provavel",
+      "payload": {
+        "nome": "Aliança blend retas chanfrado liso 6mm o par",
+        "preco_site_brl": 1976
+      }
+    }
+  ],
+  "assets": [
+    {
+      "sha256": "6ee41b6bc04bae3cf47f00d86ff2dec4047bcc99686d31e2f7b8507c09770714",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 179594,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p05:pagina-05-imagem-01.jpg"
+    },
+    {
+      "sha256": "9ac0fa441d098171319907a186c2a3083bd1fa7ac07862b6dcb0605240e5bff0",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 138202,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p05:pagina-05-imagem-02.jpg"
+    },
+    {
+      "sha256": "0763fdef7a028b1ee3cb8571966ee9446a63ec18a82b1d59bed067ff1378e204",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 126904,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p06:pagina-06-imagem-01.jpg"
+    },
+    {
+      "sha256": "55b6e41a5847cf2417c26da7a64534b9d5de119dd70085a1a11474f6776d6a07",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 145727,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p06:pagina-06-imagem-02.jpg"
+    },
+    {
+      "sha256": "6926188bf2ce5dd98624921475a4e185db304071b0fc2d9fe948f344fd1cfb24",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 139973,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p07:pagina-07-imagem-01.jpg"
+    },
+    {
+      "sha256": "616cd02de121e6020f4839207441f9a2b33adc9e49cb8d8c247506b3beac7f01",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 119274,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p07:pagina-07-imagem-02.jpg"
+    },
+    {
+      "sha256": "d45ea3ddc5bd59e719b26232aa305119f0be35a3b82aec3cdd7b87db3c0985df",
+      "mime_type": "image/png",
+      "file_size_bytes": 573868,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p08:pagina-08-imagem-01.png"
+    },
+    {
+      "sha256": "ad2fdd7a86234e5ec47db4179ec7f30095bfb0b5289c2e28847a09aee62f304b",
+      "mime_type": "image/png",
+      "file_size_bytes": 514193,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p08:pagina-08-imagem-02.png"
+    },
+    {
+      "sha256": "a3e38aa2c9f0d384fa992cb51123a14ab7be8507d3c40e6b66c394a3be5c8c21",
+      "mime_type": "image/png",
+      "file_size_bytes": 578825,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p09:pagina-09-imagem-01.png"
+    },
+    {
+      "sha256": "80c8400905d7ea259a334883c18b5c2a3a57d4199529813a0da6020046656c9e",
+      "mime_type": "image/png",
+      "file_size_bytes": 514630,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p09:pagina-09-imagem-02.png"
+    },
+    {
+      "sha256": "c473a74800e27488151c1af13269af19ea462cafff58462d5fbbef82c7c50216",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 140574,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p10:pagina-10-imagem-01.jpg"
+    },
+    {
+      "sha256": "9dec3b7fb87b45a71f2a25725a3f0fd502706d9f027d06a5bb58e6ae948f84bd",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 132349,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p10:pagina-10-imagem-02.jpg"
+    },
+    {
+      "sha256": "5c43c08a7005a26ab0c5331f10113318f309a439899e36758d7e91d372f9864e",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 143038,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p11:pagina-11-imagem-01.jpg"
+    },
+    {
+      "sha256": "9ee21608d3c3373a4b02fe88e969e3cb9a3c8c1c5790dfade1a0a3720d3e204c",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 142374,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p11:pagina-11-imagem-02.jpg"
+    },
+    {
+      "sha256": "fe73c3d9152a095891abba376ce6ea8ce75d5b7c67728b4f20b4faa2c57f9f20",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 137957,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p12:pagina-12-imagem-01.jpg"
+    },
+    {
+      "sha256": "672691caead230a969d1c6252c75152d57c8dee4032c7e86139cbcd2e4744173",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 237222,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p12:pagina-12-imagem-02.jpg"
+    },
+    {
+      "sha256": "cfa412c4d13b94a0cfea03a5683a7e31e97c6d4ef9271aeb281c08eae5ce50d0",
+      "mime_type": "image/png",
+      "file_size_bytes": 553293,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p13:pagina-13-imagem-01.png"
+    },
+    {
+      "sha256": "52ad4c9a112fa9aee7086a2728d6912f946ee3229e75d9a340b3f1f123cd8750",
+      "mime_type": "image/png",
+      "file_size_bytes": 514577,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p13:pagina-13-imagem-02.png"
+    },
+    {
+      "sha256": "16cfa049ed25830547a10c938c9c771dc36024095a0b1151101c412f68e65de0",
+      "mime_type": "image/png",
+      "file_size_bytes": 553070,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p14:pagina-14-imagem-01.png"
+    },
+    {
+      "sha256": "e9dccfd0a74c7d4a76da7c6c71de0cfeefc46976f1a17484dfe9fdc9bc7638a5",
+      "mime_type": "image/png",
+      "file_size_bytes": 521177,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p14:pagina-14-imagem-02.png"
+    },
+    {
+      "sha256": "e3f317984697ddb5fbee6177f6c104ad56e8aee2a1a9d5e1246c61769c806ce8",
+      "mime_type": "image/png",
+      "file_size_bytes": 559983,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p15:pagina-15-imagem-01.png"
+    },
+    {
+      "sha256": "0932f97faf4a2dc3cf9824e1b3c8881f1cb873c86e8f76a3a159d4e85b419b3c",
+      "mime_type": "image/png",
+      "file_size_bytes": 528134,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p15:pagina-15-imagem-02.png"
+    },
+    {
+      "sha256": "408d9ee4d6adc5b247eee7e6b3fb5820e56d722fde96e79460fa5faaba1c20d1",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 155403,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p16:pagina-16-imagem-01.jpg"
+    },
+    {
+      "sha256": "921f5ee8260d6beb0bd7b7a13b4c373a7e01646238686461b306ffa8db6cb85d",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 103323,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p16:pagina-16-imagem-02.jpg"
+    },
+    {
+      "sha256": "efcd4ed3b79723160f2cd561e6ee32cb0a8020687251b95bca5e28d322382978",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 152806,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p17:pagina-17-imagem-01.jpg"
+    },
+    {
+      "sha256": "37c3220cdea5b47b2ddeb6d878f1cba9ac56b140a68abbdb73386d43ffa03ea1",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 110881,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p17:pagina-17-imagem-02.jpg"
+    },
+    {
+      "sha256": "14688ad58e8b42d6d12b8fedf3dc787040a0da41f914b943401d1953d2d0fa19",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 209838,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p18:pagina-18-imagem-01.jpg"
+    },
+    {
+      "sha256": "d02322227c2fa2d451d2d4db5a0ba5d883c9ada88849fbcd9ee08da31027e4bc",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 109686,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p18:pagina-18-imagem-02.jpg"
+    },
+    {
+      "sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 210980,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p19:pagina-19-imagem-01.jpg"
+    },
+    {
+      "sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8",
+      "mime_type": "image/jpeg",
+      "file_size_bytes": 96143,
+      "source_ref": "catalogo-aliancas-2026:1ffa9bf2b2fb0a00:p19:pagina-19-imagem-02.jpg"
+    }
+  ],
+  "item_images": [
+    {
+      "item_code": "blend-essence-2mm",
+      "asset_sha256": "6ee41b6bc04bae3cf47f00d86ff2dec4047bcc99686d31e2f7b8507c09770714",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-essence-2mm",
+      "asset_sha256": "9ac0fa441d098171319907a186c2a3083bd1fa7ac07862b6dcb0605240e5bff0",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-essence-3mm",
+      "asset_sha256": "0763fdef7a028b1ee3cb8571966ee9446a63ec18a82b1d59bed067ff1378e204",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-essence-3mm",
+      "asset_sha256": "55b6e41a5847cf2417c26da7a64534b9d5de119dd70085a1a11474f6776d6a07",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-classic-4mm",
+      "asset_sha256": "6926188bf2ce5dd98624921475a4e185db304071b0fc2d9fe948f344fd1cfb24",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-classic-4mm",
+      "asset_sha256": "616cd02de121e6020f4839207441f9a2b33adc9e49cb8d8c247506b3beac7f01",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-classic-5mm",
+      "asset_sha256": "d45ea3ddc5bd59e719b26232aa305119f0be35a3b82aec3cdd7b87db3c0985df",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-classic-5mm",
+      "asset_sha256": "ad2fdd7a86234e5ec47db4179ec7f30095bfb0b5289c2e28847a09aee62f304b",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-eternity-6mm",
+      "asset_sha256": "a3e38aa2c9f0d384fa992cb51123a14ab7be8507d3c40e6b66c394a3be5c8c21",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-eternity-6mm",
+      "asset_sha256": "80c8400905d7ea259a334883c18b5c2a3a57d4199529813a0da6020046656c9e",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-eternity-7mm",
+      "asset_sha256": "c473a74800e27488151c1af13269af19ea462cafff58462d5fbbef82c7c50216",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-eternity-7mm",
+      "asset_sha256": "9dec3b7fb87b45a71f2a25725a3f0fd502706d9f027d06a5bb58e6ae948f84bd",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-harmony-2mm",
+      "asset_sha256": "5c43c08a7005a26ab0c5331f10113318f309a439899e36758d7e91d372f9864e",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-harmony-2mm",
+      "asset_sha256": "9ee21608d3c3373a4b02fe88e969e3cb9a3c8c1c5790dfade1a0a3720d3e204c",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-harmony-3mm",
+      "asset_sha256": "fe73c3d9152a095891abba376ce6ea8ce75d5b7c67728b4f20b4faa2c57f9f20",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-harmony-3mm",
+      "asset_sha256": "672691caead230a969d1c6252c75152d57c8dee4032c7e86139cbcd2e4744173",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-versati-4mm",
+      "asset_sha256": "cfa412c4d13b94a0cfea03a5683a7e31e97c6d4ef9271aeb281c08eae5ce50d0",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-versati-4mm",
+      "asset_sha256": "52ad4c9a112fa9aee7086a2728d6912f946ee3229e75d9a340b3f1f123cd8750",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-versati-5mm",
+      "asset_sha256": "16cfa049ed25830547a10c938c9c771dc36024095a0b1151101c412f68e65de0",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-versati-5mm",
+      "asset_sha256": "e9dccfd0a74c7d4a76da7c6c71de0cfeefc46976f1a17484dfe9fdc9bc7638a5",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-queem-6mm",
+      "asset_sha256": "e3f317984697ddb5fbee6177f6c104ad56e8aee2a1a9d5e1246c61769c806ce8",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-queem-6mm",
+      "asset_sha256": "0932f97faf4a2dc3cf9824e1b3c8881f1cb873c86e8f76a3a159d4e85b419b3c",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-elegance-4mm",
+      "asset_sha256": "408d9ee4d6adc5b247eee7e6b3fb5820e56d722fde96e79460fa5faaba1c20d1",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-elegance-4mm",
+      "asset_sha256": "921f5ee8260d6beb0bd7b7a13b4c373a7e01646238686461b306ffa8db6cb85d",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-elegance-6mm",
+      "asset_sha256": "efcd4ed3b79723160f2cd561e6ee32cb0a8020687251b95bca5e28d322382978",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-elegance-6mm",
+      "asset_sha256": "37c3220cdea5b47b2ddeb6d878f1cba9ac56b140a68abbdb73386d43ffa03ea1",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-prisma-4mm",
+      "asset_sha256": "14688ad58e8b42d6d12b8fedf3dc787040a0da41f914b943401d1953d2d0fa19",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-prisma-4mm",
+      "asset_sha256": "d02322227c2fa2d451d2d4db5a0ba5d883c9ada88849fbcd9ee08da31027e4bc",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": null
+    },
+    {
+      "item_code": "blend-prisma-5mm",
+      "asset_sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": "Mesma foto usada no PDF em outra largura; informar a largura no texto."
+    },
+    {
+      "item_code": "blend-prisma-5mm",
+      "asset_sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": "Mesma foto usada no PDF em outra largura; informar a largura no texto."
+    },
+    {
+      "item_code": "blend-prisma-6mm",
+      "asset_sha256": "e7839427aaf12cc37a971e0acd72bae478b5642bf7b9bc65b2838385d8e8ab2d",
+      "display_order": 0,
+      "is_primary": true,
+      "review_status": "aprovada",
+      "shared_note": "Mesma foto usada no PDF para pdf-2026-p19; informar a largura no texto."
+    },
+    {
+      "item_code": "blend-prisma-6mm",
+      "asset_sha256": "4b2f4d800af1ea88a9c702b3b4eff7b130dfb54676119d25b981711515b56ea8",
+      "display_order": 1,
+      "is_primary": false,
+      "review_status": "aprovada",
+      "shared_note": "Mesma foto usada no PDF para pdf-2026-p19; informar a largura no texto."
+    }
+  ]
+}
