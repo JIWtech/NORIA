@@ -1,4 +1,5 @@
 export function isExplicitOutboundMedia(media = {}, payload = {}, event = {}) {
+  if (event.service === 'retail_product_photo' && event.sender_type === 'assistant') return true;
   const origins = [
     media.origin, media.source, media.direction, media.message_origin,
     payload.media_origin, payload.media_source, payload.outbound_origin,

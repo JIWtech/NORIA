@@ -1,6 +1,6 @@
 import { asObject } from '../../utils/asObject.js';
 import { formatDate } from '../../utils/dateFormatting.js';
-import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
+import { isInternalOperationalEvent, isSpecialistNotice, isRetailAttempt } from '../timeline/eventClassification.js';
 import { TECHNICAL_MEDIA_LABELS } from '../../utils/audioUtils.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
 import { normalizeLocation, resolveConversationOwnerDetails } from '../conversations/conversationPresentation.js';
@@ -88,7 +88,7 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
   const trimmedText = String(event.message_text || '').trim().toLowerCase();
   const service = String(event.service || '').toLowerCase();
   const payload = asObject(event.raw_payload);
-  if (isInternalOperationalEvent(event) && !payload.kanban_transition?.to_column) return columns;
+  if (isSpecialistNotice(event) || isRetailAttempt(event) || (isInternalOperationalEvent(event) && !payload.kanban_transition?.to_column)) return columns;
   const isReaction = service === 'reaction'
     || String(payload?.messageType || '').toLowerCase() === 'reactionmessage'
     || String(payload?.event || '').toLowerCase() === 'messages.reaction'

@@ -28,13 +28,23 @@ export function isInternalOperationalEvent(event = {}) {
     || payload.is_internal === true
     || metadata.is_internal === true;
 
-  return eventType === 'kanban_stage_changed'
+  return isRetailAttempt(event)
+    || eventType === 'kanban_stage_changed'
     || (event.service === 'noria_pipeline_pin' && event.delivery_status === 'internal')
     || event.ai_provider === 'kanban_action'
     || event.service === 'kanban_move'
     || (isInternal && category === 'kanban');
 }
 
+export function isRetailAttempt(event = {}) {
+  return ['specialist_notice_attempt', 'retail_product_photo_attempt'].includes(event.service);
+}
+
+export function isSpecialistNotice(event = {}) {
+  return event.service === 'specialist_notice' && event.sender_type === 'system'
+    && event.ai_provider === 'retail_specialist_notice';
+}
+
 export function isEligibleForExternalOutbound(event = {}) {
-  return !isInternalOperationalEvent(event);
+  return !isInternalOperationalEvent(event) && !isSpecialistNotice(event);
 }

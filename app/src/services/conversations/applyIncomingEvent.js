@@ -2,7 +2,7 @@ import { technicalEventPresentation } from './technicalEventPresentation.js';
 import { asObject } from '../../utils/asObject.js';
 import { formatDate } from '../../utils/dateFormatting.js';
 import { applyConversationLifecycle } from './conversationLifecycle.js';
-import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
+import { isInternalOperationalEvent, isSpecialistNotice } from '../timeline/eventClassification.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
 import { findKanbanColumn, getStageLabel } from '../kanban/stageResolution.js';
 import { mergeMediaDescriptors, normalizeMedia } from '../media/mediaNormalization.js';
@@ -48,6 +48,18 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
       || (c.id === `conv-${event.external_conversation_id}`)
       || (event.contact_handle && (c.contactHandle === event.contact_handle || c.company === `@${event.contact_handle}`)),
   );
+
+  if (isSpecialistNotice(event) && existingIndex >= 0) {
+    const previous = conversations[existingIndex];
+    const presentation = technicalEventPresentation(event);
+    const message = { from: 'system', systemEvent: presentation, text: presentation.title,
+      eventId: event.id, at: formatDate(event.created_at), createdAt: event.created_at || null };
+    const messages = [...(previous.messages || [])];
+    const index = messages.findIndex(item => event.id && item.eventId === event.id);
+    if (index >= 0) messages[index] = message;
+    else messages.push(message);
+    return conversations.map((item, index) => index === existingIndex ? { ...item, messages } : item);
+  }
 
   const media = normalizeMedia(event.raw_payload, event);
   const audioTranscription = normalizeAudioTranscription(event.raw_payload, event);

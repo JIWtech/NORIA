@@ -6,7 +6,7 @@ import { applyConversationLifecycle, isConversationClosed } from '../conversatio
 import { isCustomerInboundEvent, isFollowUpOutboundEvent } from '../conversations/conversationEventState.js';
 import { eventSessionId, isExplicitAiOwnershipTransition } from '../conversations/ownershipEvidence.js';
 import { isConversationWaitingForFollowUp } from '../timeline/conversationFilters.js';
-import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
+import { isInternalOperationalEvent, isSpecialistNotice, isRetailAttempt } from '../timeline/eventClassification.js';
 import { getTenantSchedulingLink } from '../appointments/schedulingLinks.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
 import { latestSlotProposalByConversation } from '../appointments/slotProposalStatus.js';
@@ -80,7 +80,7 @@ export function eventsToKanban(
 
   for (const event of prepareConversationEvents(events).sort((a, b) => compareDateLabel(a.created_at, b.created_at))) {
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
-    if (isKnownKanbanTestArtifact(event)) continue;
+    if (isKnownKanbanTestArtifact(event) || isSpecialistNotice(event) || isRetailAttempt(event)) continue;
     if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;
     const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
     if (!conversationStatesByChat.has(key)) conversationStatesByChat.set(key, { status: 'ia_ativa' });
@@ -106,7 +106,7 @@ export function eventsToKanban(
   // Atribuições precisam ser lidas em ordem temporal, independentemente da ordem da query.
   for (const event of [...events].sort((a, b) => compareDateLabel(a.created_at, b.created_at))) {
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
-    if (isKnownKanbanTestArtifact(event)) continue;
+    if (isKnownKanbanTestArtifact(event) || isSpecialistNotice(event) || isRetailAttempt(event)) continue;
     const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
     // O pin do pipeline é só um marcador interno: o primeiro loop e o tempo real o ignoram, e a recarga também.
     if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;

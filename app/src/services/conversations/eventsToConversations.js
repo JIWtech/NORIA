@@ -3,7 +3,7 @@ import { asObject } from '../../utils/asObject.js';
 import { formatDate } from '../../utils/dateFormatting.js';
 import { prepareConversationEvents } from './conversationEvents.js';
 import { applyConversationLifecycle } from './conversationLifecycle.js';
-import { isInternalOperationalEvent } from '../timeline/eventClassification.js';
+import { isInternalOperationalEvent, isSpecialistNotice } from '../timeline/eventClassification.js';
 import { canonicalConversationKey, normalizeChannel, normalizeExternalConversationId } from '../identity/conversationIdentity.js';
 import { estimatedValue, sentimentFromEvent as sentimentFromEventWithStage } from './conversationDerived.js';
 import { getUsefulTrustedContactName, isUsefulContactName } from '../contacts/contactNames.js';
@@ -43,7 +43,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
     if (isInternalOperationalEvent(event)) continue;
 
     const channelType = normalizeChannel(event.channel_type);
-    const stageName = getStageLabel(event.stage, { kanbanColumns, tenantSlug });
+    const stageName = getStageLabel(isSpecialistNotice(event) ? null : event.stage, { kanbanColumns, tenantSlug });
     const resolvedTenant = tenantSlug || event.tenant_slug || '';
     const key = canonicalConversationKey(
       channelType.type,
@@ -57,7 +57,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
       event.contact_handle,
     );
     const payload = asObject(event.raw_payload);
-    const isHumanTransfer = Boolean(
+    const isHumanTransfer = !isSpecialistNotice(event) && Boolean(
       (event.handoff && (normalizeStage(event.stage) === 'Atendimento humano' || event.service === 'manual_reply'))
       || event.service === 'manual_reply'
       || event.ai_provider === 'human_operator'
@@ -66,14 +66,14 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
       || normalizeStage(event.stage) === 'Atendimento humano'
       || event.stage === 'sales_human'
     );
-    const isClosed = stageName === 'Finalizado' || normalizeStage(event.stage) === 'Finalizado' || event.service === 'conversation_closed' || event.ai_provider === 'conversation_closed';
+    const isClosed = !isSpecialistNotice(event) && (stageName === 'Finalizado' || normalizeStage(event.stage) === 'Finalizado' || event.service === 'conversation_closed' || event.ai_provider === 'conversation_closed');
     const eventAssignee = payload?.assignee;
     const eventActor = visibleAgentName(event.sent_by_user);
     const actorCanBeOwner = !isSentAppointmentReply(event)
       && !['Operador NORIA', 'Operador Mag.IA', 'Disparo NORIA'].includes(eventActor);
-    const initialOwner = visibleAgentName(eventAssignee?.name) || visibleAgentName(payload?.assigned_to)
+    const initialOwner = isSpecialistNotice(event) ? null : visibleAgentName(eventAssignee?.name) || visibleAgentName(payload?.assigned_to)
       || (actorCanBeOwner ? eventActor : '') || null;
-    const initialOwnerId = eventAssignee?.id || payload?.assignee_id || null;
+    const initialOwnerId = isSpecialistNotice(event) ? null : eventAssignee?.id || payload?.assignee_id || null;
 
     if (!byChat.has(key)) {
       const fallbackName = `Contato ${channelType.label}`;
@@ -100,7 +100,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
         owner: initialOwner,
         ownerId: initialOwnerId,
         unread: 0,
-        lastMessage: technicalEventPresentation(event)?.title || initialPreview?.text || event.message_text || mediaPreview(normalizeMedia(event.raw_payload, event)) || '',
+        lastMessage: isSpecialistNotice(event) ? '' : technicalEventPresentation(event)?.title || initialPreview?.text || event.message_text || mediaPreview(normalizeMedia(event.raw_payload, event)) || '',
         lastMessageSender: initialPreview?.sender || null,
         lastMessageSenderType: initialPreview?.senderType || null,
         lastAt: formatDate(event.created_at),
@@ -123,6 +123,13 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
     }
 
     const conversation = byChat.get(key);
+
+    if (isSpecialistNotice(event)) {
+      const presentation = technicalEventPresentation(event);
+      conversation.messages.push({ from: 'system', systemEvent: presentation, text: presentation.title,
+        eventId: event.id, at: formatDate(event.created_at), createdAt: event.created_at || null });
+      continue;
+    }
 
     // Se o contato começou com nome genérico/fallback ("Contato WhatsApp") e agora temos um contact_name real:
     const trustedContactName = getUsefulTrustedContactName(event);

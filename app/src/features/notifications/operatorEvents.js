@@ -1,3 +1,4 @@
+import { isRetailAttempt, isSpecialistNotice } from '../../services/timeline/eventClassification.js';
 import { canonicalConversationKey, normalizeExternalConversationId } from '../../services/identity/conversationIdentity.js';
 import { formatConversationPreview } from '../../utils/audioUtils.js';
 import { normalizeMedia } from '../../services/media/mediaNormalization.js';
@@ -62,6 +63,7 @@ export function operatorEvents(payload, scope, now = Date.now()) {
       contact: row.contact_name || '', createdAt: row.updated_at || row.created_at || new Date(now).toISOString(), unread: true });
   };
   if (payload.table === 'channel_events') {
+    if (isRetailAttempt(row) || isSpecialistNotice(row)) return [];
     const service = row.service;
     const media = normalizeMedia(raw, row);
     const assigneeName = cleanAgentName(raw.assignee?.name || raw.assigned_to);

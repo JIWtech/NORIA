@@ -1,4 +1,13 @@
+import { isSpecialistNotice } from '../timeline/eventClassification.js';
+
 export function technicalEventPresentation(event = {}) {
+  if (isSpecialistNotice(event)) {
+    const status = event.raw_payload?.status;
+    const title = status === 'sent' ? 'Especialista avisado(a) por WhatsApp'
+      : status === 'failed' ? 'Falha ao avisar o(a) especialista'
+        : 'Aviso ao especialista incerto — conferir antes de reenviar';
+    return { kind: 'specialist_notice', title, detail: '' };
+  }
   const system = event.sender_type === 'system' || event.from === 'system';
   if (!system || !(event.service === 'technical_error' || ['core_error', 'core_operator_review'].includes(event.ai_provider))) return null;
   return {
