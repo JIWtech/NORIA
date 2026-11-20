@@ -67,6 +67,12 @@ test('auditoria da redação: preço não autorizado, link e telefone são recus
   assert.deepEqual(retailAuditReply('O link para finalizar está abaixo.', items, { linkAppended: false }), ['LINK_CLAIM_WITHOUT_LINK']);
   assert.deepEqual(retailAuditReply('Estou enviando as fotos.', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
   assert.deepEqual(retailAuditReply('Estou enviando as fotos e o link.', items, { linkAppended: true, photosSent: true }), []);
+  for (const claim of ['Vou enviar as fotos dos dois juntos.', 'Claro, mando sim a foto.', 'A foto da Versati está chegando para você.', 'Vou reenviar a foto exclusiva.', 'Aqui estão as fotos das duas.', 'As fotos dos dois modelos vão logo abaixo.', 'Esta foto mostra a Prisma de 6 mm.']) {
+    assert.deepEqual(retailAuditReply(claim, items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO'], claim);
+  }
+  assert.deepEqual(retailAuditReply('As fotos já foram enviadas aqui na conversa.', items, { photosSent: false, photosAlready: true }), []);
+  assert.deepEqual(retailAuditReply('As fotos já foram enviadas aqui na conversa.', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
+  assert.deepEqual(retailAuditReply('Gostou da foto? O modelo é lindo.', items, { photosSent: false }), []);
   assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: false }), ['TEAM_CLAIM_WITHOUT_HANDOFF']);
   assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: true }), []);
   assert.deepEqual(retailAuditReply('Ola. Alguem pode ajudar voce.', items), ['ACCENT_MISSING']);

@@ -88,8 +88,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T22:43:35.714Z',
-  core_sha256: '0d138db2a427201d5d418bef05400fd5acf1a67b97ae79eab47b4936c6032e68',
+  built_at: '2026-11-20T23:11:20.549Z',
+  core_sha256: 'e67041e51de8128e580d059da3387043b8f71e7d76cc7ca2dd4de344765225c8',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6536,7 +6536,7 @@ function retailAuditHint(code) {
   }[code] || code;
 }
 
-function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, teamHandoff = true } = {}) {
+function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, teamHandoff = true, photosAlready = false } = {}) {
   const failures = [];
   // Anunciar que a equipe assume sem que a conversa tenha sido passada à equipe engana o cliente.
   if (!teamHandoff && /\b(continuar|seguir|assumir)\b[^.!?]{0,30}\b(atendimento|por aqui)\b/i.test(String(reply || ''))) failures.push('TEAM_CLAIM_WITHOUT_HANDOFF');
@@ -6546,7 +6546,12 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   if (/\bn[aã]o\s+(temos|trabalhamos\s+com|vendemos|possu[ií]mos)\b(?!\s+pronta)/i.test(String(reply || ''))) failures.push('UNAVAILABILITY_CLAIM');
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
-  if (!photosSent && /\b(enviando|envio|mandando|segue|seguem)\b[^.!?]{0,40}\bfotos?\b/i.test(String(reply || ''))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
+  // Qualquer verbo de envio perto de "foto", em qualquer ordem ("vou enviar as fotos", "a foto está chegando", "mando sim a foto").
+  const sendVerb = '(enviar|envio|envie|enviando|enviei|enviada|enviadas|mandar|mando|mande|mandando|mandei|reenviar|reenvio|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui|v[aã]o|vai|mostra)';
+  // Com fotos já enviadas antes nesta sessão, a frase que lembra disso ("já estão na conversa") é permitida.
+  const photoText = String(reply || '').split(/(?<=[.!?])\s+/).filter(sentence => !(photosAlready && /(^|\s)j[aá](?![a-z])/i.test(sentence))).join(' ');
+  if (!photosSent && (new RegExp('\\b' + sendVerb + '\\b[^.!?]{0,50}\\bfotos?\\b', 'i').test(photoText)
+    || new RegExp('\\bfotos?\\b[^.!?]{0,50}\\b' + sendVerb + '\\b', 'i').test(photoText))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
   const text = String(reply || '');
   if (!text.trim()) failures.push('EMPTY_REPLY');
   const allowedPrices = new Set(items.map(item => Number(item.price_cents)));
@@ -6571,6 +6576,9 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     product_facts: facts,
     photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null } : null,
     photos_already_in_conversation: !media && decision.actions?.send_product_media?.reason === 'ALREADY_SENT_IN_SESSION',
+    // Por que a foto pedida não sai: vários produtos ao mesmo tempo ou produto sem foto aprovada.
+    photos_not_available: !media && ['NO_SINGLE_PRODUCT_IN_FOCUS', 'NO_APPROVED_IMAGES'].includes(decision.actions?.send_product_media?.reason)
+      ? decision.actions.send_product_media.reason : null,
     site_link_will_be_appended: Boolean(siteLinkItem), specialist_line_will_be_appended: Boolean(customerLine), team_handoff: Boolean(handoff),
     reason_codes: decision.reason_codes || [],
     business_hours: ((hours) => ({ configured: hours.configured, is_open: hours.is_open }))(tenantBusinessHoursStatus(context)),
@@ -6579,7 +6587,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     'Tarefa: redigir a resposta ao cliente seguindo as instruções do negócio acima, coerente com recent_conversation.',
     'Fatos de produto só de product_facts: nome, modelo, linha, medida e preço exatamente como estão (price). Não crie nome de produto nem atribua a um item dados de outro.',
     'Ausência de um produto, categoria ou serviço nos dados não prova que o negócio não o tenha: nunca afirme que não tem; diga que vai verificar.',
-    'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir; elas chegam logo depois desta mensagem, então não diga que já foram enviadas (com photos_already_in_conversation, já estão na conversa); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
+    'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir; elas chegam logo depois desta mensagem, então não diga que já foram enviadas (com photos_already_in_conversation, já estão na conversa; com photos_not_available NO_SINGLE_PRODUCT_IN_FOCUS, pergunte de qual produto quer ver a foto primeiro; com NO_APPROVED_IMAGES, diga que vai verificar a foto); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
     'Especialista: se specialist_line_will_be_appended for verdadeiro, não anuncie nem ofereça contato de especialista (o sistema acrescenta a frase aprovada). Equipe: só diga que alguém vai continuar o atendimento se team_handoff for verdadeiro, sem citar nome.',
     ...(revisionNote ? [revisionNote] : []),
   ]);
@@ -6741,7 +6749,8 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
       media: mediaForText, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
     composed = await compose('');
-    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff) };
+    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff),
+      photosAlready: !mediaForText && decision.actions?.send_product_media?.reason === 'ALREADY_SENT_IN_SESSION' };
     audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
     if (audit.length) {
       composed = await compose('Revise: a versão anterior falhou na conferência. Corrija: '
