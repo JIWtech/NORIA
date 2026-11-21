@@ -5,18 +5,8 @@
 // Prometer ou anunciar foto só é válido quando há foto autorizada neste turno.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
-
-const root = path.resolve(__dirname, '..');
-const source = fs.readFileSync(root + '/n8n/sources/noria_core.js', 'utf8');
-const ts = require(root + '/app/node_modules/typescript');
-const ast = ts.createSourceFile('core.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-const ctx = { normalizeText: s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() };
-const fn = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name.text === 'salesPromisesPhoto');
-assert.ok(fn, 'salesPromisesPhoto precisa existir no CORE');
-vm.runInNewContext(fn.getText(ast), ctx);
+const { readSource, loadFunctions, loadCoreEngine } = require('./lib/core_test_harness.cjs');
+const ctx = loadFunctions(readSource(), ['salesPromisesPhoto', 'salesDeniesPhoto'], { normalizeText: s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() });
 
 test('promessa ou anúncio de foto é detectado', () => {
   for (const reply of [
@@ -39,17 +29,16 @@ test('oferta, pergunta e pedido de foto ao cliente não são promessa', () => {
   ]) assert.equal(ctx.salesPromisesPhoto(reply), false, reply);
 });
 
-test('o validador barra a promessa sem foto autorizada e a regra é recuperável', () => {
-  assert.match(source, /if \(salesPromisesPhoto\(reply\) && !salesAuditablePhotoAttachment\(execution\.photo_attachment\)\) issues\.push\('UNAUTHORIZED_PHOTO_PROMISE'\)/);
-  assert.match(source, /const SALES_REPAIRABLE_ISSUES = \/\^\(\?:[^\n]*UNAUTHORIZED_PHOTO_PROMISE/);
-  assert.match(source, /UNAUTHORIZED_PHOTO_PROMISE: nenhuma foto será enviada/);
+test('o validador barra promessa sem foto autorizada e permite recomposição', async () => {
+  const { salesValidatePrimaryDialogue, salesIssuesRepairable } = await loadCoreEngine(['salesValidatePrimaryDialogue', 'salesIssuesRepairable']);
+  const generated = { primary_reply: 'Vou te enviar a foto da Honda Tornado.', state: {}, response_contract: { fact_evidence_mode: 'standard', answers: [], requested_fields: [], facts: [] } };
+  const issues = salesValidatePrimaryDialogue(generated, { requests: [], next_requirement: 'none' }, {}, {}).issues;
+  assert.ok(issues.includes('UNAUTHORIZED_PHOTO_PROMISE'));
+  assert.equal(salesIssuesRepairable(['UNAUTHORIZED_PHOTO_PROMISE']), true);
 });
 
 // 21/10 21h13: foto autorizada e enviada com o texto "as fotos desta Honda Tornado não estão disponíveis".
-const denies = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name.text === 'salesDeniesPhoto');
 test('negação de foto é detectada; perguntas e outros assuntos não', () => {
-  assert.ok(denies, 'salesDeniesPhoto precisa existir no CORE');
-  vm.runInNewContext(denies.getText(ast), ctx);
   for (const reply of [
     'No momento, as fotos desta Honda Tornado 300L não estão disponíveis para envio.',
     'Não tenho fotos dela agora.',
@@ -61,5 +50,13 @@ test('negação de foto é detectada; perguntas e outros assuntos não', () => {
     'A Tornado não está mais disponível.',
     'A Tornado 2025 tem 12 mil km.',
   ]) assert.equal(ctx.salesDeniesPhoto(reply), false, reply);
-  assert.match(source, /if \(salesDeniesPhoto\(reply\) && salesAuditablePhotoAttachment\(execution\.photo_attachment\)\) issues\.push\('PHOTO_AVAILABILITY_CONTRADICTION'\)/);
+});
+
+test('validador identifica negativa quando existe foto autorizada', async () => {
+  const { salesValidatePrimaryDialogue, salesPhotoActionProofs } = await loadCoreEngine(['salesValidatePrimaryDialogue', 'salesPhotoActionProofs']);
+  const attachment = { commercial_action: { tenant_id: 't', request_ids: [] } };
+  salesPhotoActionProofs.set(attachment, { snapshot: JSON.stringify(attachment), attachment: { tenant_id: 't', session_id: 'b', turn_token: 'x', product: { id: 'p' } } });
+  const generated = { primary_reply: 'Não tenho fotos dela agora.', state: {}, response_contract: { fact_evidence_mode: 'standard', answers: [], requested_fields: [], facts: [] } };
+  const issues = salesValidatePrimaryDialogue(generated, { requests: [], next_requirement: 'none' }, {}, { photo_attachment: attachment, product: { id: 'p' } }).issues;
+  assert.ok(issues.includes('PHOTO_AVAILABILITY_CONTRADICTION'));
 });

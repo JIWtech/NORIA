@@ -297,7 +297,7 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   const sha = text => require('node:crypto').createHash('sha256').update(text).digest('hex');
   assert.equal(manifest.router_sha256, sha(read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n')));
   const ext = JSON.parse(read('n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Catalogo-de-Servicos--6jSiEH2ugboYSack.json'));
-  assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode, read('n8n/sources/nubia_extension.js'));
+  assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode.replace(/\r\n/g, '\n'), read('n8n/sources/nubia_extension.js').replace(/\r\n/g, '\n'));
 });
 
 test('auditoria semântica: cada afirmação precisa de uma autoridade existente e do tipo permitido; sem cobertura ou sem fonte, rejeita', () => {
