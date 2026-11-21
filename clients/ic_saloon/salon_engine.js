@@ -372,8 +372,8 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
 
   // Feriado cadastrado: business_hours.holiday_dates (YYYY-MM-DD, com horário próprio ou fechado) ou business_hours.holidays (MM-DD, dia fechado).
   // Uma exceção com data completa prevalece sobre o fechamento anual da mesma data.
-  const hoursForDate = (dateObj, dayName) => {
-    const isoDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(dateObj);
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(referenceDate);
+  const hoursForDate = (isoDate, dayName) => {
     if (rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
         && rawBh.holiday_dates.map(String).includes(isoDate)) {
       if (rawBh.holiday.closed === true) return { closed: true };
@@ -386,7 +386,7 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     }
     return resolveTenantDayHours(rawBh, dayName);
   };
-  const todayHours = hoursForDate(referenceDate, dayKey);
+  const todayHours = hoursForDate(localDate, dayKey);
   let isOpen = false;
   if (todayHours?.is_24h) {
     isOpen = true;
@@ -413,28 +413,38 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     };
     const currentDayIdx = daysOrder.indexOf(dayKey);
 
-    if (todayHours && !todayHours.closed && todayHours.start && currentTime < todayHours.start) {
+    const nextOpenTime = (hours, from) => {
+      if (!hours || hours.closed || !hours.start || !hours.end) return null;
+      let candidate = from && from > hours.start ? from : hours.start;
+      if (!hours.is_24h && rawBh.lunch_start && rawBh.lunch_end
+          && candidate >= rawBh.lunch_start && candidate < rawBh.lunch_end) candidate = rawBh.lunch_end;
+      return candidate < hours.end ? candidate : null;
+    };
+    const todayOpening = nextOpenTime(todayHours, currentTime);
+    if (todayOpening) {
       nextOpening = {
         offset_days: 0,
         day_key: dayKey,
         day_label: 'hoje',
-        time: todayHours.start,
-        formatted: 'hoje às ' + todayHours.start
+        time: todayOpening,
+        formatted: 'hoje às ' + todayOpening
       };
     } else {
       for (let offset = 1; offset <= 7; offset++) {
         const nextIdx = (currentDayIdx + offset) % 7;
         const nextDayKey = daysOrder[nextIdx];
-        const nextDate = new Date(referenceDate.getTime() + offset * 86400000);
-        const nextDayH = hoursForDate(nextDate, nextDayKey);
-        if (nextDayH && !nextDayH.closed && nextDayH.start) {
+        const nextDate = new Date(localDate + 'T00:00:00Z');
+        nextDate.setUTCDate(nextDate.getUTCDate() + offset);
+        const nextDayH = hoursForDate(nextDate.toISOString().slice(0, 10), nextDayKey);
+        const nextTime = nextOpenTime(nextDayH);
+        if (nextTime) {
           const label = offset === 1 ? 'amanhã' : dayLabels[nextDayKey];
           nextOpening = {
             offset_days: offset,
             day_key: nextDayKey,
             day_label: label,
-            time: nextDayH.start,
-            formatted: (offset === 1 ? 'amanhã às ' : label + ' às ') + nextDayH.start
+            time: nextTime,
+            formatted: (offset === 1 ? 'amanhã às ' : label + ' às ') + nextTime
           };
           break;
         }
@@ -1246,7 +1256,11 @@ async function loadTenantContext() {
   const settingRows = await supabaseGet('/rest/v1/tenant_settings?select=*&tenant_id=eq.' + tenant.id);
   if (settingRows.length !== 1) throw new Error('Invalid tenant settings');
   if (settingRows[0].settings?.whatsapp_processing_mode !== 'conversation_core_v1') throw new Error('Core not enabled for tenant');
-  // Poda Fase 4.1 (ic_salon): grounding_mode nunca e 'canonical_v2' e conversation_capability nunca e 'sales_v1'.
+  const tenantSettings = settingRows[0].settings || {};
+  if (tenantSettings.grounding_mode === 'canonical_v2' || tenantSettings.appointment_scheduling?.enabled === true
+      || tenantSettings.conversation_capability === 'sales_v1' || tenantSettings.noria_turn_pipeline?.enabled === true) {
+    throw new Error('SALON_ENGINE_MODE_UNSUPPORTED');
+  }
   const agentRows = await supabaseGet('/rest/v1/ai_agents?select=*&tenant_id=eq.' + tenant.id + '&provider=eq.gemini&order=created_at.asc&limit=1');
   const channelRows = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
     + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');

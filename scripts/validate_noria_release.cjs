@@ -9,7 +9,8 @@ const names = ['turn_transient_failures', 'genesis_service_authority', 'catalog_
   'nubia_extension_v2', 'noria_services_pipeline', 'booking_authorization', 'noria_primary_dialogue',
   'core_commercial_boundary', 'primary_response_boundary', 'core_unavailable_media', 'noria_document_identity',
   'sales_followup_database_policy', 'core_ext_contract_guards', 'semantic_courtesy', 'ad_vehicle_and_repeated_question', 'audio_batch_limit', 'media_notice', 'ad_inventory_candidates', 'observability_diagnostics', 'genesis_sale_mileage', 'follow_up_closure', 'ingress_landline_commercial', 'technical_hold_handoff', 'pending_conversation_fixes', 'semantic_contact_ignore_rpc', 'post_release_incidents', 'select_core_burst', 'ad_referral_multiline', 'ad_vehicle_presumed', 'stale_message_guard', 'ingress_rejection_log', 'appointment_request_core', 'appointment_request_commands', 'manual_reply_sender'];
-const additional = ['scripts/test_noria_retail.cjs', 'scripts/test_retail_pipeline_core.cjs',
+const additional = ['scripts/test_business_hours_p3.cjs', 'scripts/test_claim_pin_interruption.cjs',
+  'scripts/test_noria_retail.cjs', 'scripts/test_retail_pipeline_core.cjs',
   'scripts/test_retail_routing.cjs', 'scripts/test_retail_region.cjs', 'scripts/test_joyeria_extension.cjs',
   'scripts/audit_anti_hardcode.cjs', 'scripts/test_audit_anti_hardcode.cjs',
   'scripts/test_build_noria_workflows.cjs', 'scripts/test_noria_handoff_announcement.cjs',

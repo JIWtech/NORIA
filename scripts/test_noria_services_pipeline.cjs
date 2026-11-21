@@ -427,15 +427,15 @@ test('roteador: declaração habilitada e inválida ou configuração indisponí
   await assert.rejects(route({ declared: validDeclaration, failSettings: true }), /NORIA_ROTEAMENTO_PIPELINE_INDISPONIVEL/);
 });
 
-test('roteador: um lote em andamento fica na versão que o reivindicou (reversão de configuração não o muda)', async () => {
+test('roteador: pino prevalece; sem pino vale a declaração vigente', async () => {
   const claimed = [{ id: 'ext-1', event_id: 'ev-1' }, { id: 'ext-2', event_id: 'ev-2' }];
   const inFlightV2 = await route({ declared: { ...validDeclaration, enabled: false }, claimed, pins: ['noria_pin_2.0_ev-2'] });
   assert.equal(version(inFlightV2), '2.0', 'lote fixado no 2.0 continua no 2.0 mesmo após a reversão');
   assert.equal(inFlightV2.json.noria_router, 'services_v2_pinned');
-  const inFlightV1 = await route({ declared: validDeclaration, claimed });
-  assert.equal(version(inFlightV1), '1.0', 'lote do 1.0 em andamento não é tomado pelo 2.0 com a configuração ligada');
+  const unpinnedClaim = await route({ declared: validDeclaration, claimed });
+  assert.equal(version(unpinnedClaim), '2.0', 'sem pino, a declaração vigente decide a rota');
   const otherTenantPin = await route({ declared: validDeclaration, claimed, pins: ['noria_pin_2.0_ev-2'], input: { ...NUBIA, tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } });
-  assert.equal(version(otherTenantPin), '1.0', 'marcador de outro tenant não vale');
+  assert.equal(otherTenantPin.json.noria_router, 'services_v2', 'marcador de outro tenant não vale; aplica-se a declaração');
 });
 
 test('guardas do CORE: o legado recusa lote fixado no pipeline; turno despachado nunca cai no legado', async () => {
