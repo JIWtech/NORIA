@@ -17,6 +17,10 @@ Executado em 2026-11-21, com autorização explícita do responsável.
      `ai_enabled=false`, `whatsapp_processing_mode='disabled'`, `noria_turn_pipeline.enabled=false`,
      `pilot.allowed_contacts=[]`, `onboarding_status='pending_configuration'`; `noria_client_policy.tenant_id` = id real.
 
+3. **Fonte de ingresso** `09ff87e6-b1fd-463e-b973-61a1fff01297` (instância `joyeria`, **desativada**), com usuário de
+   serviço `noria.ingress.joyeria@example.invalid` criado pelo responsável no Supabase Auth (senha fora do repositório,
+   sem vínculo com tenant). Canal com `external_id='joyeria'`, ainda `pending`.
+
 ## Falta (cada item exige autorização)
 
 - Carga do catálogo e upload das fotos (`scripts/product_catalog_load.cjs`, bucket público `product-catalog`).
