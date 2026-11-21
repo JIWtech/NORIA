@@ -8,7 +8,8 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const exportsDir = process.env.NORIA_TEST_EXPORTS_DIR || path.join(root, 'n8n/workflows');
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'noria-build-test-'));
-const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+// Mesmo critério do gerador: hash do conteúdo em LF, estável entre checkouts CRLF (Windows) e LF.
+const sha = file => crypto.createHash('sha256').update(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).digest('hex');
 const core = path.join(root, 'n8n/sources/noria_core.js');
 const before = sha(core);
 try {

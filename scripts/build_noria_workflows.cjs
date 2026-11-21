@@ -777,7 +777,8 @@ const sourceFiles = [
   'n8n/code/whatsapp_prepare_context.js', 'n8n/code/whatsapp_avatar_refresh.js',
 ];
 const sourceSha256 = Object.fromEntries(sourceFiles.map(file => [file,
-  crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')]));
+  // Hash do conteúdo em LF: o mesmo arquivo gera o mesmo hash em checkouts com CRLF (Windows) ou LF.
+  crypto.createHash('sha256').update(readSource(path.join(root, file))).digest('hex')]));
 const manifest = {
   deployment: {
     contract: 'noria_turn_lifecycle_v1',
