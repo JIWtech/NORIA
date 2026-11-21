@@ -21,10 +21,18 @@ Executado em 2026-11-21, com autorização explícita do responsável.
    serviço `noria.ingress.joyeria@example.invalid` criado pelo responsável no Supabase Auth (senha fora do repositório,
    sem vínculo com tenant). Canal com `external_id='joyeria'`, ainda `pending`.
 
+4. **Catálogo** (2026-11-21): 16 alianças blend do PDF ofertáveis, 32 origens, 30 fotos no bucket `product-catalog`
+   (conferidas por SHA-256 depois do envio, `catalogo_pdf/subir_fotos.cjs`) e 32 vínculos aprovados. Produtos do site
+   ficaram de fora por decisão do responsável.
+5. **Workflows** (2026-11-21): EXT `vE8rPAAdzkkVzPBG` criada e ativa; Motor `mlKNPv862H2g3Gap` e Roteador
+   `3N5oN6sxtir9lFrA` publicados com `scripts/publish_retail_chain.cjs` (travas: só nós novos `CORE | Retail |`, ponto de
+   entrada só com o desvio retail inserido antes de "Serviços | Núbia v2?"). Testes antes: 220/220 (retail e outros
+   clientes). Backup e recibos em `.local/deploy_backups/retail-joyeria-2026-11-21T02-18-33-035Z/`. Regerar com
+   `NORIA_RETAIL_EXT_WORKFLOW_ID=vE8rPAAdzkkVzPBG`.
+
 ## Falta (cada item exige autorização)
 
-- Carga do catálogo e upload das fotos (`scripts/product_catalog_load.cjs`, bucket público `product-catalog`).
-- Workflows: publicar o CORE regenerado e a EXT `NORIA-EXT-JOYERIA-Decisao-Comercial` (ID em `NORIA_RETAIL_EXT_WORKFLOW_ID`).
+- Produtos do site (prata, aço, semijoias) e suas fotos, quando o responsável decidir.
 - Instância Evolution no canal (`external_id`, `config.instance_name`), variáveis `EVOLUTION_*_JOYERIA` e
   `NORIA_INGRESS_FORWARD_TOKEN_JOYERIA` no n8n e no runner, fonte de ingresso e serviço de ingresso no Easypanel.
 - Número de teste em `noria_turn_pipeline.pilot.allowed_contacts`; depois `ai_enabled`, modo de processamento e pipeline.
@@ -34,3 +42,5 @@ Executado em 2026-11-21, com autorização explícita do responsável.
 - Cadastro (sem conversas): desativar com `update tenants set status='inactive' where slug='joyeria'` ou remover as linhas
   do tenant (settings, canal, colunas, quadro, membro, tenant), nessa ordem, enquanto não houver eventos.
 - Migration: `supabase/migrations_pending_review/20261120200000_product_catalog.rollback.sql` (recusa se houver dados).
+- Workflows: repor com PUT os JSON do backup acima (Motor e Roteador) e ativar; desativar a EXT `vE8rPAAdzkkVzPBG`.
+- Catálogo: `update product_catalog_items set offerable=false, active=false where tenant_id=<id>` (sem apagar).
