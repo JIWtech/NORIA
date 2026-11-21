@@ -333,7 +333,8 @@ export function sortKanbanCardsByConversationActivity(cards = []) {
   return [...cards].sort((left, right) => {
     const leftAt = Date.parse(left?.lastActivityAt || '');
     const rightAt = Date.parse(right?.lastActivityAt || '');
-    if (!Number.isFinite(leftAt) || !Number.isFinite(rightAt)) return 0;
+    if (!Number.isFinite(leftAt)) return Number.isFinite(rightAt) ? 1 : 0;
+    if (!Number.isFinite(rightAt)) return -1;
     return rightAt - leftAt;
   });
 }

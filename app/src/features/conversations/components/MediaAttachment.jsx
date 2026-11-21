@@ -27,7 +27,6 @@ import {
 import {
   getMediaUrlFromCache,
   resolveSingleMediaUrl,
-  invalidateMediaUrl,
 } from '../../../services/media/mediaUrlService.js';
 import { getAuthClient } from '../../../services/auth/authService.js';
 import { isStorageNotFoundError } from '../../../services/media/storageErrors.js';
@@ -109,7 +108,9 @@ function MediaAttachmentContent({ media, kind, audioTranscription, onMediaLoad, 
             setResolveError(false);
             setIsObjectNotFound(false);
           } else {
-            setResolveError(true);
+            const cached = getMediaUrlFromCache(media.bucket, media.storagePath);
+            if (cached?.error) setIsObjectNotFound(true);
+            else setResolveError(true);
           }
         })
         .catch((err) => {
@@ -130,41 +131,39 @@ function MediaAttachmentContent({ media, kind, audioTranscription, onMediaLoad, 
     }
   }, [media.url, media.status, media.bucket, media.storagePath]);
 
-  const handleRetryMedia = () => {
+  const handleRetryMedia = async () => {
     if (media.bucket && media.storagePath) {
-      invalidateMediaUrl(media.bucket, media.storagePath);
       setIsObjectNotFound(false);
       setResolveError(false);
       setImageError(false);
       setImageLoaded(false);
       setIsResolvingUrl(true);
 
-      if (typeof onRetry === 'function') {
-        onRetry();
+      try {
+        const result = typeof onRetry === 'function'
+          ? await onRetry()
+          : await resolveSingleMediaUrl(media, getAuthClient(), { force: true });
+        const cached = getMediaUrlFromCache(media.bucket, media.storagePath);
+        const url = typeof result === 'string' ? result : (result && typeof cached === 'string' ? cached : '');
+        if (url) {
+          setResolvedUrl(url);
+          setResolveError(false);
+          setIsObjectNotFound(false);
+        } else if (cached?.error) {
+          setIsObjectNotFound(true);
+        } else {
+          setResolveError(true);
+        }
+        return Boolean(url);
+      } catch (err) {
+        if (isStorageNotFoundError(err)) setIsObjectNotFound(true);
+        else setResolveError(true);
+        return false;
+      } finally {
+        setIsResolvingUrl(false);
       }
-
-      resolveSingleMediaUrl(media, getAuthClient(), { force: true })
-        .then((url) => {
-          if (url) {
-            setResolvedUrl(url);
-            setResolveError(false);
-            setIsObjectNotFound(false);
-          } else {
-            setResolveError(true);
-          }
-        })
-        .catch((err) => {
-          if (isStorageNotFoundError(err)) {
-            setIsObjectNotFound(true);
-          } else {
-            setResolveError(true);
-          }
-        })
-        .finally(() => {
-          setIsResolvingUrl(false);
-        });
     } else if (typeof onRetry === 'function') {
-      onRetry();
+      return onRetry();
     }
   };
 

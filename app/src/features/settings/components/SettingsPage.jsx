@@ -23,6 +23,7 @@ import {
 export function SettingsPage({
   agents = [],
   agentsReady = true,
+  agentPendingIds = new Set(),
   ready = true,
   onAddAgent,
   onToggleAgentStatus,
@@ -37,6 +38,8 @@ export function SettingsPage({
   const [branch, setBranch] = useState('');
   const [shift, setShift] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [agentError, setAgentError] = useState('');
 
   // Unidades reais de appointment_scheduling.units
   const rawUnits = tenantSettings?.settings?.appointment_scheduling?.units;
@@ -103,8 +106,10 @@ export function SettingsPage({
   async function handleSubmit(e) {
     e.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName || submitting) return;
+    if (!trimmedName || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
+    setAgentError('');
     try {
       await onAddAgent?.({
         id: `ag-${Date.now()}`,
@@ -119,7 +124,10 @@ export function SettingsPage({
       setRole('');
       setBranch('');
       setShift('');
+    } catch (error) {
+      setAgentError(error?.message || 'Não foi possível salvar o atendente.');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -374,6 +382,7 @@ export function SettingsPage({
           </p>
 
           <form className="settings-agent-form" onSubmit={handleSubmit}>
+            {agentError && <div className="inline-error" role="alert">{agentError}</div>}
             <div className="settings-form-row">
               <label className="settings-field-label">
                 Nome Completo do Atendente *
@@ -519,6 +528,7 @@ export function SettingsPage({
                           className="secondary-button compact-btn settings-agent-toggle-btn"
                           type="button"
                           title="Alternar status do atendente"
+                          disabled={agentPendingIds.has(agent.id)}
                           onClick={() => onToggleAgentStatus?.(agent.id)}
                         >
                           {isOnline ? 'Pausar' : 'Retomar'}
@@ -528,6 +538,7 @@ export function SettingsPage({
                           type="button"
                           title="Excluir atendente"
                           aria-label={`Excluir atendente ${agent.name}`}
+                          disabled={agentPendingIds.has(agent.id)}
                           onClick={() => onDeleteAgent?.(agent.id)}
                         >
                           <Trash2 size={14} />

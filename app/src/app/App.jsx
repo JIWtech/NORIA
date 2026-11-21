@@ -174,6 +174,7 @@ function App() {
   const [loadError, setLoadError] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(isAuthRequired());
   const [loading, setLoading] = useState(false);
+  const refreshLoadingRequest = useRef(null);
   const initialSetup = useMemo(() => getInitialAppData(getInitialTenantSlug()), []);
   const [appData, setAppData] = useState(initialSetup.data);
   const [appDataReady, setAppDataReady] = useState(initialSetup.ready);
@@ -205,6 +206,8 @@ function App() {
   const allowedChannels = scopedData.enabledChannels || [];
 
   const [agentsList, setAgentsList] = useState([]);
+  const agentMutationsInFlight = useRef(new Set());
+  const [agentPendingIds, setAgentPendingIds] = useState(() => new Set());
   const [tenantSettings, setTenantSettings] = useState(null);
   const [initialConversationId, setInitialConversationId] = useState(null);
   const [notificationCard, setNotificationCard] = useState(null);
@@ -380,34 +383,74 @@ function App() {
 
   async function handleAddAgent(newAgent) {
     const requestedScope = currentScope.current;
-    const saved = await saveTeamAgent(activeTenantSlug, newAgent);
-    if (!isSameScope(currentScope.current, requestedScope)) return;
-    setAgentsList((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
-    setAppData((prev) => (prev && prev.scopeKey === requestedScope
-      ? { ...prev, teamAgents: [saved, ...(prev.teamAgents || []).filter((a) => a.id !== saved.id)] }
-      : prev));
+    const key = `${requestedScope}:add`;
+    if (!requestedScope || agentMutationsInFlight.current.has(key)) return false;
+    agentMutationsInFlight.current.add(key);
+    try {
+      const saved = await saveTeamAgent(activeTenantSlug, newAgent);
+      if (!isSameScope(currentScope.current, requestedScope)) return false;
+      setAgentsList((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
+      setAppData((prev) => (prev && prev.scopeKey === requestedScope
+        ? { ...prev, teamAgents: [saved, ...(prev.teamAgents || []).filter((a) => a.id !== saved.id)] }
+        : prev));
+      return true;
+    } finally {
+      agentMutationsInFlight.current.delete(key);
+    }
   }
 
   async function handleToggleAgentStatus(agentId) {
     const requestedScope = currentScope.current;
+    const key = `${requestedScope}:${agentId}`;
     const agent = agentsList.find((ag) => ag.id === agentId);
+    if (!requestedScope || !agent || agentMutationsInFlight.current.has(key)) return false;
     const newStatus = agent?.status === 'online' ? 'standby' : 'online';
-    setAgentsList((prev) => prev.map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag));
-    setAppData((prev) => (prev && prev.scopeKey === requestedScope
-      ? { ...prev, teamAgents: (prev.teamAgents || []).map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag) }
-      : prev));
-    await updateTeamAgentStatus(agentId, newStatus, activeTenantSlug);
-    if (!isSameScope(currentScope.current, requestedScope)) return;
+    agentMutationsInFlight.current.add(key);
+    setAgentPendingIds((prev) => new Set([...prev, agentId]));
+    try {
+      await updateTeamAgentStatus(agentId, newStatus, activeTenantSlug);
+      if (!isSameScope(currentScope.current, requestedScope)) return false;
+      setAgentsList((prev) => prev.map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag));
+      setAppData((prev) => (prev && prev.scopeKey === requestedScope
+        ? { ...prev, teamAgents: (prev.teamAgents || []).map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag) }
+        : prev));
+      setLoadError('');
+      return true;
+    } catch (error) {
+      if (isSameScope(currentScope.current, requestedScope)) setLoadError(userFacingError(error, 'Falha ao atualizar atendente.'));
+      return false;
+    } finally {
+      agentMutationsInFlight.current.delete(key);
+      if (isSameScope(currentScope.current, requestedScope)) setAgentPendingIds((prev) => {
+        const next = new Set(prev); next.delete(agentId); return next;
+      });
+    }
   }
 
   async function handleDeleteAgent(agentId) {
     const requestedScope = currentScope.current;
-    setAgentsList((prev) => prev.filter((ag) => ag.id !== agentId));
-    setAppData((prev) => (prev && prev.scopeKey === requestedScope
-      ? { ...prev, teamAgents: (prev.teamAgents || []).filter((ag) => ag.id !== agentId) }
-      : prev));
-    await removeTeamAgent(agentId, activeTenantSlug);
-    if (!isSameScope(currentScope.current, requestedScope)) return;
+    const key = `${requestedScope}:${agentId}`;
+    if (!requestedScope || agentMutationsInFlight.current.has(key)) return false;
+    agentMutationsInFlight.current.add(key);
+    setAgentPendingIds((prev) => new Set([...prev, agentId]));
+    try {
+      await removeTeamAgent(agentId, activeTenantSlug);
+      if (!isSameScope(currentScope.current, requestedScope)) return false;
+      setAgentsList((prev) => prev.filter((ag) => ag.id !== agentId));
+      setAppData((prev) => (prev && prev.scopeKey === requestedScope
+        ? { ...prev, teamAgents: (prev.teamAgents || []).filter((ag) => ag.id !== agentId) }
+        : prev));
+      setLoadError('');
+      return true;
+    } catch (error) {
+      if (isSameScope(currentScope.current, requestedScope)) setLoadError(userFacingError(error, 'Falha ao excluir atendente.'));
+      return false;
+    } finally {
+      agentMutationsInFlight.current.delete(key);
+      if (isSameScope(currentScope.current, requestedScope)) setAgentPendingIds((prev) => {
+        const next = new Set(prev); next.delete(agentId); return next;
+      });
+    }
   }
 
   useEffect(() => {
@@ -508,7 +551,11 @@ function App() {
     const isCurrentRequest = () => tenantCacheEpoch() === requestedEpoch && isSameScope(currentScope.current, requestedScope);
     return refreshCoordinator.run(requestedScope, async (requestedResources) => {
       if (!isCurrentRequest()) return false;
-      if (showLoading) setLoading(true);
+      const loadingRequest = {};
+      if (showLoading) {
+        refreshLoadingRequest.current = loadingRequest;
+        setLoading(true);
+      }
       try {
         const currentData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
         const partialResources = selectPartialRefresh(requestedResources, currentData, fullyLoadedScope.current, requestedScope);
@@ -578,9 +625,12 @@ function App() {
         if (isCurrentRequest()) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
         return false;
       } finally {
+        if (showLoading && refreshLoadingRequest.current === loadingRequest) {
+          refreshLoadingRequest.current = null;
+          setLoading(false);
+        }
         if (isCurrentRequest()) {
           setAppDataReady(true);
-          if (showLoading) setLoading(false);
         }
       }
     }, resources);
@@ -667,6 +717,13 @@ function App() {
   useEffect(() => {
     reloadTenants();
   }, [reloadTenants]);
+
+  useEffect(() => {
+    // Indicadores pertencem ao escopo visível; respostas antigas não os encerram.
+    refreshLoadingRequest.current = null;
+    setLoading(false);
+    setAgentPendingIds(new Set());
+  }, [scopeKey, hasTenantAccess]);
 
   useEffect(() => {
     localStorage.setItem(activePageStorageKey, active);
@@ -1122,6 +1179,7 @@ function App() {
             allowedChannels={allowedChannels}
             agents={agentsList}
             agentsReady={agentsReady}
+            agentPendingIds={agentPendingIds}
             ready={scopedReady}
             onAddAgent={handleAddAgent}
             onToggleAgentStatus={handleToggleAgentStatus}

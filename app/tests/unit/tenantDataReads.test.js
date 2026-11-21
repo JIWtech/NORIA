@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mapAppointment } from '../../src/services/appointments/appointmentPresentation.js';
 import {
   findTenantBySlug,
   loadAppointments,
@@ -32,6 +33,15 @@ function fakeSupabase(responses) {
     },
   };
 }
+
+test('agendamento com início inválido é ignorado sem perder os demais', async () => {
+  const client = fakeSupabase({ appointments: { data: [
+    { id: 'invalid', starts_at: 'inválido' },
+    { id: 'valid', starts_at: '2026-11-21T12:00:00Z' },
+  ], error: null } });
+  const rows = await loadAppointments(client, 'tenant-a', mapAppointment);
+  assert.deepEqual(rows.map((row) => row.id), ['valid']);
+});
 
 test('tenant reads retain tenant filters, ordering, limits, and appointment mapping', async () => {
   const client = fakeSupabase({

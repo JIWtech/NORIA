@@ -17,6 +17,37 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mediaAttachmentPath = path.resolve(__dirname, '../../src/features/conversations/components/MediaAttachment.jsx');
 const sourceCode = fs.readFileSync(mediaAttachmentPath, 'utf8');
 
+test('retry de mídia aguarda callback sem disparar outra resolução', async () => {
+  const match = sourceCode.match(/const handleRetryMedia = (?:async )?\(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(match);
+  let calls = 0;
+  let finish;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  const noop = () => {};
+  const run = new Function('media', 'onRetry', 'resolveSingleMediaUrl', 'invalidateMediaUrl', 'getAuthClient', 'getMediaUrlFromCache', 'isStorageNotFoundError', 'setIsObjectNotFound', 'setResolveError', 'setImageError', 'setImageLoaded', 'setIsResolvingUrl', 'setResolvedUrl', `return (async () => {${match[1]}\n})()`);
+  const promise = run({ bucket: 'b', storagePath: 'p' }, () => pending, () => { calls++; return Promise.resolve('url'); }, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop);
+  let completed = false;
+  promise.then(() => { completed = true; });
+  await Promise.resolve();
+  assert.equal(calls, 0);
+  assert.equal(completed, false);
+  finish(true);
+  await promise;
+  assert.equal(calls, 0);
+});
+
+test('retry sem callback resolve uma vez e reconhece 404 do cache', async () => {
+  const match = sourceCode.match(/const handleRetryMedia = (?:async )?\(\) => \{([\s\S]*?)\n  \};/);
+  let calls = 0;
+  let notFound = false;
+  const noop = () => {};
+  const run = new Function('media', 'onRetry', 'resolveSingleMediaUrl', 'invalidateMediaUrl', 'getAuthClient', 'getMediaUrlFromCache', 'isStorageNotFoundError', 'setIsObjectNotFound', 'setResolveError', 'setImageError', 'setImageLoaded', 'setIsResolvingUrl', 'setResolvedUrl', `return (async () => {${match[1]}\n})()`);
+  const result = await run({ bucket: 'b', storagePath: 'p' }, null, async () => { calls++; return ''; }, noop, noop, () => ({ error: true, code: 'not_found' }), noop, (value) => { notFound = value; }, noop, noop, noop, noop, noop);
+  assert.equal(result, false);
+  assert.equal(calls, 1);
+  assert.equal(notFound, true);
+});
+
 function loadMediaAttachment() {
   const { outputText } = ts.transpileModule(sourceCode, {
     compilerOptions: {

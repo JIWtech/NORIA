@@ -49,7 +49,9 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
   const { data: openAppointments, error: openError } = openResult;
   const { data: proposalAppointments, error: proposalError } = proposalResult;
   if (error || openError || proposalError) throw new Error('Não foi possível carregar os agendamentos.');
-  return mergeOpenAppointmentRequests(mergeOpenAppointmentRequests(data || [], openAppointments || []), proposalAppointments || []).map(mapAppointment);
+  return mergeOpenAppointmentRequests(mergeOpenAppointmentRequests(data || [], openAppointments || []), proposalAppointments || [])
+    .filter((row) => !row.starts_at || Number.isFinite(new Date(row.starts_at).getTime()))
+    .map(mapAppointment);
 }
 
 export async function loadBroadcastContacts(supabase, tenantId) {
