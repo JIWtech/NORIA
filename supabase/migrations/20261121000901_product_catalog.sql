@@ -3,7 +3,7 @@
 -- Primeiro uso: JOYERÍA (alianças blend do PDF e produtos do site). Estrutura genérica: nenhum
 -- tenant, produto ou regra comercial é fixado aqui.
 --
--- PENDENTE DE REVISÃO: não aplicar em produção sem autorização explícita.
+-- Aplicada no NORIA-prod em 2026-11-21 (versão remota 20261121000901), com autorização explícita.
 -- Rollback: 20261120200000_product_catalog.rollback.sql (recusa apagar tabelas com dados).
 --
 -- Decisões de modelagem:
