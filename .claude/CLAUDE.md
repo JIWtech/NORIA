@@ -2,18 +2,26 @@
 
 ## Claude Code
 
-- Use buscas por trecho para logs, resultados de testes e JSONs grandes. Para workflows, comece pelas fontes em `n8n/sources/` e confira somente os trechos relevantes nos exports.
+### Leitura de contexto
 
-## Orquestração por mensagem
+- Para workflows, comece pelas fontes em `n8n/sources/` e abra nos exports só os trechos relevantes.
+- Busque por trecho em logs, resultados de testes e JSONs grandes, em vez de ler o arquivo inteiro.
+- Leia só o que a tarefa exige e reaproveite o que já foi apurado na conversa.
 
-Em cada mensagem do usuário, avalie o pedido antes de responder ou executar. Faça isso automaticamente, sem depender de comando ou menção a um agente. Opus é o agente principal e responde pelo resultado.
+### Execução
 
-| Complexidade | Roteamento |
-| --- | --- |
-| Simples e delimitada | Delegue a `noria-haiku` buscas, conferências e respostas curtas com critérios claros. Para uma pequena edição, Haiku pode levantar a referência e Opus aplicar a mudança. |
-| Técnica ou com várias etapas | Delegue a `noria-sonnet` investigação, implementação, testes ou revisão. |
-| Complexa, ambígua ou de alto impacto | Opus delimita o problema, define critérios e decide o encaminhamento. Delegue a Sonnet os blocos técnicos e a Haiku as checagens pontuais independentes que ajudarem. |
+- Resolva diretamente: investigue, implemente, teste e revise na própria sessão.
+- Antes de editar, confirme o comportamento atual com o código ou um teste. Depois, rode os testes de regressão relacionados e revise o diff.
+- Crie e altere arquivos só com Edit/Write, nunca pelo shell (`sed -i`, heredoc, `node -e`, redirecionamento), sem exceção. O shell serve para ler, buscar, testar e git.
+- Para saudações, confirmações e pedidos de status, responda direto, a partir do contexto.
 
-Use a ferramenta `Agent` com o nome do perfil escolhido e deixe o modelo definido no perfil. Dê a cada subagente o objetivo, o escopo, os limites de autorização e a evidência esperada. Execute em paralelo apenas subtarefas independentes e atribua arquivos distintos quando houver edições. Se uma tarefa simples revelar complexidade técnica, encaminhe-a a Sonnet com os achados de Haiku.
+### Limites
 
-Opus revisa os resultados, resolve divergências, integra as mudanças e confere os testes antes de responder. Para saudações, confirmações e pedidos de status que podem ser respondidos a partir do contexto atual, responda diretamente. Se o perfil ou modelo estiver indisponível, informe a limitação quando ela afetar o resultado.
+- Publicar workflows, alterar o Supabase de produção, aplicar migrações ou enviar WhatsApp real só com autorização explícita do responsável, a cada vez.
+- Não leia, exiba nem digite segredos, tokens ou chaves. Não use credenciais de um tenant em outro.
+- Testes com o Gemini real custam dinheiro: rode só os cenários afetados, em sequência e dentro do teto do simulador. Não altere limites dos clientes por causa disso.
+
+### Entrega
+
+- Faça um commit por incremento lógico no `dev`.
+- Registre resultados, limitações e rollback quando houver mudança operacional.
