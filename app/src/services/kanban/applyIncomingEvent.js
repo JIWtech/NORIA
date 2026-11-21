@@ -232,14 +232,7 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
     nextOwnerId = assignee.id ? String(assignee.id) : null;
     nextOwnerKind = 'agent';
   } else if (isNewerControl && isHandoff && matchedCard.ownerKind !== 'agent') {
-    let activeAgents = Array.isArray(teamAgents) && teamAgents.length ? teamAgents : null;
-    if (!activeAgents && typeof window !== 'undefined' && window.localStorage && resolvedTenant) {
-      try {
-        const cached = window.localStorage.getItem(`magia:team-agents:${resolvedTenant}`);
-        if (cached) activeAgents = JSON.parse(cached);
-      } catch (_) {}
-    }
-    const resolvedAgents = Array.isArray(activeAgents) ? activeAgents : [];
+    const resolvedAgents = Array.isArray(teamAgents) ? teamAgents : [];
     const humanFallback = resolveConversationOwnerDetails({
       explicitOwner: null,
       activeAgents: resolvedAgents,
