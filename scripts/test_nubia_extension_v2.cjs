@@ -352,6 +352,18 @@ test('informações genéricas e múltiplos serviços usam somente blocos aprova
   assert.deepEqual(d.actions.present_information.block_keys.sort(), ['blk_a', 'blk_b']);
 });
 
+test('orientações nunca autorizam bloco de preço inválido', async () => {
+  const settings = baseSettings();
+  settings.approved_messages.blocks.blk_prep.text = 'Preparo: R$ 999,00';
+  settings.business_facts.service_guidance.g_ai.bring_message = 'blk_prep';
+  for (const topic of ['preparation', 'what_to_bring', 'general_info']) {
+    const semantic = { primary_intent: 'info_inquiry', info_requests: [{ topic, service_ids: ['svc_a'], evidence_ids: ['m1'] }] };
+    const d = (await run({ settings, semantic })).commercial_decision;
+    assert.ok(!d.approved_blocks.some(b => b.key === 'blk_prep'), topic);
+    assert.ok(!d.actions.present_information.block_keys.includes('blk_prep'), topic);
+  }
+});
+
 test('ambiguidade de serviço preserva informação independente e nomes reais das opções', async () => {
   const settings = baseSettings();
   settings.business_facts.locations = [{ id: 'u1', verified: true, name: 'Unidade Centro', city: 'Cidade', address: 'Rua 1' }, { id: 'u2', verified: false, city: 'Outra' }];

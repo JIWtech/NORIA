@@ -376,10 +376,8 @@ function resolveBlocks(topic, serviceIds) {
     const field = topic === 'what_to_bring' ? 'bring_message' : 'before_message';
     for (const id of serviceIds) for (const { group } of guidanceGroupsFor(id)) {
       const blockKey = typeof group[field] === 'string' ? group[field] : '';
-      const text = blockKey && isObj(approved.blocks?.[blockKey]) ? String(approved.blocks[blockKey].text || '').trim() : '';
-      if (text && !/\[(?:ACAO|AÇÃO|HUMANO_SOLICITADO)/i.test(text) && Array.isArray(approved.blocks[blockKey].service_ids) && !approved.blocks[blockKey].service_ids.length) {
-        add({ key: blockKey, service_ids: [] }, topic, [id]);
-      }
+      const block = validBlocks.get(blockKey);
+      if (block && !block.service_ids.length) add(block, topic, [id]);
     }
     if (!picked.length) notes.push('NO_GUIDANCE_BLOCK_FOR_SERVICES');
   }

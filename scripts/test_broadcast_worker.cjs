@@ -24,7 +24,7 @@ async function execute({ channels, instance = 'nubia-oficial', protection = { mi
         broadcast_protection_settings: protection,
         broadcast_daily_quota: { ok: true, remaining: 10 },
         broadcast_claim_batch: [recipient],
-        broadcast_begin_send: 'sending',
+        broadcast_begin_send_paced: 'sending',
         broadcast_record_result: null,
         broadcast_schedule_next: { ok: true, next_send_at: '2026-11-12T13:00:00Z', db_now: '2026-11-12T12:00:00Z' },
         broadcast_release_campaign: { status: 'sending' },
@@ -55,11 +55,13 @@ test('canal identificado por config.instance_name, sem diferenciar caixa, e envi
   assert.equal(report.sent, 1, JSON.stringify(report));
   assert.equal(calls.filter(call => String(call.url).includes('evo.test')).length, 1);
   assert.equal(rpcCalls(calls, 'broadcast_record_result')[0].body.p_status, 'sent');
+  assert.ok(calls.findIndex(call => call.url.endsWith('/rpc/broadcast_begin_send_paced')) < calls.findIndex(call => call.url.includes('evo.test')));
 });
 
 test('o próximo envio é agendado dentro do intervalo de proteção (acima de 40 minutos)', async () => {
   const { calls } = await execute({ channels: [{ external_id: 'nubia-oficial', config: {} }] });
   const next = rpcCalls(calls, 'broadcast_schedule_next')[0].body.p_delay_seconds;
+  assert.equal(rpcCalls(calls, 'broadcast_begin_send_paced')[0].body.p_delay_seconds, next);
   assert.ok(next >= 2460 && next <= 3300, 'atraso ' + next);
   assert.ok(next > 40 * 60);
 });
