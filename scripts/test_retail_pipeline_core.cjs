@@ -370,6 +370,23 @@ test('conferência de fotos: 15 frases reais (revisão do Gemini) e casos anteri
   assert.equal(claim('Vou enviar novamente a foto da Versati, e já seguimos para as medidas.', { photosAlready: true }), true);
 });
 
+test('plano de fotos permite promessa futura, mas não afirma envio concluído', () => {
+  const { retailAuditReply } = loadCore(['retailAuditReply'], {}, { withRegion: false });
+  const audit = text => retailAuditReply(text, [], { photosSent: false, photosPlanned: true });
+  for (const text of ['Enviei a foto.', 'Mandei as fotos.', 'Segue a foto.', 'Já encaminhei as fotos.', 'Aqui estão as fotos.'])
+    assert.ok(audit(text).includes('PHOTO_CLAIM_WITHOUT_PHOTO'), text);
+  assert.deepEqual(audit('Vou enviar as fotos.'), []);
+});
+
+test('finalização revisa afirmação prematura antes de tentar enviar fotos', async () => {
+  const h = finalizeHarness({ actions: { ...present, send_product_media: { allowed: true, item_id: id(1), asset_ids: [id(2)] } },
+    replies: ['Enviei a foto.', 'Vou enviar a foto.'], mediaResponse: {} });
+  const result = await h.run();
+  assert.equal(h.log.composeInputs.length, 2);
+  assert.equal(h.log.delivered, 'Vou enviar a foto.');
+  assert.equal(result.retail_execution.media.status, 'stopped_unknown');
+});
+
 test('redação com falha passageira volta para a fila sem gravar nem enviar; falha definitiva vira contingência', async () => {
   const transient = finalizeHarness({ actions: present, composeError: 'GEMINI_RATE_LIMIT' });
   await assert.rejects(transient.run(), /GEMINI_RATE_LIMIT/);

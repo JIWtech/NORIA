@@ -2,6 +2,10 @@
 // Roda no schedule de 1 minuto do workflow de Entrada (nó "Processar Disparos"), projetado pelo
 // scripts/build_noria_workflows.cjs. O painel só cria e enfileira a campanha.
 //
+// ATENÇÃO (2026-11-21): esta versão chama broadcast_begin_send_paced e broadcast_requeue_recipient_paced,
+// criadas pela proposta supabase/migrations_pending_review/broadcast_pacing_v1.PROPOSAL.sql. NÃO publique o
+// Roteador com este worker antes de aplicar essa migração: sem as RPCs, os disparos param.
+//
 // Garantias:
 // - Campanha reivindicada com lease no banco (broadcast_claim_due_campaigns): uma por tenant por vez.
 // - Destinatário reivindicado com lease (broadcast_claim_batch) e marcado 'sending' antes da chamada externa;
@@ -174,15 +178,20 @@ async function processCampaign(campaign, leaseToken) {
       const recipient = Array.isArray(batch) ? batch[0] : null;
       if (!recipient || recipient.tenant_id !== campaign.tenant_id) break;
       // Contato bloqueado (opt-out) é pulado no mesmo passo que abre o envio.
-      const begin = await rpc('broadcast_begin_send', { p_recipient_id: recipient.id, p_lease_token: leaseToken });
+      const delaySeconds = pacingDelaySeconds(protection);
+      const begin = await rpc('broadcast_begin_send_paced', { p_recipient_id: recipient.id, p_lease_token: leaseToken,
+        p_delay_seconds: delaySeconds });
       if (begin === 'skipped_opt_out') { report.skipped_opt_out = (report.skipped_opt_out || 0) + 1; continue; }
+      if (begin === 'pending_review') { report.pacing_review_required = true; break; }
       if (begin !== 'sending') break;
 
       const message = renderBroadcastMessage(text, recipient.contact_name);
       const outcome = message ? await deliver(sender, recipient, message) : { status: 'failed', reason: 'empty_rendered_message' };
       report[outcome.status] += 1;
       if (outcome.status === 'requeue') {
-        await rpc('broadcast_requeue_recipient', { p_recipient_id: recipient.id, p_lease_token: leaseToken, p_reason: outcome.reason });
+        const requeued = await rpc('broadcast_requeue_recipient_paced', { p_recipient_id: recipient.id, p_lease_token: leaseToken,
+          p_reason: outcome.reason, p_delay_seconds: delaySeconds });
+        if (!requeued?.ok) report.pacing_review_required = true;
         pauseReason = outcome.reason;
         break;
       }
@@ -196,15 +205,22 @@ async function processCampaign(campaign, leaseToken) {
           service: 'broadcast', stage: 'Disparo', handoff: false, ai_provider: 'broadcast_campaign', sent_by_user: 'Disparo NORIA',
           delivery_status: 'sent', command_id: recipient.idempotency_key || ('bcast:' + campaign.id + ':' + recipient.id),
           raw_payload: { campaign_id: campaign.id, campaign_name: campaign.name, recipient_id: recipient.id },
-        }).catch(() => {});
+        }).catch(error => {
+          (report.history_errors ||= []).push({ recipient_id: recipient.id, message_id: outcome.messageId,
+            error: String(error?.message || error).slice(0, 200) });
+        });
       } else {
         const failures = await rpc('broadcast_consecutive_failures', { p_tenant_id: campaign.tenant_id });
-        if (Number(failures) >= Number(protection.max_consecutive_failures)) { pauseReason = 'consecutive_failures'; break; }
+        if (Number(failures) >= Number(protection.max_consecutive_failures)) pauseReason = 'consecutive_failures';
       }
 
+      // Resultado incerto mantém a barreira para revisão, pois a entrega pode ocorrer mais tarde.
+      if (outcome.status === 'unknown') { report.pacing_review_required = true; break; }
+
       const schedule = await rpc('broadcast_schedule_next', { p_campaign_id: campaign.id, p_lease_token: leaseToken,
-        p_delay_seconds: pacingDelaySeconds(protection) });
+        p_delay_seconds: delaySeconds });
       if (!schedule?.ok) break;
+      if (pauseReason) break;
       const waitMs = new Date(schedule.next_send_at).getTime() - new Date(schedule.db_now).getTime();
       if (elapsedMs() + waitMs > budgetMs) break;
       await sleep(waitMs);

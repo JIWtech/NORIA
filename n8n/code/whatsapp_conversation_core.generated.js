@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21',
-  built_at: '2026-11-21T18:37:23.761Z',
-  core_sha256: '2b73eac3abc84c157540c276de3884f666b8fb408724615cd25ab42e7a17204c',
+  built_at: '2026-11-21T21:20:03.091Z',
+  core_sha256: 'b215f681486fd8e10a4972ad91fca2121b37898e537b26726764086eaacbab06',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6659,7 +6659,7 @@ function retailAuditHint(code) {
   }[code] || code;
 }
 
-function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, teamHandoff = true, photosAlready = false } = {}) {
+function retailAuditReply(reply, items, { linkAppended = true, photosSent = true, photosPlanned = false, teamHandoff = true, photosAlready = false } = {}) {
   const failures = [];
   // Anunciar que a equipe assume sem que a conversa tenha sido passada à equipe engana o cliente.
   if (!teamHandoff && /\b(continuar|seguir|assumir)\b[^.!?]{0,30}\b(atendimento|por aqui)\b/i.test(String(reply || ''))) failures.push('TEAM_CLAIM_WITHOUT_HANDOFF');
@@ -6676,7 +6676,7 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   if (!photosSent) {
     const noun = '(?:fotos?|imagens?|imagem)';
     const send = '(?:enviar|envio|envie|enviando|enviei|enviad[ao]s?|reenviar|reenvio|mandar|mando|mande|mandando|mandei'
-      + '|encaminh(?:ar|o|ando)|mostrar|mostro|mostrando|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui'
+      + '|encaminh(?:ar|o|ando|ei|amos|ad[ao]s?)|mostrar|mostro|mostrando|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui'
       + '|(?:v[aã]o|vai) (?:logo |agora |agora mesmo )?(?:abaixo|acima|chegar|aparecer|em seguida|na sequ[eê]ncia))';
     const sendThenNoun = new RegExp('\\b' + send + '\\b[^.!?]{0,50}\\b' + noun + '\\b', 'i');
     const nounThenSend = new RegExp('\\b' + noun + '\\b[^.!?]{0,50}\\b' + send + '\\b', 'i');
@@ -6693,8 +6693,9 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
     const promised = statements.some(sentence => {
       if (negated.test(sentence) || customerSends.test(sentence)) return false;
       if (photosAlready && alreadyHere.test(sentence)) return false;
-      return sendThenNoun.test(sentence) || nounThenSend.test(sentence) || pointing.test(sentence)
-        || (!photosAlready && demonstrative.test(sentence));
+      const checked = photosPlanned ? sentence.replace(/\b(?:vou|vamos|irei)\s+(?:(?:te|lhe|lhes)\s+)?(?:enviar|mandar|encaminhar|mostrar)\b/gi, '') : sentence;
+      return sendThenNoun.test(checked) || nounThenSend.test(checked) || pointing.test(checked)
+        || (!photosAlready && demonstrative.test(checked));
     });
     if (promised) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
   }
@@ -6912,7 +6913,7 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     const compose = note => retailComposeReply(context, { decision, allowed, items: items.filter(item => allowed.present_item_ids.includes(item.id)),
       media: mediaForText, siteLinkItem, customerLine, handoff: Boolean(allowed.handoff), history, revisionNote: note });
     composed = await compose('');
-    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff),
+    const promises = { linkAppended: Boolean(siteLinkItem), photosSent: false, photosPlanned: Boolean(mediaForText), teamHandoff: Boolean(allowed.handoff),
       photosAlready: !mediaForText && decision.actions?.send_product_media?.reason === 'ALREADY_SENT_IN_SESSION' };
     audit = retailAuditReply(composed.reply, items.filter(item => allowed.present_item_ids.includes(item.id)), promises);
     if (audit.length) {
