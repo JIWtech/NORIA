@@ -35,7 +35,7 @@ export function normalizeStage(stage) {
   return stage || 'Qualificação';
 }
 
-const locationDetailsCache = new Map();
+import { locationDetailsCache } from '../tenants/tenantScopedCaches.js';
 
 export function normalizeLocation(rawPayload, event = null) {
   const payload = asObject(rawPayload); const ev = asObject(event);

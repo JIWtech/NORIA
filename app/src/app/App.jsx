@@ -73,6 +73,7 @@ import { Kanban } from '../features/kanban/components/Kanban';
 import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
 import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
+import { clearTenantScopedCaches, tenantCacheEpoch } from '../services/tenants/tenantScopedCaches.js';
 import { placeKanbanCard, reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
 import { requirePersistedAssignment } from '../services/conversations/conversationLifecycle.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
@@ -352,6 +353,7 @@ function App() {
   const handleSignOut = async () => {
     clearSessionBootstrapped();
     clearAppDataCache();
+    clearTenantScopedCaches();
     clearKanbanMovesInFlight();
     fullyLoadedScope.current = '';
     conversationViewRef.current = { canonicalKey: '', visible: false };
@@ -804,6 +806,7 @@ function App() {
       if (event === 'SIGNED_OUT') {
         currentUserId = null;
         clearAppDataCache();
+        clearTenantScopedCaches();
         clearKanbanMovesInFlight();
         fullyLoadedScope.current = '';
         conversationViewRef.current = { canonicalKey: '', visible: false };
@@ -830,6 +833,7 @@ function App() {
       const nextUserId = nextSession?.user?.id || null;
       if (currentUserId && nextUserId && currentUserId !== nextUserId) {
         clearAppDataCache();
+        clearTenantScopedCaches();
         clearKanbanMovesInFlight();
         fullyLoadedScope.current = '';
         conversationViewRef.current = { canonicalKey: '', visible: false };
@@ -873,7 +877,10 @@ function App() {
   async function refreshData({ showLoading = true, resources } = {}) {
     if (!hasTenantAccess) return false;
     const requestedScope = scopeKey;
+    const requestedEpoch = tenantCacheEpoch();
+    const isCurrentRequest = () => tenantCacheEpoch() === requestedEpoch && isSameScope(currentScope.current, requestedScope);
     return refreshCoordinator.run(requestedScope, async (requestedResources) => {
+      if (!isCurrentRequest()) return false;
       if (showLoading) setLoading(true);
       try {
         const currentData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
@@ -893,12 +900,12 @@ function App() {
           // Conversas sem atividade há mais de 30 dias só entram quando a pessoa pede (desempenho em tenants grandes).
           includeOlderConversations: includeOlderConversationsRef.current,
         });
-        if (!isSameScope(currentScope.current, requestedScope)) return false;
+        if (!isCurrentRequest()) return false;
         if (partialResources) {
           if (!mergeCampaignPatch(appDataRef.current, data, expectedTenantId)) return false;
           setLoadError('');
           setAppData((previous) => {
-            if (!isSameScope(currentScope.current, requestedScope) || previous?.scopeKey !== requestedScope || previous?.tenantId !== expectedTenantId) return previous;
+            if (!isCurrentRequest() || previous?.scopeKey !== requestedScope || previous?.tenantId !== expectedTenantId) return previous;
             const merged = withScopeKey(mergeCampaignPatch(previous, data, expectedTenantId), requestedScope);
             if (!merged) return previous;
             cacheAppData(activeTenantSlug, merged, session?.user?.id || null);
@@ -936,10 +943,10 @@ function App() {
         ));
         return true;
       } catch (error) {
-        if (isSameScope(currentScope.current, requestedScope)) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
+        if (isCurrentRequest()) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
         return false;
       } finally {
-        if (isSameScope(currentScope.current, requestedScope)) {
+        if (isCurrentRequest()) {
           setAppDataReady(true);
           if (showLoading) setLoading(false);
         }
@@ -1061,7 +1068,7 @@ function App() {
   }, [activeTenantSlug, session?.user?.id, hasTenantAccess]);
 
   useEffect(() => {
-    if (!hasTenantAccess || dataScope !== scopeKey) return undefined;
+    if (!hasTenantAccess || dataScope !== scopeKey || !scopedData?.tenantId) return undefined;
     const userId = session?.user?.id || null;
     const requestedScope = scopeKey;
     const subscribedTenantId = scopedData?.tenantId;

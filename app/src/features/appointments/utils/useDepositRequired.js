@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { loadDepositRequired } from '../../../services/appointments/outcomeActions.js';
+import { depositCacheByTenant, tenantCacheEpoch } from '../../../services/tenants/tenantScopedCaches.js';
 
 const EMPTY_INDEX = new Map();
 const DEPOSIT_CACHE_TTL_MS = 30_000;
-const depositCacheByTenant = new Map();
 
 // Contatos que faltaram a um agendamento e, por isso, exigem sinal em novos agendamentos.
 // Mantém cache curto por tenant para evitar nova consulta e re-render extra ao alternar entre abas.
@@ -16,6 +16,7 @@ export function useDepositRequired(tenantSlug, refreshKey) {
 
   useEffect(() => {
     let cancelled = false;
+    const epoch = tenantCacheEpoch();
     if (!tenantSlug) {
       setResult(null);
       return undefined;
@@ -31,6 +32,7 @@ export function useDepositRequired(tenantSlug, refreshKey) {
       return undefined;
     }
     loadDepositRequired(tenantSlug).then((next) => {
+      if (cancelled || epoch !== tenantCacheEpoch()) return;
       depositCacheByTenant.set(tenantSlug, { index: next, refreshKey, fetchedAt: Date.now() });
       if (!cancelled) setResult({ tenantSlug, index: next });
     });

@@ -89,7 +89,8 @@ function isConversationsDesktop() {
 }
 const LATEST_MESSAGES_THRESHOLD = 120;
 const FULL_HISTORY_CACHE_LIMIT = 30;
-const fullHistoryCache = new Map();
+// Compartilhado com a limpeza do ciclo de autenticação.
+import { fullHistoryCache, tenantCacheEpoch } from '../../../services/tenants/tenantScopedCaches.js';
 
 function rememberFullHistory(historyKey, messages) {
   if (fullHistoryCache.has(historyKey)) fullHistoryCache.delete(historyKey);
@@ -474,8 +475,10 @@ export function Conversations({
 
     let cancelled = false;
     async function fetchFullHistory() {
+      const epoch = tenantCacheEpoch();
       try {
         const fullMessages = await loadConversationFullHistory(tenantSlug, extId);
+        if (epoch !== tenantCacheEpoch()) return;
         if (!cancelled && Array.isArray(fullMessages) && fullMessages.length > 0) {
           rememberFullHistory(historyKey, fullMessages);
           setFullHistoryByChat((prev) => ({

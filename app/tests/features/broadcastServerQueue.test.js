@@ -6,8 +6,9 @@ import { createBroadcastOperations } from '../../src/services/broadcasts/broadca
 // IA-25: o painel só cria e enfileira; quem envia é o servidor, que respeita a cadência de proteção do número.
 function ops(rpcImpl) {
   const calls = [];
-  const client = { async rpc(name, args) { calls.push([name, args]); return rpcImpl(name, args); } };
-  return { calls, api: createBroadcastOperations({ getClient: () => client, loadTenant: async () => ({ id: 't1' }), currentUserId: async () => 'u1' }) };
+  const q = { select() { return q; }, eq() { return q; }, async maybeSingle() { return { data: { id: 'c1' }, error: null }; } };
+  const client = { from: () => q, async rpc(name, args) { calls.push([name, args]); return rpcImpl(name, args); } };
+  return { calls, api: createBroadcastOperations({ getClient: () => client, loadTenant: async () => ({ id: 't1' }), getTenantSlug: () => 'tenant', currentUserId: async () => 'u1' }) };
 }
 
 test('enfileirar exige consentimento e chama a RPC do servidor', async () => {

@@ -59,7 +59,7 @@ test('business hours returns null when empty or missing to allow omission of KPI
 
 test('salva filial e turno vazios como null no serviço real', async () => {
   const inserted = [];
-  const client = { from: () => ({ insert: rows => ({ select: () => ({ single: async () => {
+  const client = { from: table => table === 'tenants' ? { select: () => ({ eq: () => ({ limit: () => ({ maybeSingle: async () => ({ data: { id: 'tenant-1' }, error: null }) }) }) }) } : ({ insert: rows => ({ select: () => ({ single: async () => {
     inserted.push(rows[0]);
     return { data: rows[0], error: null };
   } }) }) }) };

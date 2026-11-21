@@ -5,7 +5,24 @@ import {
   canTransitionRecipient,
 } from './broadcastStateMachine.js';
 
-export function createBroadcastOperations({ getClient, loadTenant, currentUserId }) {
+export function createBroadcastOperations({ getClient, loadTenant, currentUserId, getTenantSlug }) {
+  async function tenantId() {
+    const slug = getTenantSlug?.();
+    if (!slug) throw new Error('Tenant ativo nao informado');
+    const tenant = await loadTenant(slug);
+    if (!tenant?.id) throw new Error('Tenant nao encontrado');
+    return tenant.id;
+  }
+
+  async function authorizeRpc(supabase, table, id, tenant) {
+    const { data, error } = await supabase.from(table).select('id').eq('id', id).eq('tenant_id', tenant).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error('Registro nao encontrado no tenant ativo');
+  }
+
+  function validatePatch(patch, tenant) {
+    if (patch?.tenant_id !== undefined && patch.tenant_id !== tenant) throw new Error('Tenant invalido no payload');
+  }
   async function upsertBroadcastContacts(activeTenantSlug, contacts) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
@@ -84,10 +101,13 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   async function updateBroadcastCampaign(campaignId, patch) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
+    const tenant = await tenantId();
+    validatePatch(patch, tenant);
     const { data, error } = await supabase
       .from('broadcast_campaigns')
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', campaignId)
+      .eq('tenant_id', tenant)
       .select('*')
       .single();
     if (error) throw error;
@@ -97,10 +117,13 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   async function updateBroadcastRecipient(campaignId, externalConversationId, patch) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
+    const tenant = await tenantId();
+    validatePatch(patch, tenant);
     let query = supabase
       .from('broadcast_campaign_recipients')
       .update(patch)
       .eq('campaign_id', campaignId)
+      .eq('tenant_id', tenant)
       .eq('external_conversation_id', externalConversationId);
 
     // Proteção rigorosa: se o registro já estiver como 'sent', nunca rebaixar para outro status
@@ -115,10 +138,12 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   async function getBroadcastCampaignRecipients(campaignId) {
     const supabase = getClient();
     if (!supabase) return [];
+    const tenant = await tenantId();
     const { data, error } = await supabase
       .from('broadcast_campaign_recipients')
       .select('*')
-      .eq('campaign_id', campaignId);
+      .eq('campaign_id', campaignId)
+      .eq('tenant_id', tenant);
     if (error) throw error;
     return data || [];
   }
@@ -132,7 +157,9 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
 
+    const tenant = await tenantId();
     if (typeof supabase.rpc === 'function') {
+      await authorizeRpc(supabase, 'broadcast_campaigns', campaignId, tenant);
       try {
         const { data, error } = await supabase.rpc('broadcast_claim_batch', {
           p_campaign_id: campaignId,
@@ -151,6 +178,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
       .from('broadcast_campaign_recipients')
       .select('*')
       .eq('campaign_id', campaignId)
+      .eq('tenant_id', tenant)
       .eq('status', RECIPIENT_STATUS.QUEUED)
       .limit(batchSize);
 
@@ -171,6 +199,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
           last_attempt_at: new Date().toISOString(),
         })
         .eq('id', item.id)
+        .eq('tenant_id', tenant)
         .eq('status', RECIPIENT_STATUS.QUEUED)
         .select('*');
 
@@ -189,7 +218,9 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
 
+    const tenant = await tenantId();
     if (typeof supabase.rpc === 'function') {
+      await authorizeRpc(supabase, 'broadcast_campaign_recipients', recipientId, tenant);
       try {
         const { data, error } = await supabase.rpc('broadcast_mark_sending', {
           p_recipient_id: recipientId,
@@ -204,7 +235,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     let query = supabase
       .from('broadcast_campaign_recipients')
       .update({ status: RECIPIENT_STATUS.SENDING })
-      .eq('id', recipientId);
+      .eq('id', recipientId)
+      .eq('tenant_id', tenant);
 
     if (typeof query.eq === 'function' && leaseToken) {
       query = query.eq('lease_token', leaseToken);
@@ -221,7 +253,9 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
 
+    const tenant = await tenantId();
     if (typeof supabase.rpc === 'function') {
+      await authorizeRpc(supabase, 'broadcast_campaign_recipients', recipientId, tenant);
       try {
         const { data, error: rpcError } = await supabase.rpc('broadcast_record_result', {
           p_recipient_id: recipientId,
@@ -250,7 +284,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     let query = supabase
       .from('broadcast_campaign_recipients')
       .update(patch)
-      .eq('id', recipientId);
+      .eq('id', recipientId)
+      .eq('tenant_id', tenant);
 
     if (typeof query.neq === 'function' && status !== RECIPIENT_STATUS.SENT) {
       query = query.neq('status', RECIPIENT_STATUS.SENT);
@@ -270,7 +305,9 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const supabase = getClient();
     if (!supabase) return { requeued: 0, marked_unknown: 0 };
 
+    const tenant = await tenantId();
     if (typeof supabase.rpc === 'function') {
+      await authorizeRpc(supabase, 'broadcast_campaigns', campaignId, tenant);
       try {
         const { data, error } = await supabase.rpc('broadcast_recover_stale_leases', {
           p_campaign_id: campaignId,
@@ -290,6 +327,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
         .from('broadcast_campaign_recipients')
         .update({ status: RECIPIENT_STATUS.QUEUED, lease_token: null, locked_until: null })
         .eq('campaign_id', campaignId)
+        .eq('tenant_id', tenant)
         .eq('status', RECIPIENT_STATUS.CLAIMED)
         .lt('locked_until', now)
         .select('id');
@@ -308,6 +346,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
           error: 'Timeout de confirmacao externa: resultado incerto para prevenir duplicacao',
         })
         .eq('campaign_id', campaignId)
+        .eq('tenant_id', tenant)
         .eq('status', RECIPIENT_STATUS.SENDING)
         .lt('locked_until', now)
         .select('id');
@@ -325,6 +364,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     if (consentConfirmed !== true) throw new Error('Confirme o consentimento dos contatos antes de enfileirar o disparo.');
     const supabase = getClient();
     if (!supabase || typeof supabase.rpc !== 'function') throw new Error('Supabase nao configurado');
+    const tenant = await tenantId();
+    await authorizeRpc(supabase, 'broadcast_campaigns', campaignId, tenant);
     const { data, error } = await supabase.rpc('broadcast_enqueue_campaign', {
       p_campaign_id: campaignId, p_scheduled_at: scheduledAt, p_consent_confirmed: true,
     });
@@ -337,6 +378,8 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     if (!CONTROL_ACTIONS.has(action)) throw new Error('Acao de campanha invalida');
     const supabase = getClient();
     if (!supabase || typeof supabase.rpc !== 'function') throw new Error('Supabase nao configurado');
+    const tenant = await tenantId();
+    await authorizeRpc(supabase, 'broadcast_campaigns', campaignId, tenant);
     const { data, error } = await supabase.rpc('broadcast_control_campaign', { p_campaign_id: campaignId, p_action: action });
     if (error) throw error;
     return data;
@@ -346,7 +389,9 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
 
+    const tenant = await tenantId();
     if (typeof supabase.rpc === 'function') {
+      await authorizeRpc(supabase, 'broadcast_campaigns', campaignId, tenant);
       try {
         const { data, error } = await supabase.rpc('broadcast_cancel_campaign', {
           p_campaign_id: campaignId,
@@ -360,12 +405,14 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
     await supabase
       .from('broadcast_campaigns')
       .update({ status: CAMPAIGN_STATUS.CANCELLED, updated_at: new Date().toISOString() })
-      .eq('id', campaignId);
+      .eq('id', campaignId)
+      .eq('tenant_id', tenant);
 
     const { data } = await supabase
       .from('broadcast_campaign_recipients')
       .update({ status: RECIPIENT_STATUS.CANCELLED, lease_token: null, locked_until: null })
       .eq('campaign_id', campaignId)
+      .eq('tenant_id', tenant)
       .in('status', [RECIPIENT_STATUS.QUEUED, RECIPIENT_STATUS.CLAIMED])
       .select('id');
 
@@ -383,6 +430,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
       throw new Error(`Status de reconciliação inválido: ${targetStatus}`);
     }
 
+    const tenant = await tenantId();
     const patch = {
       status: targetStatus,
       error: notes ? `Reconciliado manualmente: ${notes}` : 'Reconciliado manualmente pelo operador',
@@ -397,6 +445,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
       .from('broadcast_campaign_recipients')
       .update(patch)
       .eq('id', recipientId)
+      .eq('tenant_id', tenant)
       .eq('campaign_id', campaignId)
       .eq('status', RECIPIENT_STATUS.UNKNOWN);
 
