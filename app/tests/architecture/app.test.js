@@ -50,7 +50,7 @@ test('REGRESSAO: App.jsx possui AST limpa com zero variaveis livres e exporta Ap
   assert.match(code, /export\s+default\s+App;/, 'App.jsx deve ter default export de App');
 });
 
-test('REGRESSAO: App.jsx preserva os 19 estados, 8 refs e 10 efeitos auditados', () => {
+test('REGRESSAO: App.jsx preserva os hooks auditados e inclui controle de pendências A1/A6', () => {
   // Os hooks extraídos na Fase 5 (src/app/hooks) fazem parte do mesmo orquestrador: a soma total é preservada.
   const files = [path.join(__dirname, '../../src/app/App.jsx'),
     ...fs.readdirSync(path.join(__dirname, '../../src/app/hooks')).map((name) => path.join(__dirname, '../../src/app/hooks', name))];
@@ -68,9 +68,10 @@ test('REGRESSAO: App.jsx preserva os 19 estados, 8 refs e 10 efeitos auditados',
     }
   });
 
-  assert.equal(statesCount, 19, 'App deve preservar exatamente 19 chamadas useState (inclui o filtro de conversas antigas)');
-  assert.equal(refsCount, 8, 'Inclui a ref de refreshData atual para rollback da leitura');
-  assert.equal(effectsCount, 10, 'App separa bootstrap e assinatura Realtime');
+  // A1 acrescenta token de loading e limpeza por escopo; A6 acrescenta trava e estado visual de pendências.
+  assert.equal(statesCount, 20, 'Inclui o estado visual agentPendingIds');
+  assert.equal(refsCount, 10, 'Inclui os tokens de loading e de mutações de atendentes');
+  assert.equal(effectsCount, 11, 'Inclui limpeza dos indicadores por escopo');
 });
 
 test('REGRESSAO: main.jsx importa e monta App dentro de AppErrorBoundary exclusivamente a partir de ./app/App', () => {

@@ -92,10 +92,17 @@ export function reconcilePendingKanbanMoves(serverData, pendingMovesMap, confirm
 
   // Card mais recente do servidor para cada movimento, encontrado em qualquer coluna.
   const freshByMove = new Map();
+  const supersededMoves = new Set();
+  for (const column of serverData.kanbanColumns) {
+    for (const card of column.cards || []) {
+      const move = moveFor(card);
+      if (move && !moveStillApplies(move, card)) supersededMoves.add(move);
+    }
+  }
   const nextColumns = serverData.kanbanColumns.map((column) => {
     const cards = (column.cards || []).filter((card) => {
       const move = moveFor(card);
-      if (!move || !moveStillApplies(move, card)) return true;
+      if (!move || supersededMoves.has(move)) return true;
       if (!freshByMove.has(move)) freshByMove.set(move, card);
       return targetsColumn(move, column);
     });
@@ -104,7 +111,7 @@ export function reconcilePendingKanbanMoves(serverData, pendingMovesMap, confirm
 
   for (const column of nextColumns) {
     for (const move of moves) {
-      if (!targetsColumn(move, column)) continue;
+      if (supersededMoves.has(move) || !targetsColumn(move, column)) continue;
       const alreadyThere = column.cards.some((card) => matchesMove(move, card));
       if (alreadyThere) continue;
       column.cards.unshift(placedCard(freshByMove.get(move) || move.card, move, column));

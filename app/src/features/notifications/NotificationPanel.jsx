@@ -147,8 +147,7 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
 
   // A linha inteira abre o destino (conversa, card ou página) e marca o que estava não lido.
   const openRow = (targets, item, conversation) => {
-    const syncBlocked = Boolean(inbox.syncing || inbox.error);
-    for (const target of targets) if (target.unread && !(target.remote && syncBlocked)) onMarkRead(target);
+    onMarkRead(targets.filter(target => target.unread));
     const action = actionFor?.(item, conversation);
     if (!action) return;
     action.run();
@@ -243,7 +242,7 @@ export function NotificationPanel({ tenantName, items, conversations = [], unrea
           </div>
           <div className="notification-tools">
             {unread > 0 && <button type="button" className="icon-button" onClick={onMarkAll}
-              aria-label="Marcar todas como lidas" title="Marcar todas como lidas" disabled={Boolean(inbox.syncing && inbox.unread)}>
+              aria-label="Marcar todas como lidas" title="Marcar todas como lidas" disabled={Boolean(inbox.saving)}>
               <CheckCheck size={17} aria-hidden="true" />
             </button>}
             {sound && <button type="button" className="icon-button" onClick={sound.toggle} aria-pressed={sound.enabled}

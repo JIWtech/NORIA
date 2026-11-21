@@ -14,6 +14,7 @@ export function useNotifications(tenantId, userId) {
   const request = useRef(null);
   const cursor = useRef({});
   const busy = useRef(false);
+  const queue = useRef(Promise.resolve());
 
   const load = useCallback(async (pageCursor) => {
     const page = validateInboxPage(await inboxRpc('magia_list_turn_notifications', {
@@ -30,45 +31,58 @@ export function useNotifications(tenantId, userId) {
       isOlderPage: Boolean(pageCursor.p_before_id), loading: false, error: '', accessLimited: false });
   }, [tenantId]);
 
-  const run = useCallback(async ({ readItem, readAll = false, pageCursor = cursor.current } = {}) => {
-    if (busy.current || !active.current) return;
-    if (!tenantId || !userId) {
+  const execute = useCallback(async ({ readItems = [], readAll = false, pageCursor = cursor.current } = {}) => {
+    if (!active.current) return false;
+    if (!userId) {
       setState({ items: [], unread: null, loading: false, hasMore: false,
         error: 'Entre na sua conta para consultar as notificações.' });
-      return;
+      return false;
+    }
+    if (!tenantId) {
+      setState({ items: [], unread: null, loading: true, hasMore: false, error: '' });
+      return false;
     }
     busy.current = true;
     setSyncing(true);
     request.current = new AbortController();
     const timeout = setTimeout(() => request.current?.abort(), 20000);
     try {
-      if (readItem || readAll) {
+      if (readItems.length || readAll) {
         setSaving(true);
         const receipt = validateInboxRead(await inboxRpc(
           readAll ? 'magia_read_all_turn_notifications' : 'magia_read_turn_notifications',
           readAll ? { p_tenant: tenantId }
-            : { p_tenant: tenantId, p_items: [{ id: readItem.id, revision: readItem.revision }] },
+            : { p_tenant: tenantId, p_items: readItems.map(({ id, revision }) => ({ id, revision })) },
           request.current.signal,
         ), tenantId);
         // Calls are serialized: these displayed revisions predate the server's
         // bulk snapshot. New revisions are fetched below and can remain unread.
         if (active.current) setState((previous) => ({ ...previous, unread: receipt.unread_count,
-          items: previous.items.map((item) => (readAll || (item.id === readItem.id && item.revision <= readItem.revision))
+          items: previous.items.map((item) => (readAll || readItems.some(readItem => item.id === readItem.id && item.revision <= readItem.revision))
             ? { ...item, unread: false } : item) }));
       }
       await load(pageCursor);
+      return true;
     } catch (error) {
       if (active.current) setState((previous) => {
         const forbidden = error?.message?.includes('TURN_REVIEW_FORBIDDEN') || error?.code === '42501';
         return { ...previous, ...(forbidden ? { items: [], unread: null, hasMore: false } : {}),
           loading: false, error: notificationError(error), accessLimited: forbidden };
       });
+      return false;
     } finally {
       clearTimeout(timeout);
       busy.current = false;
       if (active.current) { setSaving(false); setSyncing(false); }
     }
   }, [tenantId, userId, load]);
+
+  const run = useCallback((options = {}, explicit = false) => {
+    if (!explicit && busy.current) return Promise.resolve(false);
+    const operation = queue.current.then(() => execute(options));
+    queue.current = operation.catch(() => false);
+    return operation;
+  }, [execute]);
 
   useEffect(() => {
     active.current = true;
@@ -98,7 +112,8 @@ export function useNotifications(tenantId, userId) {
       if (state.hasMore && last) run({ pageCursor: { p_before_created_at: last.created_at, p_before_id: last.id } });
     },
     showLatest: () => run({ pageCursor: {} }),
-    markRead: (item) => run({ readItem: item }),
-    markAllRead: () => run({ readAll: true }),
+    markRead: (item) => run({ readItems: [item] }, true),
+    markReadMany: (items) => items.length ? run({ readItems: items }, true) : Promise.resolve(true),
+    markAllRead: () => run({ readAll: true }, true),
   };
 }

@@ -66,22 +66,27 @@ export const NotificationCenter = memo(function NotificationCenter({ tenantId, t
   }, [activity.clearedAt, activity.dismissedKeys, dataReady, tenantId, userId, role, settings, kanbanColumns, appointments, now, inbox.items, inbox.replies, inbox.checkedAt, activity.items, activity.pendingReads, conversations]);
 
   const unread = items.filter(item => !item.remote && item.unread).length + (inbox.unread || 0);
-  const markRead = item => item.remote ? inbox.markRead(item.remote)
-    : activity.markRead(item.id, item.tracked ? [item] : []);
+  const markRead = targets => {
+    for (const item of targets) if (!item.remote) activity.markRead(item.id, item.tracked ? [item] : []);
+    const remote = targets.filter(item => item.remote).map(item => item.remote);
+    if (remote.length) void inbox.markReadMany(remote);
+  };
   const markAll = () => {
     activity.markAllRead(items.filter(item => item.tracked && item.unread));
-    if (!inbox.error && !inbox.syncing && inbox.unread > 0) void inbox.markAllRead();
+    if (inbox.unread > 0) return inbox.markAllRead();
+    if (inbox.unread == null) return Promise.resolve(false);
+    return Promise.resolve(true);
   };
   // Limpar todas esconde o histórico e mantém as pendências; limpar selecionadas esconde só o que a pessoa marcou.
-  const clearAll = () => {
-    markAll();
-    activity.clearAll();
+  const clearAll = async () => {
+    if (await markAll()) activity.clearAll();
   };
-  const clearSelected = selected => {
+  const clearSelected = async selected => {
     const remoteUnread = selected.filter(item => item.remote && item.unread);
     for (const item of selected) if (!item.remote && item.unread) activity.markRead(item.id, item.tracked ? [item] : []);
-    for (const item of remoteUnread) inbox.markRead(item.remote);
-    activity.dismissItems(selected);
+    const confirmed = await inbox.markReadMany(remoteUnread.map(item => item.remote));
+    if (confirmed) activity.dismissItems(selected);
+    else activity.dismissItems(selected.filter(item => !item.remote || !item.unread));
   };
   const actionFor = (item, conversation) => {
     if (item.cardId && onOpenCard) return { label: item.kind === 'deposit-review' ? 'Verificar sinal' : 'Ver pedido',

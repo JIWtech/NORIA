@@ -75,7 +75,7 @@ export function NotificationDemo() {
             setItems(previous => previous.filter(row => !ids.has(row.id)));
             setStatus(`${cleared.length} avisos limpos.`);
           }}
-          onMarkRead={item => setItems(previous => previous.map(row => row.id === item.id ? { ...row, unread: false } : row))}
+          onMarkRead={targets => setItems(previous => previous.map(row => targets.some(item => row.id === item.id) ? { ...row, unread: false } : row))}
           onMarkAll={() => setItems(previous => previous.map(row => ({ ...row, unread: false })))}
           actionFor={item => item.pending ? {
             label: { human: 'Abrir conversa', request: 'Ver pedido', payment: 'Verificar sinal' }[item.id],

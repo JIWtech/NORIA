@@ -87,10 +87,10 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
   const appCode = appStats.code;
   const effects = appStats.effects;
 
-  // Distribuição exata após extração dos 3 hooks da Fase 5 (totais preservados sem afrouxamento)
-  assert.equal(appStats.stateCount, 19, 'Preservação estrita dos 19 useState em App.jsx (inclui o filtro de conversas antigas)');
-  assert.equal(appStats.refCount, 4, 'App.jsx mantém 4 useRef próprios (appDataRef, includeOlderConversationsRef, currentScope, fullyLoadedScope)');
-  assert.equal(appStats.effectCount, 9, 'App.jsx mantém 9 useEffect próprios (bootstrap e assinatura Realtime separados)');
+  // A1/A6 adicionam um estado visual, duas travas e um efeito de limpeza por escopo.
+  assert.equal(appStats.stateCount, 20, 'Inclui agentPendingIds para bloquear os botões em andamento');
+  assert.equal(appStats.refCount, 6, 'Inclui refreshLoadingRequest e agentMutationsInFlight');
+  assert.equal(appStats.effectCount, 10, 'Inclui limpeza de indicadores por escopo');
 
   assert.equal(kanbanStats.stateCount, 0);
   assert.equal(kanbanStats.refCount, 1, 'useKanbanMutations concentra kanbanMoveInFlightRef');
@@ -106,18 +106,18 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
 
   assert.equal(
     appStats.stateCount + kanbanStats.stateCount + assignmentStats.stateCount + readTrackerStats.stateCount,
-    19,
-    'Total de useState preservado em 19 entre App.jsx e hooks extraídos',
+    20,
+    'Total de useState inclui a pendência visual de A6',
   );
   assert.equal(
     appStats.refCount + kanbanStats.refCount + assignmentStats.refCount + readTrackerStats.refCount,
-    8,
-    'Total de useRef atualizado para 8 entre App.jsx e hooks extraídos',
+    10,
+    'Total de useRef inclui as travas de A1/A6',
   );
   assert.equal(
     appStats.effectCount + kanbanStats.effectCount + assignmentStats.effectCount + readTrackerStats.effectCount,
-    10,
-    'Total de useEffect preservado em 10 entre App.jsx e hooks extraídos',
+    11,
+    'Total de useEffect inclui limpeza dos indicadores por escopo',
   );
 
   const effectBody = (effect) => appCode.slice(effect.arguments[0].start, effect.arguments[0].end);
