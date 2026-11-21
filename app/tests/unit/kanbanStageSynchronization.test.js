@@ -110,6 +110,7 @@ test('SINCRONIA KANBAN E: applyIncomingEventToConversations resolve etapa respei
     {
       id: 'conv-whatsapp:5511777777777',
       canonicalKey: 'whatsapp:5511777777777',
+      channelType: 'whatsapp',
       externalConversationId: '5511777777777',
       stage: 'Qualificação',
       status: 'ia_ativa',

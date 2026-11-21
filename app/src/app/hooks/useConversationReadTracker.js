@@ -6,8 +6,8 @@ import {
   markConversationRead,
   shouldAdvanceConversationRead,
   upsertConversationReadMarker,
-} from '../../dataService';
-import { isSameScope } from '../appScope';
+} from '../../dataService.js';
+import { isSameScope } from '../appScope.js';
 
 export function useConversationReadTracker({
   activeTenantSlug,
@@ -19,6 +19,8 @@ export function useConversationReadTracker({
 }) {
   const conversationViewRef = useRef({ canonicalKey: '', visible: false });
   const conversationReadTimersRef = useRef(new Map());
+  const refreshDataRef = useRef(refreshData);
+  refreshDataRef.current = refreshData;
 
   const resetConversationReadTracker = useCallback(({ clearTimers = true } = {}) => {
     conversationViewRef.current = { canonicalKey: '', visible: false };
@@ -97,7 +99,7 @@ export function useConversationReadTracker({
       } catch (error) {
         console.warn('Não foi possível salvar a leitura da conversa:', error.message || error);
         if (isSameScope(currentScope.current, requestedScope)) {
-          refreshData({ showLoading: false });
+          refreshDataRef.current?.({ showLoading: false });
         }
       }
     }, 180);

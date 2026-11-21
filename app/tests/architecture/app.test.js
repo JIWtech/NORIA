@@ -50,7 +50,7 @@ test('REGRESSAO: App.jsx possui AST limpa com zero variaveis livres e exporta Ap
   assert.match(code, /export\s+default\s+App;/, 'App.jsx deve ter default export de App');
 });
 
-test('REGRESSAO: App.jsx preserva os 19 estados, 7 refs e 10 efeitos auditados', () => {
+test('REGRESSAO: App.jsx preserva os 19 estados, 8 refs e 10 efeitos auditados', () => {
   // Os hooks extraídos na Fase 5 (src/app/hooks) fazem parte do mesmo orquestrador: a soma total é preservada.
   const files = [path.join(__dirname, '../../src/app/App.jsx'),
     ...fs.readdirSync(path.join(__dirname, '../../src/app/hooks')).map((name) => path.join(__dirname, '../../src/app/hooks', name))];
@@ -69,7 +69,7 @@ test('REGRESSAO: App.jsx preserva os 19 estados, 7 refs e 10 efeitos auditados',
   });
 
   assert.equal(statesCount, 19, 'App deve preservar exatamente 19 chamadas useState (inclui o filtro de conversas antigas)');
-  assert.equal(refsCount, 7, 'App inclui ref do escopo com carga completa e ref de conversas antigas usada pelas recargas');
+  assert.equal(refsCount, 8, 'Inclui a ref de refreshData atual para rollback da leitura');
   assert.equal(effectsCount, 10, 'App separa bootstrap e assinatura Realtime');
 });
 

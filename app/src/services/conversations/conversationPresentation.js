@@ -37,7 +37,7 @@ export function normalizeStage(stage) {
 
 import { locationDetailsCache } from '../tenants/tenantScopedCaches.js';
 
-export function normalizeLocation(rawPayload, event = null) {
+export function normalizeLocation(rawPayload, event = null, tenantSlug = '') {
   const payload = asObject(rawPayload); const ev = asObject(event);
   const loc = payload.locationMessage || payload.data?.message?.locationMessage || payload.message?.locationMessage || payload.data?.locationMessage || payload.location || payload.magia_normalized?.location || ev.location || (payload.degreesLatitude !== undefined && payload.degreesLongitude !== undefined ? payload : null) || (payload.latitude !== undefined && payload.longitude !== undefined ? payload : null) || (ev.latitude !== undefined && ev.longitude !== undefined ? ev : null);
   let lat = loc?.degreesLatitude ?? loc?.latitude ?? ev.latitude ?? null; let lng = loc?.degreesLongitude ?? loc?.longitude ?? ev.longitude ?? null; let name = String(loc?.name || ev.location_name || ev.name || '').trim(); let address = String(loc?.address || ev.location_address || ev.address || '').trim();
@@ -46,7 +46,12 @@ export function normalizeLocation(rawPayload, event = null) {
   const isLocationText = trimmedText === '[location]' || trimmedText === 'location' || trimmedText === '[localização]' || trimmedText === '[localizacao]' || trimmedText === '[livelocation]' || trimmedText === 'livelocation';
   const isLocationMsg = String(payload.messageType || payload.data?.messageType || ev.message_type || ev.service || '').toLowerCase().includes('location') || isLocationText || Boolean(loc);
   if (!isLocationMsg && validLat == null && validLng == null && !name && !address) return null;
-  const cacheKey = validLat != null && validLng != null ? `${validLat},${validLng}` : '';
+  const resolvedTenant = String(
+    tenantSlug || ev.tenant_slug || ev.tenant_id || payload.tenant_slug || payload.tenant_id || '',
+  ).trim().toLowerCase();
+  const cacheKey = validLat != null && validLng != null && resolvedTenant
+    ? `${resolvedTenant}::${validLat},${validLng}`
+    : '';
   if (cacheKey) {
     const cached = locationDetailsCache.get(cacheKey);
     if (!name && cached?.name) name = cached.name;
@@ -442,7 +447,7 @@ export function resolveMessageSender(event = {}, fallbackOwner = '') {
   return { type: 'ai', label: 'IA' };
 }
 
-export function resolveEventMessagePreview(event, fallbackOwner = '') {
+export function resolveEventMessagePreview(event, fallbackOwner = '', tenantSlug = '') {
   if (!event || isInternalOperationalEvent(event)) return null;
   const technical = technicalEventPresentation(event);
   if (technical) return { text: technical.title, sender: 'Sistema', senderType: 'system' };
@@ -496,7 +501,11 @@ export function resolveEventMessagePreview(event, fallbackOwner = '') {
     };
   }
 
-  const location = normalizeLocation(event.raw_payload, event);
+  const location = normalizeLocation(
+    event.raw_payload,
+    event,
+    tenantSlug || event?.tenant_slug || event?.tenant_id || '',
+  );
   const isLocation = Boolean(location)
     || trimmedText === '[location]'
     || trimmedText === 'location'

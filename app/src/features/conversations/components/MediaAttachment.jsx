@@ -32,12 +32,18 @@ import {
 import { getAuthClient } from '../../../services/auth/authService.js';
 import { isStorageNotFoundError } from '../../../services/media/storageErrors.js';
 
-export function MediaAttachment({ media, audioTranscription, onMediaLoad, onRetry, caption = '', meta = null, gallery = null }) {
+export function MediaAttachment(props) {
+  const { media } = props;
   if (!media) return null;
   const kind = String(media.kind || media.category || '').toLowerCase();
   if (!kind || kind === 'text' || kind === 'conversation' || kind === 'none' || !REAL_MEDIA_KINDS.has(kind)) {
     return null;
   }
+
+  return <MediaAttachmentContent {...props} kind={kind} />;
+}
+
+function MediaAttachmentContent({ media, kind, audioTranscription, onMediaLoad, onRetry, caption = '', meta = null, gallery = null }) {
 
   const [viewerKind, setViewerKind] = useState(null);
   const [imageLoaded, setImageLoaded] = useState(false);

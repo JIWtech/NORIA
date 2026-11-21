@@ -320,11 +320,15 @@ function App() {
   }, []);
 
   const handleOpenAppointmentFromKanban = useCallback((card) => {
+    const channelType = card.channelType || '';
+    const externalConversationId = card.externalConversationId || '';
     setPrefilledAppointment({
       contactName: card.title || '',
       title: card.service || card.subtitle || 'Atendimento inicial',
       notes: `Agendamento via Kanban (${card.stage || 'Qualificação'})`,
-      selectedConversationId: card.externalConversationId || '',
+      selectedConversationId: card.canonicalKey || externalConversationId,
+      channelType,
+      externalConversationId,
     });
     startTransition(() => setActive('agendamentos'));
   }, []);

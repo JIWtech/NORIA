@@ -16,6 +16,7 @@ export async function loadConversationReads(supabase, tenantId, userId) {
 
 export async function markConversationRead(supabase, { tenantId, channelType, externalConversationId, lastReadEventId }) {
   if (!supabase) throw new Error('Supabase nao configurado');
+  if (!tenantId) throw new Error('Tenant ativo nao informado');
   const { data, error } = await supabase.rpc('mark_conversation_read', {
     p_tenant_id: tenantId,
     p_channel_type: normalizeChannel(channelType).type,

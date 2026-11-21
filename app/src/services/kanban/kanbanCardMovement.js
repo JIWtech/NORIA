@@ -116,7 +116,10 @@ async function moveGenesisSalesCard(tenantSlug, card, targetColumnKey, agentName
 }
 
 async function moveKanbanCard(activeTenantSlug, card, targetColumnKey, agentName = null, targetColObj = null) {
-  const tenantSlug = activeTenantSlug || 'clinica_nubia';
+  const tenantSlug = String(activeTenantSlug || '').trim();
+  if (!tenantSlug) {
+    throw new Error('Tenant ativo não informado ao mover card do Kanban.');
+  }
   const canonical = canonicalKanbanKey(targetColObj?.automationKey || targetColumnKey);
   const blockReason = kanbanMoveBlockReason(card, canonical);
   if (blockReason) throw new Error(blockReason);

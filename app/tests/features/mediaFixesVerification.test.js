@@ -168,6 +168,7 @@ test('VERIFICATION 5: applyIncomingEvent preserves resolved media.url and thumbn
   // Incoming realtime update for the same event (e.g. delivery status update or transcript update)
   const incomingRealtimeEvent = {
     id: 'evt-img-1',
+    channel_type: 'whatsapp',
     external_conversation_id: '5521985198468@s.whatsapp.net',
     direction: 'inbound',
     delivery_status: 'delivered',

@@ -98,7 +98,7 @@ export function applyIncomingEventToKanban(columns = [], event, tenantSlug = '',
     || trimmedText === '[reaction]';
   const isSecret = trimmedText === '[secretencrypted]';
 
-  const location = normalizeLocation(event.raw_payload, event);
+  const location = normalizeLocation(event.raw_payload, event, resolvedTenant);
   const media = normalizeMedia(event.raw_payload, event);
   const isLocation = Boolean(location)
     || trimmedText === '[location]'

@@ -42,6 +42,71 @@ import { AppointmentConfirmDialog } from './AppointmentConfirmDialog.jsx';
 import { NoShowMessageDialog } from './NoShowMessageDialog.jsx';
 
 import { schedulingCacheByTenant, tenantCacheEpoch } from '../../../services/tenants/tenantScopedCaches.js';
+import { normalizeChannel } from '../../../services/identity/conversationIdentity.js';
+
+export function conversationSelectKey(conversation) {
+  if (!conversation) return '';
+  if (conversation.canonicalKey) return String(conversation.canonicalKey);
+  const channelType = normalizeChannel(conversation.channelType || conversation.channel).type;
+  const extId = String(conversation.externalConversationId || conversation.id || '').trim();
+  return extId ? `${channelType}::${extId}` : '';
+}
+
+export function findConversationForInitialData(conversations = [], initialData = null) {
+  if (!initialData || !Array.isArray(conversations)) return null;
+  const targetKey = initialData.selectedConversationKey || initialData.selectedConversationId || '';
+  if (targetKey) {
+    const byKey = conversations.find((item) => conversationSelectKey(item) === targetKey);
+    if (byKey) return byKey;
+  }
+  const targetExtId = initialData.externalConversationId || initialData.selectedConversationId || '';
+  if (!targetExtId) return null;
+  if (initialData.channelType) {
+    const targetChannel = normalizeChannel(initialData.channelType).type;
+    return conversations.find((item) => (
+      normalizeChannel(item.channelType || item.channel).type === targetChannel
+      && item.externalConversationId === targetExtId
+    )) || null;
+  }
+  const matches = conversations.filter((item) => item.externalConversationId === targetExtId);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function buildAppointmentPayloadFromSelection({
+  title = '',
+  contactName = '',
+  startsAt = '',
+  endsAt = '',
+  notes = '',
+  schedule,
+  unitId,
+  serviceId,
+  localDate,
+  localTime,
+  timeZone,
+  requestId,
+  conversations = [],
+  selectedConversationKey = '',
+}) {
+  const selectedConversation = conversations.find(
+    (c) => conversationSelectKey(c) === selectedConversationKey,
+  ) || null;
+  return {
+    title: title.trim(),
+    contactName: contactName.trim(),
+    startsAt: schedule?.enabled ? null : localInputToIso(startsAt, timeZone),
+    unitId,
+    serviceId,
+    localDate,
+    localTime,
+    timeZone,
+    requestId,
+    endsAt: endsAt ? localInputToIso(endsAt, timeZone) : null,
+    notes: notes.trim(),
+    channelType: selectedConversation?.channelType || 'manual',
+    externalConversationId: selectedConversation?.externalConversationId || '',
+  };
+}
 
 export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false, tenantSettings = null }) {
   const [outcomeBusyId, setOutcomeBusyId] = useState('');
@@ -66,7 +131,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
   const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
   const [notes, setNotes] = useState('');
-  const [selectedConversationId, setSelectedConversationId] = useState('');
+  const [selectedConversationKey, setSelectedConversationKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
 
@@ -75,7 +140,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     const epoch = tenantCacheEpoch();
     setCancelling(null);
     setConfirmation(null);
-    setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime('');
+    setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime(''); setSelectedConversationKey('');
     requestId.current = crypto.randomUUID();
     const cached = schedulingCacheByTenant.get(tenantSlug);
     if (cached) {
@@ -104,13 +169,26 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     return () => { active = false; };
   }, [schedule, unitId, serviceId, localDate]);
 
+  const appliedInitialDataRef = useRef(null);
+  const appliedInitialConversationRef = useRef(null);
   useEffect(() => {
     if (!initialData) return;
-    if (initialData.contactName) setContactName(initialData.contactName);
-    if (initialData.title) setTitle(initialData.title);
-    if (initialData.notes) setNotes(initialData.notes);
-    if (initialData.selectedConversationId) setSelectedConversationId(initialData.selectedConversationId);
-  }, [initialData]);
+    if (appliedInitialDataRef.current !== initialData) {
+      appliedInitialDataRef.current = initialData;
+      if (initialData.contactName) setContactName(initialData.contactName);
+      if (initialData.title) setTitle(initialData.title);
+      if (initialData.notes) setNotes(initialData.notes);
+    }
+    if (appliedInitialConversationRef.current !== initialData) {
+      const matched = findConversationForInitialData(conversations, initialData);
+      if (matched) {
+        appliedInitialConversationRef.current = initialData;
+        setSelectedConversationKey(conversationSelectKey(matched));
+      } else if (!initialData.selectedConversationKey && !initialData.selectedConversationId && !initialData.externalConversationId) {
+        appliedInitialConversationRef.current = initialData;
+      }
+    }
+  }, [initialData, conversations]);
 
   // Seções da agenda dentro do tenant ativo (as linhas já chegam filtradas por tenant_id).
   const appointmentNow = useAppointmentClock();
@@ -179,8 +257,9 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
   }
 
   function pickConversation(value) {
-    setSelectedConversationId(value);
-    const conversation = conversations.find((item) => item.externalConversationId === value);
+    appliedInitialConversationRef.current = initialData;
+    setSelectedConversationKey(value);
+    const conversation = conversations.find((item) => conversationSelectKey(item) === value);
     if (conversation) {
       setContactName(conversation.contact || '');
       if (!title) setTitle(`Atendimento - ${conversation.contact}`);
@@ -193,22 +272,28 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     setSaving(true);
     setStatus('');
     try {
-      await saveAppointment(tenantSlug, {
-        title: title.trim(),
-        contactName: contactName.trim(),
-        startsAt: schedule.enabled ? null : localInputToIso(startsAt, timeZone),
-        unitId, serviceId, localDate, localTime, timeZone, requestId: requestId.current,
-        endsAt: endsAt ? localInputToIso(endsAt, timeZone) : null,
-        notes: notes.trim(),
-        channelType: conversations.find(c => c.externalConversationId === selectedConversationId)?.channelType || 'manual',
-        externalConversationId: selectedConversationId,
-      });
+      await saveAppointment(tenantSlug, buildAppointmentPayloadFromSelection({
+        title,
+        contactName,
+        startsAt,
+        endsAt,
+        notes,
+        schedule,
+        unitId,
+        serviceId,
+        localDate,
+        localTime,
+        timeZone,
+        requestId: requestId.current,
+        conversations,
+        selectedConversationKey,
+      }));
       setTitle('');
       setContactName('');
       setStartsAt('');
       setEndsAt('');
       setNotes('');
-      setSelectedConversationId('');
+      setSelectedConversationKey('');
       setLocalTime(''); setLocalDate(''); requestId.current = crypto.randomUUID();
       setStatus('Agendamento criado e enviado para o Kanban.');
       await onChanged?.();
@@ -237,16 +322,18 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
         {schedule?.enabled &&
         <form className="form-grid" onSubmit={handleSubmit}>
           {schedule?.enabled ? <div className="form-row-two">
-            <label className="appointment-field-label"><span className="appointment-label-text">Unidade</span><NoriaSelect value={unitId} onValueChange={setUnitId} options={Object.entries(schedule.units).map(([id, unit]) => ({ value: id, label: unit.name }))} placeholder="Selecione" icon={Building2} className="appointment-select" /></label>
-            <label className="appointment-field-label"><span className="appointment-label-text">Serviço</span><NoriaSelect value={serviceId} onValueChange={setServiceId} options={schedule.services.map(service => ({ value: service.external_id, label: service.name, category: service.category || 'Geral' }))} placeholder="Selecione" icon={CalendarCheck} className="appointment-select" contentClassName="appointment-service-select-content" /></label>
+            <label className="appointment-field-label"><span className="appointment-label-text">Unidade</span><NoriaSelect value={unitId} onValueChange={setUnitId} options={Object.entries(schedule.units || {}).map(([id, unit]) => ({ value: id, label: unit?.name || id }))} placeholder="Selecione" icon={Building2} className="appointment-select" /></label>
+            <label className="appointment-field-label"><span className="appointment-label-text">Serviço</span><NoriaSelect value={serviceId} onValueChange={setServiceId} options={(schedule.services || []).map(service => ({ value: service.external_id, label: service.name, category: service.category || 'Geral' }))} placeholder="Selecione" icon={CalendarCheck} className="appointment-select" contentClassName="appointment-service-select-content" /></label>
           </div> : <label className="appointment-field-label"><span className="appointment-label-text">Título</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Atendimento inicial" required /></label>}
           <div className="form-row-two">
             <label className="appointment-field-label"><span className="appointment-label-text">Contato</span><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nome do contato" required={schedule?.enabled} /></label>
-            <label className="appointment-field-label"><span className="appointment-label-text">Conversa recente</span><NoriaSelect value={selectedConversationId} onValueChange={(value) => pickConversation(value === '__none__' ? '' : value)} options={[{ value: '__none__', label: 'Sem vínculo' }, ...conversations.map((conversation) => {
+            <label className="appointment-field-label"><span className="appointment-label-text">Conversa recente</span><NoriaSelect value={selectedConversationKey} onValueChange={(value) => pickConversation(value === '__none__' ? '' : value)} options={[{ value: '__none__', label: 'Sem vínculo' }, ...conversations.map((conversation) => {
               const channelType = conversation.channelType || conversation.channel || 'whatsapp';
               const channelLabel = conversation.channel || (channelType === 'whatsapp' ? 'WhatsApp' : channelType);
+              const optionValue = conversationSelectKey(conversation);
+              if (!optionValue) return null;
               return {
-                value: conversation.externalConversationId,
+                value: optionValue,
                 label: conversation.contact,
                 icon: (
                   <span
@@ -258,7 +345,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
                   </span>
                 ),
               };
-            })]} placeholder="Sem vínculo" icon={MessageCircle} className="appointment-select" contentClassName="appointment-conversation-select-content" /></label>
+            }).filter(Boolean)]} placeholder="Sem vínculo" icon={MessageCircle} className="appointment-select" contentClassName="appointment-conversation-select-content" /></label>
           </div>
           {schedule?.enabled ? <div className="form-row-two">
             <label className="appointment-field-label"><span className="appointment-label-text">Data</span><input type="date" required value={localDate} onChange={event => setLocalDate(event.target.value)} /></label>

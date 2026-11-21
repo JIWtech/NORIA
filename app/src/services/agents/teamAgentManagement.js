@@ -3,10 +3,12 @@ import { tenantCacheEpoch } from '../tenants/tenantScopedCaches.js';
 
 export function createTeamAgentManagement({ getClient }) {
 async function saveTeamAgent(tenantSlug, agent) {
+  const cleanTenantSlug = String(tenantSlug || '').trim();
+  if (!cleanTenantSlug) throw new Error('Tenant ativo não informado.');
   const epoch = tenantCacheEpoch();
-  const storageKey = `magia:team-agents:${tenantSlug}`;
+  const storageKey = `magia:team-agents:${cleanTenantSlug}`;
   const newRecord = {
-    tenant_slug: tenantSlug,
+    tenant_slug: cleanTenantSlug,
     name: agent.name?.trim(),
     role: agent.role?.trim() || null,
     branch: agent.branch?.trim() ? agent.branch.trim() : null,
@@ -16,7 +18,7 @@ async function saveTeamAgent(tenantSlug, agent) {
   };
   try {
     const supabase = getClient();
-    const tenant = supabase && tenantSlug ? await findTenantBySlug(supabase, tenantSlug) : null;
+    const tenant = supabase ? await findTenantBySlug(supabase, cleanTenantSlug) : null;
     if (tenant?.id) {
       const { data, error } = await supabase
         .from('team_agents')
@@ -40,23 +42,25 @@ async function saveTeamAgent(tenantSlug, agent) {
 }
 
 async function updateTeamAgentStatus(agentId, newStatus, tenantSlug) {
+  const cleanTenantSlug = String(tenantSlug || '').trim();
+  if (!cleanTenantSlug) throw new Error('Tenant ativo não informado.');
   const epoch = tenantCacheEpoch();
   try {
     const supabase = getClient();
-    const tenant = supabase && tenantSlug ? await findTenantBySlug(supabase, tenantSlug) : null;
+    const tenant = supabase ? await findTenantBySlug(supabase, cleanTenantSlug) : null;
     if (tenant?.id && agentId && !String(agentId).startsWith('local-')) {
       await supabase
         .from('team_agents')
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', agentId)
-        .eq('tenant_slug', tenantSlug)
+        .eq('tenant_slug', cleanTenantSlug)
         .eq('tenant_id', tenant.id);
     }
   } catch (e) {
     console.warn('Falha ao atualizar status do team_agent no Supabase:', e);
   }
-  if (tenantSlug && epoch === tenantCacheEpoch()) {
-    const storageKey = `magia:team-agents:${tenantSlug}`;
+  if (epoch === tenantCacheEpoch()) {
+    const storageKey = `magia:team-agents:${cleanTenantSlug}`;
     try {
       const current = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updated = current.map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag);
@@ -66,23 +70,25 @@ async function updateTeamAgentStatus(agentId, newStatus, tenantSlug) {
 }
 
 async function removeTeamAgent(agentId, tenantSlug) {
+  const cleanTenantSlug = String(tenantSlug || '').trim();
+  if (!cleanTenantSlug) throw new Error('Tenant ativo não informado.');
   const epoch = tenantCacheEpoch();
   try {
     const supabase = getClient();
-    const tenant = supabase && tenantSlug ? await findTenantBySlug(supabase, tenantSlug) : null;
+    const tenant = supabase ? await findTenantBySlug(supabase, cleanTenantSlug) : null;
     if (tenant?.id && agentId && !String(agentId).startsWith('local-')) {
       await supabase
         .from('team_agents')
         .delete()
         .eq('id', agentId)
-        .eq('tenant_slug', tenantSlug)
+        .eq('tenant_slug', cleanTenantSlug)
         .eq('tenant_id', tenant.id);
     }
   } catch (e) {
     console.warn('Falha ao remover team_agent do Supabase:', e);
   }
-  if (tenantSlug && epoch === tenantCacheEpoch()) {
-    const storageKey = `magia:team-agents:${tenantSlug}`;
+  if (epoch === tenantCacheEpoch()) {
+    const storageKey = `magia:team-agents:${cleanTenantSlug}`;
     try {
       const current = JSON.parse(localStorage.getItem(storageKey) || '[]');
       const updated = current.filter((ag) => ag.id !== agentId);

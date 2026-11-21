@@ -40,13 +40,20 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
     event.contact_handle,
   );
 
+  const hasSameChannel = (conversation) => {
+    const convChannel = conversation?.channelType || conversation?.channel_type || conversation?.channel;
+    return Boolean(convChannel) && normalizeChannel(convChannel).type === channelType.type;
+  };
+
   const existingIndex = (conversations || []).findIndex(
     (c) => c.id === targetId
       || (c.canonicalKey && c.canonicalKey === targetKey)
-      || (normalizedIncomingExternalId && c.normalizedExternalId && c.normalizedExternalId === normalizedIncomingExternalId)
-      || (event.external_conversation_id && (c.externalConversationId === event.external_conversation_id || c.normalizedExternalId === normalizedIncomingExternalId))
-      || (c.id === `conv-${event.external_conversation_id}`)
-      || (event.contact_handle && (c.contactHandle === event.contact_handle || c.company === `@${event.contact_handle}`)),
+      || (hasSameChannel(c) && (
+        (normalizedIncomingExternalId && c.normalizedExternalId && c.normalizedExternalId === normalizedIncomingExternalId)
+        || (event.external_conversation_id && (c.externalConversationId === event.external_conversation_id || c.normalizedExternalId === normalizedIncomingExternalId))
+        || (c.id === `conv-${event.external_conversation_id}`)
+        || (event.contact_handle && (c.contactHandle === event.contact_handle || c.company === `@${event.contact_handle}`))
+      )),
   );
 
   if (isSpecialistNotice(event) && existingIndex >= 0) {
@@ -63,7 +70,7 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
 
   const media = normalizeMedia(event.raw_payload, event);
   const audioTranscription = normalizeAudioTranscription(event.raw_payload, event);
-  const location = normalizeLocation(event.raw_payload, event);
+  const location = normalizeLocation(event.raw_payload, event, resolvedTenant);
   const visibleText = resolveEventVisibleText(event, media);
   const at = formatDate(event.created_at);
   const payload = asObject(event.raw_payload);
@@ -180,11 +187,12 @@ export function applyIncomingEventToConversations(conversations = [], event, ten
     const currentActivityTime = prevConv.lastActivityAt ? Date.parse(prevConv.lastActivityAt) : NaN;
     const isNewer = Number.isNaN(currentActivityTime) || (!Number.isNaN(eventTime) && eventTime >= currentActivityTime);
 
-    const incomingPreview = resolveEventMessagePreview(event, prevConv.owner);
+    const conversationTenant = tenantSlug || event.tenant_slug || prevConv.tenantSlug || '';
+    const incomingPreview = resolveEventMessagePreview(event, prevConv.owner, conversationTenant);
     const shouldUpdateLastMessage = Boolean(isNewer && incomingPreview);
 
     const trustedContactName = getUsefulTrustedContactName(event);
-    const resolvedTenant = tenantSlug || event.tenant_slug || prevConv.tenantSlug || '';
+    const resolvedTenant = conversationTenant;
     const displayName = resolveConversationDisplayName(event, `Contato ${channelType.label}`);
     const previousNameIsTrusted = prevConv.contactNameIsTrusted ?? isUsefulContactName(prevConv.contact, '', resolvedTenant);
     const canonicalContactName = String(event.contact_name_canonical || event.contact?.name || '').trim();

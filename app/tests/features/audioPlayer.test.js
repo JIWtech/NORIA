@@ -1016,6 +1016,7 @@ test('normalizeLocation: reutiliza cache de endereço e nome para coordenadas id
   // 1º evento tem nome e endereço
   const event1 = {
     id: 'evt-loc-cached-1',
+    tenant_slug: 'tenant-localizacao',
     raw_payload: {
       locationMessage: {
         degreesLatitude: -22.90684,
@@ -1030,6 +1031,7 @@ test('normalizeLocation: reutiliza cache de endereço e nome para coordenadas id
   // 2º evento com as mesmas coordenadas mas sem nome/endereço (apenas coordenadas brutas)
   const event2 = {
     id: 'evt-loc-cached-2',
+    tenant_slug: 'tenant-localizacao',
     raw_payload: {
       locationMessage: {
         degreesLatitude: -22.90684,
