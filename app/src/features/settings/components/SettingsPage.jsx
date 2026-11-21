@@ -22,6 +22,7 @@ import {
 export function SettingsPage({
   agents = [],
   agentsReady = true,
+  ready = true,
   onAddAgent,
   onToggleAgentStatus,
   onDeleteAgent,
@@ -161,12 +162,14 @@ export function SettingsPage({
     ...unitsList.map((u) => ({ value: u.displayName || u.name, label: u.displayName || u.name })),
   ], [unitsList]);
 
+  const settingsLoaded = Boolean(tenantSettings) || ready;
+
   return (
     <section className="settings-page">
       {/* 1. KPIs Dinâmicos de Resumo */}
       <div className="settings-kpi-grid">
         {/* KPI 1: Atendentes Cadastrados */}
-        <div className="settings-kpi-card kpi-team">
+        <div className="settings-kpi-card kpi-team" aria-busy={!agentsReady || undefined}>
           <div className="settings-kpi-header">
             <div className="settings-kpi-icon-wrap team-icon">
               <UsersRound size={15} />
@@ -175,27 +178,33 @@ export function SettingsPage({
           </div>
 
           <div className="settings-kpi-metric-row">
-            <span className="settings-kpi-number">{agents.length}</span>
+            <span className="settings-kpi-number">
+              {agentsReady ? agents.length : <SkeletonLine width="36px" height="24px" />}
+            </span>
           </div>
 
           <div className="settings-kpi-divider" />
 
           <div className="settings-kpi-footer">
-            <div className="settings-kpi-pill-group">
-              <span className="settings-kpi-pill active">
-                <span className="settings-kpi-dot active" />
-                {activeCount} {activeCount === 1 ? 'ativo' : 'ativos'}
-              </span>
-              <span className="settings-kpi-pill paused">
-                <span className="settings-kpi-dot paused" />
-                {pausedCount} {pausedCount === 1 ? 'pausado' : 'pausados'}
-              </span>
-            </div>
+            {!agentsReady ? (
+              <SkeletonLine width="110px" height="14px" />
+            ) : (
+              <div className="settings-kpi-pill-group">
+                <span className="settings-kpi-pill active">
+                  <span className="settings-kpi-dot active" />
+                  {activeCount} {activeCount === 1 ? 'ativo' : 'ativos'}
+                </span>
+                <span className="settings-kpi-pill paused">
+                  <span className="settings-kpi-dot paused" />
+                  {pausedCount} {pausedCount === 1 ? 'pausado' : 'pausados'}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* KPI 2: Unidades Operacionais */}
-        <div className="settings-kpi-card kpi-units">
+        <div className="settings-kpi-card kpi-units" aria-busy={!settingsLoaded || undefined}>
           <div className="settings-kpi-header">
             <div className="settings-kpi-icon-wrap unit-icon">
               <Building2 size={15} />
@@ -204,13 +213,17 @@ export function SettingsPage({
           </div>
 
           <div className="settings-kpi-metric-row">
-            <span className="settings-kpi-number">{unitsList.length}</span>
+            <span className="settings-kpi-number">
+              {settingsLoaded ? unitsList.length : <SkeletonLine width="36px" height="24px" />}
+            </span>
           </div>
 
           <div className="settings-kpi-divider" />
 
           <div className="settings-kpi-footer">
-            {unitsList.length === 0 ? (
+            {!settingsLoaded ? (
+              <SkeletonLine width="140px" height="14px" />
+            ) : unitsList.length === 0 ? (
               <span className="settings-kpi-address-text empty">
                 Nenhuma unidade cadastrada ainda
               </span>
@@ -271,7 +284,7 @@ export function SettingsPage({
         </div>
 
         {/* KPI 3: Canais Habilitados */}
-        <div className="settings-kpi-card kpi-channels">
+        <div className="settings-kpi-card kpi-channels" aria-busy={!settingsLoaded || undefined}>
           <div className="settings-kpi-header">
             <div className="settings-kpi-icon-wrap channel-icon">
               <Radio size={15} />
@@ -280,68 +293,74 @@ export function SettingsPage({
           </div>
 
           <div className="settings-kpi-metric-row">
-            <span className="settings-kpi-number">{enabledChannelsList.length}</span>
+            <span className="settings-kpi-number">
+              {settingsLoaded ? enabledChannelsList.length : <SkeletonLine width="36px" height="24px" />}
+            </span>
           </div>
 
           <div className="settings-kpi-divider" />
 
           <div className="settings-kpi-footer">
-            <div className="settings-kpi-channels-row">
-              {visibleChannels.map((ch) => (
-                <span
-                  key={ch}
-                  className={`settings-channel-icon-badge channel-${ch}`}
-                  title={getChannelLabel(ch)}
-                  aria-label={getChannelLabel(ch)}
-                  role="img"
-                >
-                  {getChannelIcon(ch)}
-                </span>
-              ))}
-              {otherChannels.length > 0 && (
-                <div className="settings-kpi-more-wrap" ref={channelsPopoverRef}>
-                  <button
-                    type="button"
-                    className="settings-kpi-more-btn channel-more-btn"
-                    onClick={() => setShowChannelsPopover((v) => !v)}
-                    onMouseEnter={() => setShowChannelsPopover(true)}
-                    onMouseLeave={() => setShowChannelsPopover(false)}
-                    aria-label={`Ver mais ${otherChannels.length} canais`}
+            {!settingsLoaded ? (
+              <SkeletonLine width="120px" height="14px" />
+            ) : (
+              <div className="settings-kpi-channels-row">
+                {visibleChannels.map((ch) => (
+                  <span
+                    key={ch}
+                    className={`settings-channel-icon-badge channel-${ch}`}
+                    title={getChannelLabel(ch)}
+                    aria-label={getChannelLabel(ch)}
+                    role="img"
                   >
-                    +{otherChannels.length}
-                  </button>
-                  {showChannelsPopover && (
-                    <div
-                      className="settings-kpi-popover channels-popover"
+                    {getChannelIcon(ch)}
+                  </span>
+                ))}
+                {otherChannels.length > 0 && (
+                  <div className="settings-kpi-more-wrap" ref={channelsPopoverRef}>
+                    <button
+                      type="button"
+                      className="settings-kpi-more-btn channel-more-btn"
+                      onClick={() => setShowChannelsPopover((v) => !v)}
                       onMouseEnter={() => setShowChannelsPopover(true)}
                       onMouseLeave={() => setShowChannelsPopover(false)}
+                      aria-label={`Ver mais ${otherChannels.length} canais`}
                     >
-                      <div className="settings-kpi-popover-title">
-                        Outros Canais ({otherChannels.length})
+                      +{otherChannels.length}
+                    </button>
+                    {showChannelsPopover && (
+                      <div
+                        className="settings-kpi-popover channels-popover"
+                        onMouseEnter={() => setShowChannelsPopover(true)}
+                        onMouseLeave={() => setShowChannelsPopover(false)}
+                      >
+                        <div className="settings-kpi-popover-title">
+                          Outros Canais ({otherChannels.length})
+                        </div>
+                        <div className="settings-kpi-popover-channels">
+                          {otherChannels.map((ch) => (
+                            <div key={ch} className="settings-kpi-popover-channel-row">
+                              <span className={`settings-channel-icon-badge channel-${ch}`}>
+                                {getChannelIcon(ch)}
+                              </span>
+                              <span className="settings-kpi-popover-channel-name">{getChannelLabel(ch)}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                      <div className="settings-kpi-popover-channels">
-                        {otherChannels.map((ch) => (
-                          <div key={ch} className="settings-kpi-popover-channel-row">
-                            <span className={`settings-channel-icon-badge channel-${ch}`}>
-                              {getChannelIcon(ch)}
-                            </span>
-                            <span className="settings-kpi-popover-channel-name">{getChannelLabel(ch)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {enabledChannelsList.length === 0 && (
-                <span className="settings-kpi-empty-text">Nenhum canal habilitado</span>
-              )}
-            </div>
+                    )}
+                  </div>
+                )}
+                {enabledChannelsList.length === 0 && (
+                  <span className="settings-kpi-empty-text">Nenhum canal habilitado</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         {/* KPI 4: Horário de Atendimento */}
-        <div className="settings-kpi-card kpi-hours">
+        <div className="settings-kpi-card kpi-hours" aria-busy={!settingsLoaded || undefined}>
           <div className="settings-kpi-header">
             <div className="settings-kpi-icon-wrap hours-icon">
               <Clock3 size={15} />
@@ -352,18 +371,27 @@ export function SettingsPage({
           <div className="settings-kpi-divider" />
 
           <div className="settings-kpi-footer">
-            <div className="settings-kpi-hours-center-block">
-              {businessHoursData?.days && (
-                <span className="settings-kpi-hours-days">{businessHoursData.days}</span>
-              )}
-              <span className="settings-kpi-hours-time" title={businessHoursSummary || ''}>
-                {businessHoursData?.time || 'Sem horário configurado'}
-              </span>
-            </div>
-            {businessHoursData?.extra ? (
-              <span className="settings-kpi-hours-extra">{businessHoursData.extra}</span>
+            {!settingsLoaded ? (
+              <div className="settings-kpi-hours-center-block">
+                <SkeletonLine width="110px" height="14px" />
+                <SkeletonLine width="140px" height="16px" style={{ marginTop: '6px' }} />
+              </div>
             ) : (
-              <div className="settings-kpi-hours-spacer" aria-hidden="true" />
+              <>
+                <div className="settings-kpi-hours-center-block">
+                  {businessHoursData?.days && (
+                    <span className="settings-kpi-hours-days">{businessHoursData.days}</span>
+                  )}
+                  <span className="settings-kpi-hours-time" title={businessHoursSummary || ''}>
+                    {businessHoursData?.time || 'Sem horário configurado'}
+                  </span>
+                </div>
+                {businessHoursData?.extra ? (
+                  <span className="settings-kpi-hours-extra">{businessHoursData.extra}</span>
+                ) : (
+                  <div className="settings-kpi-hours-spacer" aria-hidden="true" />
+                )}
+              </>
             )}
           </div>
         </div>
@@ -384,7 +412,7 @@ export function SettingsPage({
                 Nome Completo do Atendente *
                 <input
                   className="settings-input"
-                  placeholder="Ex: Camila Recepção, Dra. Mariana..."
+                  placeholder="Ex.: Camila Souza, Carlos Lima..."
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
@@ -395,7 +423,7 @@ export function SettingsPage({
                 Cargo / Função
                 <input
                   className="settings-input"
-                  placeholder="Ex: Atendimento, Recepcionista, Dentista..."
+                  placeholder="Ex.: Atendimento, Comercial, Suporte..."
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                 />

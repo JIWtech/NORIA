@@ -30,8 +30,7 @@ export async function loadRelevantContacts(supabase, tenantId, events = [], broa
         .order('created_at', { ascending: true })
         .order('id', { ascending: true });
       if (error) {
-        console.warn('Contact directory fallback:', error.message);
-        results[index] = [];
+        throw new Error('Não foi possível carregar os contatos.');
       } else {
         results[index] = data || [];
       }

@@ -2350,6 +2350,7 @@
 .peak-barchart-container {
   margin-top: 6px;
   height: 150px;
+  overflow-x: auto;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -2357,8 +2358,8 @@
 
 .peak-barchart {
   display: grid;
-  grid-template-columns: repeat(15, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(24, minmax(14px, 1fr));
+  gap: 4px;
   align-items: end;
   height: 126px;
 }

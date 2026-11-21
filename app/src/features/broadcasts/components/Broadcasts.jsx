@@ -138,7 +138,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       }
     } catch (error) {
       setImportSummary(null);
-      setStatus(userFacingError(error, 'Nao foi possivel importar a planilha.'), 'error');
+      setStatus(userFacingError(error, 'Não foi possível importar a planilha.'), 'error');
     }
   }
 
@@ -403,7 +403,11 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
         <section className="bc-card bc-audience" aria-labelledby="bc-audience-title">
           <header className="bc-head">
             <h2 id="bc-audience-title">Público</h2>
-            <span className="bc-count"><strong>{selectedContacts.length}</strong> de {allContacts.length} selecionado{selectedContacts.length === 1 ? '' : 's'}</span>
+            <span className="bc-count">
+              {ready
+                ? <><strong>{selectedContacts.length}</strong> de {allContacts.length} selecionado{selectedContacts.length === 1 ? '' : 's'}</>
+                : 'Carregando…'}
+            </span>
           </header>
 
           <div
@@ -512,7 +516,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
               <span className={`bc-counter ${messageTooLong ? 'is-over' : ''}`}>{messageText.length.toLocaleString('pt-BR')} / {messageLimit.toLocaleString('pt-BR')}</span>
             </div>
           </div>
-          {!hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
+          {ready && !hasChannel && <p className="bc-hint is-error">Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações.</p>}
           {messageTooLong && <p className="bc-hint is-error">O {channelLabel} aceita até {messageLimit.toLocaleString('pt-BR')} caracteres por mensagem.</p>}
 
           {messageText.trim() && (

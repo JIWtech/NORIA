@@ -271,7 +271,7 @@ export function Kanban({
       setKanbanActionStatus('Sinal confirmado e mensagem enviada ao cliente.');
       await onChanged?.();
     } catch (error) {
-      setKanbanActionStatus(userFacingError(error, 'Nao foi possivel confirmar o sinal.'));
+      setKanbanActionStatus(userFacingError(error, 'Não foi possível confirmar o sinal.'));
     } finally {
       setConfirmingCardId('');
     }
@@ -583,12 +583,35 @@ export function Kanban({
       <div
         className="kanban-board kanban-scroll-drag-surface"
         ref={boardRef}
+        aria-busy={!ready || undefined}
         onPointerDown={clearActiveColumn}
         onWheel={clearActiveColumn}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {!ready && !filteredColumns.length && [1, 2, 3].map((colIdx) => (
+          <div className="kanban-column" key={`skeleton-col-${colIdx}`}>
+            <div className="column-header">
+              <div className="column-heading-copy">
+                <SkeletonLine width="120px" height="14px" />
+                <SkeletonLine width="150px" height="11px" style={{ marginTop: '6px' }} />
+              </div>
+              <span className="column-count-badge">—</span>
+            </div>
+            <div className="column-cards-container">
+              {[1, 2].map((i) => (
+                <article className="kanban-card kanban-card-skeleton" key={i}>
+                  <div className="kanban-card-header">
+                    <SkeletonLine width="90px" height="14px" />
+                    <SkeletonLine width="35px" height="11px" />
+                  </div>
+                  <SkeletonLine width="130px" height="12px" style={{ marginTop: '8px' }} />
+                </article>
+              ))}
+            </div>
+          </div>
+        ))}
         {filteredColumns.map((column) => {
           const isDragOver = dragOverColumnId === column.id;
           const presentation = getColumnPresentation(column);

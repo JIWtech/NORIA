@@ -25,13 +25,11 @@ test('6B.21 Núbia reserva por RPC com payload, tenant, data e horário exatos',
   assert.deepEqual(client.calls, [['rpc', 'magia_reserve_appointment', { p_tenant: 'tenant-nubia', p_unit: 'unit-1', p_service: 'service-1', p_date: '2026-10-10', p_time: '10:30', p_name: 'Maria', p_chat: '5511@s.whatsapp.net', p_request: 'request-1', p_channel: 'whatsapp', p_notes: 'Observação' }]]);
 });
 
-test('6B.21 fallback legado grava uma vez somente para SCHEDULE_NOT_CONFIGURED', async () => {
+test('6B.21 agenda não configurada propaga erro sem gravar', async () => {
   const client = supabaseMock({ rpc: { data: null, error: new Error('SCHEDULE_NOT_CONFIGURED') } });
-  const result = await saver(client)('outro-tenant', appointment({ unitId: 'unit-2', serviceId: 'service-2', localDate: '2026-10-11', localTime: '14:15' }));
-  assert.equal(result.id, 'insert-1');
+  await assert.rejects(() => saver(client)('outro-tenant', appointment({ unitId: 'unit-2', serviceId: 'service-2', localDate: '2026-10-11', localTime: '14:15' })), /SCHEDULE_NOT_CONFIGURED/);
   assert.equal(client.calls.filter(([kind]) => kind === 'rpc').length, 1);
-  assert.equal(client.calls.filter(([kind]) => kind === 'insert').length, 1);
-  assert.equal(client.calls.find(([kind]) => kind === 'insert')[1].starts_at, new Date('2026-10-11T14:15:00').toISOString());
+  assert.equal(client.calls.filter(([kind]) => kind === 'insert').length, 0);
 });
 
 test('6B.21 erro de reserva sem fallback não grava e propaga erro', async () => {

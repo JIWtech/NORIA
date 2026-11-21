@@ -380,33 +380,33 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-.channel-whatsapp {
+.settings-channel-icon-badge.channel-whatsapp {
   background: rgba(37, 211, 102, 0.14);
   color: #25d366;
   border: 1px solid rgba(37, 211, 102, 0.35);
 }
 
-.channel-whatsapp svg {
+.settings-channel-icon-badge.channel-whatsapp svg {
   color: #25d366;
 }
 
-.channel-telegram {
+.settings-channel-icon-badge.channel-telegram {
   background: rgba(34, 158, 217, 0.14);
   color: #38bdf8;
   border: 1px solid rgba(34, 158, 217, 0.35);
 }
 
-.channel-telegram svg {
+.settings-channel-icon-badge.channel-telegram svg {
   color: #38bdf8;
 }
 
-.channel-instagram {
+.settings-channel-icon-badge.channel-instagram {
   background: rgba(225, 48, 108, 0.14);
   color: #f43f5e;
   border: 1px solid rgba(225, 48, 108, 0.35);
 }
 
-.channel-instagram svg {
+.settings-channel-icon-badge.channel-instagram svg {
   color: #f43f5e;
 }
 

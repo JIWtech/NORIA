@@ -8,7 +8,7 @@
   inset: 0;
   background: rgba(5, 9, 17, 0.75);
   backdrop-filter: blur(4px);
-  z-index: 1040;
+  z-index: var(--z-mobile-backdrop);
   animation: fadeIn 180ms ease;
 }
 
@@ -20,7 +20,7 @@
   width: min(82vw, 290px);
   background: var(--surface-elevated);
   border-right: 1px solid var(--line-strong);
-  z-index: 1050;
+  z-index: var(--z-mobile-nav);
   display: flex;
   flex-direction: column;
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);

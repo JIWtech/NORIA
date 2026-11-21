@@ -83,7 +83,10 @@ import { ConversationSidebar } from './ConversationSidebar.jsx';
 import { ConversationTimeline } from './ConversationTimeline.jsx';
 import { ConversationComposer } from './ConversationComposer.jsx';
 
-const MOBILE_CONVERSATIONS_QUERY = '(max-width: 800px)';
+function isConversationsDesktop() {
+  return typeof window === 'undefined' || window.getComputedStyle(document.documentElement)
+    .getPropertyValue('--conversations-mobile').trim() !== '1';
+}
 const LATEST_MESSAGES_THRESHOLD = 120;
 const FULL_HISTORY_CACHE_LIMIT = 30;
 const fullHistoryCache = new Map();
@@ -118,7 +121,7 @@ export function Conversations({
   const [selectedId, setSelectedId] = useState(null);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => (
-    typeof window === 'undefined' || !window.matchMedia(MOBILE_CONVERSATIONS_QUERY).matches
+    isConversationsDesktop()
   ));
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => (
     typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -180,15 +183,14 @@ export function Conversations({
   const messageStreamRef = React.useRef(null);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia(MOBILE_CONVERSATIONS_QUERY);
-    const syncViewport = () => setIsDesktopViewport(!mediaQuery.matches);
+    const syncViewport = () => setIsDesktopViewport(isConversationsDesktop());
     const syncVisibility = () => setIsDocumentVisible(document.visibilityState === 'visible');
     syncViewport();
     syncVisibility();
-    mediaQuery.addEventListener?.('change', syncViewport);
+    window.addEventListener('resize', syncViewport);
     document.addEventListener('visibilitychange', syncVisibility);
     return () => {
-      mediaQuery.removeEventListener?.('change', syncViewport);
+      window.removeEventListener('resize', syncViewport);
       document.removeEventListener('visibilitychange', syncVisibility);
     };
   }, []);
@@ -940,9 +942,10 @@ export function Conversations({
 
       <section className="chat-panel panel">
         {!ready ? (
-          <div className="chat-empty-panel">
+          <div className="chat-empty-panel" role="status" aria-busy="true">
             <SkeletonBlock width="180px" height="20px" style={{ margin: '0 auto 12px', borderRadius: '4px' }} />
-            <SkeletonLine width="140px" style={{ margin: '0 auto' }} />
+            <SkeletonLine width="140px" style={{ margin: '0 auto 12px' }} />
+            <small className="muted">Carregando conversas…</small>
           </div>
 
         ) : selected ? <>

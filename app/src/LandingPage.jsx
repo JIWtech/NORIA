@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import noriaLogo from './assets/noria_logo.png';
 import noriaConversasPreview from './assets/noria_conversas_preview.jpg';
-import { isSessionBootstrapped, clearSessionBootstrapped } from './app/appStorage.js';
+import { isSessionBootstrapped, clearSessionBootstrapped, clearAppDataCache } from './app/appStorage.js';
 import { signOut } from './services/auth/authService.js';
 import { SavingsSimulator } from './features/landing/SavingsSimulator.jsx';
 import {
@@ -382,6 +382,7 @@ export function HomePage() {
 
   const handleSignOut = async () => {
     clearSessionBootstrapped();
+    clearAppDataCache();
     setHasSession(false);
     await signOut();
   };

@@ -236,6 +236,14 @@
   }
 }
 
+/* Refinamento visual escopado: Agendamentos */
+.appointments-page {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.42fr) minmax(0, 0.58fr);
+  gap: 16px;
+  align-items: start;
+}
+
 @media (max-width: 1280px) {
   .appointments-page {
     display: flex;
@@ -263,14 +271,6 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
   }
-}
-
-/* Refinamento visual escopado: Agendamentos */
-.appointments-page {
-  display: grid;
-  grid-template-columns: minmax(360px, 0.42fr) minmax(0, 0.58fr);
-  gap: 16px;
-  align-items: start;
 }
 
 .appointments-page .form-row-two {
@@ -834,8 +834,8 @@
 
 .noria-select-content.appointment-conversation-select-content,
 .noria-select-content.appointment-service-select-content {
-  max-height: none;
-  overflow: visible;
+  max-height: var(--radix-select-content-available-height);
+  overflow: hidden;
   padding: 4px;
   min-width: var(--radix-select-trigger-width, 240px);
   max-width: max(var(--radix-select-trigger-width, 320px), 360px);
@@ -843,7 +843,7 @@
 
 .noria-select-content.appointment-conversation-select-content .noria-select-viewport,
 .noria-select-content.appointment-service-select-content .noria-select-viewport {
-  max-height: min(340px, calc(100vh - 120px));
+  max-height: min(340px, var(--radix-select-content-available-height));
   overflow-y: auto !important;
   overscroll-behavior: contain;
   scrollbar-width: none;

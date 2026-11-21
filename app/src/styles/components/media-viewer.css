@@ -1,7 +1,7 @@
 .media-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-media-viewer);
   display: grid;
   place-items: center;
   padding: 28px;
@@ -212,7 +212,7 @@
 .media-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-media-viewer);
   background: rgba(4, 7, 14, 0.94);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);

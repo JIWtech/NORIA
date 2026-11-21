@@ -86,7 +86,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
       schedulingCacheByTenant.set(tenantSlug, value);
       if (active) setSchedule(value);
     })
-      .catch(() => { if (active) setStatus('Nao foi possivel carregar a agenda. Atualize a pagina antes de reservar.'); });
+      .catch(() => { if (active) setStatus('Não foi possível carregar a agenda. Atualize a página antes de reservar.'); });
     return () => { active = false; };
   }, [tenantSlug]);
 
@@ -96,8 +96,8 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     if (!schedule?.enabled || !unitId || !serviceId || !localDate) { setChecking(false); return; }
     setChecking(true);
     loadAppointmentAvailability(schedule.tenantId, unitId, serviceId, localDate)
-      .then(times => { if (active) { setAvailableTimes(times); setStatus(times.length ? '' : 'Nenhum horario disponivel nesta data.'); } })
-      .catch(() => { if (active) setStatus('Nao foi possivel consultar a disponibilidade. Nenhuma reserva foi criada.'); })
+      .then(times => { if (active) { setAvailableTimes(times); setStatus(times.length ? '' : 'Nenhum horário disponível nesta data.'); } })
+      .catch(error => { if (active) setStatus(error?.message?.includes('SCHEDULE_NOT_CONFIGURED') ? 'Agenda não configurada. Nenhuma reserva foi criada.' : 'Não foi possível consultar a disponibilidade. Nenhuma reserva foi criada.'); })
       .finally(() => { if (active) setChecking(false); });
     return () => { active = false; };
   }, [schedule, unitId, serviceId, localDate]);
@@ -187,7 +187,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!schedule || (schedule.enabled ? !unitId || !serviceId || !localDate || !localTime || !contactName.trim() : !title.trim() || !startsAt)) return;
+    if (!schedule?.enabled || !unitId || !serviceId || !localDate || !localTime || !availableTimes.includes(localTime) || !contactName.trim()) return;
     setSaving(true);
     setStatus('');
     try {
@@ -211,7 +211,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
       setStatus('Agendamento criado e enviado para o Kanban.');
       await onChanged?.();
     } catch (error) {
-      setStatus(userFacingError(error, 'Não foi possível salvar o agendamento.'));
+      setStatus(error?.message?.includes('SCHEDULE_NOT_CONFIGURED') ? 'Agenda não configurada. Nenhuma reserva foi criada.' : userFacingError(error, 'Não foi possível salvar o agendamento.'));
     } finally {
       setSaving(false);
     }
@@ -221,13 +221,25 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     <section className="appointments-page">
       <section className="panel appointment-form-panel">
         <PanelTitle className="appointment-panel-title" icon={CalendarDays} title="Novo agendamento" />
+        {!schedule && !status && (
+          <div className="form-grid" role="status" aria-busy="true">
+            <SkeletonLine width="45%" height="14px" />
+            <SkeletonBlock width="100%" height="38px" />
+            <SkeletonLine width="40%" height="14px" />
+            <SkeletonBlock width="100%" height="38px" />
+            <SkeletonLine width="120px" height="12px" />
+            <small className="muted">Carregando agenda…</small>
+          </div>
+        )}
+        {schedule && !schedule.enabled && <p role="status">Agenda não configurada. Configure a agenda antes de criar uma reserva.</p>}
+        {schedule?.enabled &&
         <form className="form-grid" onSubmit={handleSubmit}>
           {schedule?.enabled ? <div className="form-row-two">
             <label className="appointment-field-label"><span className="appointment-label-text">Unidade</span><NoriaSelect value={unitId} onValueChange={setUnitId} options={Object.entries(schedule.units).map(([id, unit]) => ({ value: id, label: unit.name }))} placeholder="Selecione" icon={Building2} className="appointment-select" /></label>
             <label className="appointment-field-label"><span className="appointment-label-text">Serviço</span><NoriaSelect value={serviceId} onValueChange={setServiceId} options={schedule.services.map(service => ({ value: service.external_id, label: service.name, category: service.category || 'Geral' }))} placeholder="Selecione" icon={CalendarCheck} className="appointment-select" contentClassName="appointment-service-select-content" /></label>
-          </div> : <label className="appointment-field-label"><span className="appointment-label-text">Título</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex: Sessao de bronzeamento" required /></label>}
+          </div> : <label className="appointment-field-label"><span className="appointment-label-text">Título</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Atendimento inicial" required /></label>}
           <div className="form-row-two">
-            <label className="appointment-field-label"><span className="appointment-label-text">Contato</span><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nome da cliente" required={schedule?.enabled} /></label>
+            <label className="appointment-field-label"><span className="appointment-label-text">Contato</span><input value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Nome do contato" required={schedule?.enabled} /></label>
             <label className="appointment-field-label"><span className="appointment-label-text">Conversa recente</span><NoriaSelect value={selectedConversationId} onValueChange={(value) => pickConversation(value === '__none__' ? '' : value)} options={[{ value: '__none__', label: 'Sem vínculo' }, ...conversations.map((conversation) => {
               const channelType = conversation.channelType || conversation.channel || 'whatsapp';
               const channelLabel = conversation.channel || (channelType === 'whatsapp' ? 'WhatsApp' : channelType);
@@ -255,10 +267,11 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
           </div>}
           <label className="textarea-label appointment-field-label"><span className="appointment-label-text">Observações</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Detalhes internos do atendimento." /></label>
           <div className="header-actions appointment-save-row">
-            <button className="primary-button" type="submit" disabled={saving || !schedule || checking || (schedule.enabled ? !localTime || !contactName.trim() : !title.trim() || !startsAt)}><CalendarCheck size={16} /> Salvar agendamento</button>
+            <button className="primary-button" type="submit" disabled={saving || checking || !unitId || !serviceId || !localDate || !availableTimes.includes(localTime) || !contactName.trim()}><CalendarCheck size={16} /> Salvar agendamento</button>
             <small>{status}</small>
           </div>
-        </form>
+        </form>}
+        {!schedule && status && <p role="status">{status}</p>}
       </section>
 
       <section className="panel appointment-list-panel">

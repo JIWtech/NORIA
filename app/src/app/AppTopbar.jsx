@@ -9,6 +9,7 @@ export function AppTopbar({
   availableTenants = [],
   handleSignOut,
   isAuthRequired,
+  isRefreshingCache = false,
   loading = false,
   menu = [],
   mobileNavOpen = false,
@@ -55,6 +56,17 @@ export function AppTopbar({
           </button>
           <span className="kanban-title-accent" aria-hidden="true" />
           <h1>{menu?.find((item) => item.id === active)?.label}</h1>
+          {isRefreshingCache && (
+            <span
+              className="topbar-sync-indicator"
+              role="status"
+              aria-live="polite"
+              title="Exibindo dados em cache enquanto atualiza"
+            >
+              <RefreshCcw size={12} className="spin" aria-hidden="true" />
+              <span>Atualizando…</span>
+            </span>
+          )}
         </div>
       </div>
       <div className="topbar-actions">
@@ -76,7 +88,7 @@ export function AppTopbar({
             userId={notificationUserId}
             tenantName={selectedTenant?.name}
             tenantSlug={activeTenantSlug}
-            dataReady={!loading}
+            dataReady={!loading && !isRefreshingCache}
             role={selectedTenant?.membershipRole}
             settings={notificationSettings}
             conversations={notificationConversations}

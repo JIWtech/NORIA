@@ -89,7 +89,8 @@
   padding: 5px;
   min-width: var(--radix-select-trigger-width, 190px);
   max-width: 280px;
-  z-index: 1050;
+  z-index: var(--z-popover);
+  max-height: var(--radix-select-content-available-height);
   overflow: hidden;
   animation: noriaSelectOpen var(--motion-base) var(--ease-out);
 }
@@ -117,6 +118,8 @@
 }
 
 .noria-select-viewport {
+  max-height: var(--radix-select-content-available-height);
+  overflow-y: auto;
   padding: 2px 0;
   display: flex;
   flex-direction: column;

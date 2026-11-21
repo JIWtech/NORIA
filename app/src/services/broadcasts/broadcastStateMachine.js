@@ -131,7 +131,10 @@ export function classifySendOutcome(error, result) {
     };
   }
 
-  const message = String(error.message || error || '').toLowerCase();
+  const message = String(error.message || error || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
   // Erros comprovadamente prévios à entrega física (rejeição formal sem envio)
   const isDefinitivePreSendRejection =

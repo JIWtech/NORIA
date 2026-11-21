@@ -31,5 +31,5 @@ test('conversation reads do not query incomplete scope and fail closed on errors
   assert.equal(missingScope.calls.length, 0);
 
   const failing = fakeSupabase({ data: null, error: { message: 'denied' } });
-  assert.deepEqual(await loadConversationReads(failing, 'tenant-b', 'user-b'), []);
+  await assert.rejects(loadConversationReads(failing, 'tenant-b', 'user-b'), /carregar as leituras/);
 });

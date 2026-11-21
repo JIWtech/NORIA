@@ -82,7 +82,7 @@ test('janela vazia ou com erro não dispara heads; settings continua sendo obrig
   await assert.rejects(loadClientDataWithClient(failed, {}, 'alpha'), /carregar os atendimentos/);
   assert.ok(!failed.started.includes('heads'));
   const settings = database({ tenant_settings: { error: { message: 'offline' } } });
-  await assert.rejects(loadClientDataWithClient(settings, {}, 'alpha'), /configuracoes/);
+  await assert.rejects(loadClientDataWithClient(settings, {}, 'alpha'), /configurações/);
 });
 
 test('recarga de campanhas lê somente o domínio solicitado com isolamento por tenant', async () => {
@@ -98,8 +98,23 @@ test('falha parcial de campanhas rejeita sem apagar estado anterior; tenant ause
   const client = database({ broadcast_campaigns: { error: { message: 'offline' } } });
   await assert.rejects(loadClientDataWithClient(client, {}, 'alpha', 'user-a', { resources: ['broadcastCampaigns'] }), /campanhas/);
   const missing = database({ tenants: { data: null } });
-  await assert.rejects(loadClientDataWithClient(missing, {}, 'alpha'), /Empresa indisponivel/);
+  await assert.rejects(loadClientDataWithClient(missing, {}, 'alpha'), /Empresa indisponível/);
   assert.deepEqual(missing.started, ['tenants']);
+});
+
+test('falhas independentes preservam dados anteriores somente do mesmo tenant e são reportadas', async () => {
+  const errors = { error: { message: 'offline' } };
+  const client = database({ appointments: errors, broadcast_contacts: errors, broadcast_campaigns: errors, conversation_reads: errors });
+  const previous = { tenantId: 'tenant-a', appointments: [{ id: 'a' }], broadcastContacts: [{ id: 'b' }], broadcastCampaigns: [{ id: 'c' }], conversationReads: [{ id: 'r' }] };
+  const result = await loadClientDataWithClient(client, previous, 'alpha', 'user-a');
+  assert.deepEqual(result.resourceErrors.sort(), ['agendamentos', 'campanhas', 'contatos de disparos', 'leituras'].sort());
+  assert.deepEqual(result.appointments, previous.appointments);
+  assert.deepEqual(result.broadcastCampaigns, previous.broadcastCampaigns);
+  assert.deepEqual(result.conversationReads, previous.conversationReads);
+  const other = await loadClientDataWithClient(client, { ...previous, tenantId: 'other' }, 'alpha', 'user-a');
+  assert.deepEqual(other.appointments, []);
+  assert.deepEqual(other.broadcastCampaigns, []);
+  assert.deepEqual(other.conversationReads, []);
 });
 
 test('carga otimizada preserva mídia, conversa antiga e deduplicação; falha da RPC mantém a janela', async () => {

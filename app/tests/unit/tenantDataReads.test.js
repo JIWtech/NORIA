@@ -53,14 +53,23 @@ test('tenant reads retain tenant filters, ordering, limits, and appointment mapp
   assert.deepEqual(client.queries.find((query) => query.table === 'broadcast_campaigns').calls.find((call) => call[0] === 'limit'), ['limit', 50]);
 });
 
-test('falha no histórico não impede a leitura dos agendamentos ativos', async () => {
+test('falhas de contatos e campanhas são propagadas para preservar dados anteriores', async () => {
+  const client = fakeSupabase({
+    broadcast_contacts: { error: { message: 'indisponível' } },
+    broadcast_campaigns: { error: { message: 'indisponível' } },
+  });
+  await assert.rejects(loadBroadcastContacts(client, 'tenant-a'));
+  await assert.rejects(loadBroadcastCampaigns(client, 'tenant-a'));
+});
+
+test('falha no histórico impede substituir os agendamentos por uma lista incompleta', async () => {
   const active = { id: 'drenagem', status: 'confirmed' };
   const client = fakeSupabase({ appointments: query => {
     if (query.calls.some(call => call[0] === 'in' && call[1] === 'status')) return { data: [active] };
     if (query.calls.some(call => call[0] === 'eq' && call[1] === 'status')) return { data: [] };
     return { error: { message: 'histórico temporariamente indisponível' } };
   } });
-  assert.deepEqual(await loadAppointments(client, 'tenant-a', row => row), [active]);
+  await assert.rejects(loadAppointments(client, 'tenant-a', row => row));
 });
 
 test('Kanban reads retain board and column isolation and fall back on errors', async () => {

@@ -9,8 +9,7 @@ export async function loadConversationReads(supabase, tenantId, userId) {
     .eq('user_id', userId)
     .limit(500);
   if (error) {
-    console.warn('Conversation reads fallback:', error.message);
-    return [];
+    throw new Error('Não foi possível carregar as leituras.');
   }
   return data || [];
 }

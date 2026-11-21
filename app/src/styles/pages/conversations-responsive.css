@@ -31,7 +31,10 @@
   }
 }
 
+:root { --conversations-mobile: 0; }
+
 @media (max-width: 768px) {
+  :root { --conversations-mobile: 1; }
   .conversation-layout {
     display: flex;
     flex-direction: column;

@@ -1,6 +1,14 @@
 :root {
   color-scheme: dark;
 
+  /* Camadas globais, da navegação aos avisos. */
+  --z-mobile-backdrop: 1040;
+  --z-mobile-nav: 1050;
+  --z-modal: 1200;
+  --z-media-viewer: 1250;
+  --z-popover: 1300;
+  --z-toast: 1400;
+
   /* Surfaces & Canvas (NORIA Dark Navy) */
   --bg: #0B1220;
   --canvas: var(--bg);

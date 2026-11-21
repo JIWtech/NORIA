@@ -1,5 +1,6 @@
 import { getAuthClient } from '../auth/authService.js';
 import { eventsToConversations } from './eventsToConversations.js';
+import { CHANNEL_EVENT_COLUMNS } from './channelEventColumns.js';
 
 export function buildConversationIdVariants(rawId) {
   if (!rawId) return [];
@@ -46,7 +47,7 @@ export async function loadConversationFullHistory(tenantSlug, externalConversati
 
   const { data, error } = await supabase
     .from('channel_events')
-    .select('*')
+    .select(CHANNEL_EVENT_COLUMNS)
     .eq('tenant_slug', tenantSlug)
     .in('external_conversation_id', variants)
     .order('created_at', { ascending: false })
