@@ -9,6 +9,12 @@
 // tenant (settings.retail_policy e catálogo). A intenção vem do contrato semântico do Gemini, nunca de regex.
 
 const input = $json || {};
+// Qualquer falha (identidade, cadastro, leitura do banco) vira erro estruturado, nunca exceção: o CORE recebe
+// commercial_decision_status 'error', recusa a decisão e fecha o turno para revisão (sem efeito nenhum). Uma exceção
+// aqui interromperia o roteador antes da finalização e o turno só seria liberado pela recuperação da fila.
+const decisionError = code => ({ json: { ...input, noria_phase: 'finalize', commercial_decision: null,
+  commercial_decision_status: 'error', commercial_decision_error: code, commercial_identity: null } });
+const decide = async () => {
 const EXPECTED_SLUG = 'joyeria';
 const CONTRACT_VERSION = '1.0';
 const SEMANTIC_CONTRACT = 'noria_retail_semantic_intent_v1';
@@ -66,7 +72,7 @@ const channelKey = value => String(value || '').trim().toLowerCase().replace(/[^
 const tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenantId) + '&slug=eq.' + enc(EXPECTED_SLUG) + '&limit=1');
 if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== tenantId || tenants[0].status !== 'active') throw new Error('JOYERIA_EXT_TENANT_INVALIDO');
 const channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenantId) + '&type=eq.whatsapp&status=eq.active&limit=25');
-if (!Array.isArray(channels) || !channels.some(c => [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id]
+if (!Array.isArray(channels) || !channels.some(c => [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id, c.config?.instanceId]
   .filter(Boolean).map(channelKey).includes(channelKey(instance)))) throw new Error('JOYERIA_EXT_INSTANCIA_NAO_PERTENCE');
 const settingsRows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(tenantId) + '&limit=1');
 const settings = Array.isArray(settingsRows) && isObj(settingsRows[0]?.settings) ? settingsRows[0].settings : null;
@@ -213,14 +219,18 @@ if (specialistEnabled && !postSale && !uncertain) {
   // Dúvida informativa (ex.: cuidados com a peça) não é interesse comercial: "asked_about" sozinho não aciona o aviso.
   // "Decidido" sozinho também não: só conta junto de interesse numa compra (pós-venda não é cliente decidido).
   const interest = v.interest.on || items.some(item => roleOf(item.id).some(role => ['interested', 'selected'].includes(role)));
-  const materialsInPlay = uniq([...interestedItems.map(item => item.material_class), v.material.value]);
+  // Quando a cliente escolheu item(ns), a decisão olha para o escolhido: o que ela só perguntou ou comparou no caminho não
+  // muda o encaminhamento (ex.: comparou uma blend e escolheu a peça do site → recebe o link).
+  const selectedItems = interestedItems.filter(item => roleOf(item.id).includes('selected'));
+  const decisiveItems = selectedItems.length ? selectedItems : interestedItems;
+  const materialsInPlay = uniq([...decisiveItems.map(item => item.material_class), v.material.value]);
   const ownRule = materialsInPlay.filter(m => specialistMaterials.includes(m));
   const highEnd = materialsInPlay.filter(m => highEndMaterials.includes(m));
   if (interest && ownRule.length) reasons.push('material_regra_propria');
   if (interest && highEnd.length) reasons.push('alto_padrao');
   // Cliente decidido só vai ao especialista quando não pode concluir sozinho no site: se o item em foco tem link de compra
   // e não é material do especialista (ex.: semijoia), ele recebe o link (decisão do tenant: só vai à especialista o combinado).
-  const siteBuyable = interestedItems.length > 0 && interestedItems.every(item => typeof item.site_url === 'string' && item.site_url
+  const siteBuyable = decisiveItems.length > 0 && decisiveItems.every(item => typeof item.site_url === 'string' && item.site_url
     && !specialistMaterials.includes(item.material_class) && !highEndMaterials.includes(item.material_class));
   if (notifyDecided && interest && v.decision.value === 'decided' && !(siteLinkEnabled && siteBuyable)) reasons.push('cliente_decidido');
   if (reasons.length) {
@@ -281,3 +291,12 @@ if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.requ
 
 if (v.topic_change) decision.reason_codes.push('TOPIC_CHANGE');
 return finish('ok');
+};
+
+try {
+  return await decide();
+} catch (error) {
+  // Só códigos próprios (sem mensagem de rede, URL ou dado da requisição).
+  const code = String(error?.message || '');
+  return decisionError(/^JOYERIA_EXT_[A-Z_]+$/.test(code) ? code : 'JOYERIA_EXT_LEITURA_FALHOU');
+}

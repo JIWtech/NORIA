@@ -37,6 +37,7 @@
     "decision_provenance": "joyeria_extension_commercial_decide_v1"
   },
   "ai_enabled": true,
+  "ai_model": "gemini-3.5-flash-lite",
   "semantic_model": "gemini-3.5-flash",
   "whatsapp_audio_enabled": false,
   "appointment_scheduling": { "enabled": false },

@@ -67,6 +67,13 @@ test('recorte: tolera erro de digitação e prioriza a largura citada', () => {
   assert.equal(p.items[0].item_id, uid(103));
 });
 
+test('recorte: largura pedida na mensagem atual traz os itens dessa largura, mesmo com outro modelo no contexto', () => {
+  const r = R.retailCatalogShortlist(CAT, { current: ['e vocês têm de 6 mm?'], context: ['gostei da Prisma'] });
+  assert.equal(r.mode, 'match');
+  assert.ok(r.items.some(item => item.item_id === uid(102)), 'Elegance 6 mm entra pela largura');
+  assert.ok(r.items.some(item => item.item_id === uid(103)), 'Prisma do contexto continua');
+});
+
 test('recorte: variações com o mesmo nome entram juntas', () => {
   const r = R.retailCatalogShortlist(CAT, { current: ['tem a bolsa abalada?'] });
   assert.equal(r.mode, 'match');
@@ -165,6 +172,8 @@ test('decisão só vale com contrato, proveniência e identidade do turno idênt
   assert.throws(() => R.retailVerifiedDecision(decision({}, { provenance: 'x' }), 'ok', pipeline, identity), /PROVENANCE_INVALID/);
   assert.throws(() => R.retailVerifiedDecision(decision(), 'refused', pipeline, identity), /PROVENANCE_INVALID/);
   assert.throws(() => R.retailVerifiedDecision(null, 'ok', pipeline, identity), /UNAVAILABLE/);
+  assert.throws(() => R.retailVerifiedDecision(null, 'error', pipeline, identity, 'LOJA_EXT_CATALOGO_INDISPONIVEL'), /^Error: LOJA_EXT_CATALOGO_INDISPONIVEL$/);
+  assert.throws(() => R.retailVerifiedDecision(null, 'error', pipeline, identity, 'falha com https://x'), /^Error: COMMERCIAL_DECISION_UNAVAILABLE$/);
   assert.throws(() => R.retailVerifiedDecision(decision(), 'ok', pipeline, { ...identity, turn_token: '' }), /IDENTITY_MISMATCH/);
 });
 

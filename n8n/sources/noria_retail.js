@@ -170,6 +170,9 @@ function retailCatalogShortlist(items, texts = {}, options = {}) {
       for (const width of retailWidths(text)) if (weight > (widths.get(width) || 0)) widths.set(width, weight);
     }
   }
+  const currentWidths = new Set(retailStrings(texts.current).flatMap(retailWidths));
+  const widthCount = new Map();
+  for (const item of all) if (item.width_mm !== null && item.width_mm !== undefined) widthCount.set(Number(item.width_mm), (widthCount.get(Number(item.width_mm)) || 0) + 1);
   const matched = all.map((item, index) => {
     let score = 0;
     for (const word of itemWords[index]) {
@@ -177,6 +180,8 @@ function retailCatalogShortlist(items, texts = {}, options = {}) {
     }
     const width = item.width_mm === null || item.width_mm === undefined ? null : Number(item.width_mm);
     if (score > 0 && widths.has(width)) score += widths.get(width);
+    // Largura pedida na mensagem atual traz, sozinha, os itens dessa largura (cliente cita só a medida), se ela discrimina.
+    else if (currentWidths.has(width) && (widthCount.get(width) || 0) <= limit) score += 0.5;
     return { item, index, score };
   }).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score || a.index - b.index);
   if (!matched.length) return { mode: 'all', items: withCodes(all) };
@@ -236,9 +241,12 @@ function retailMediaState(rows, sessionId) {
 
 // ------------------------------------------------------------------- decisão da EXT (fase finalize)
 
-function retailVerifiedDecision(inputDecision, inputStatus, pipeline, identity) {
+function retailVerifiedDecision(inputDecision, inputStatus, pipeline, identity, errorCode = '') {
   const decision = inputDecision;
-  if (inputStatus === 'error' || !retailIsObj(decision)) throw new Error('COMMERCIAL_DECISION_UNAVAILABLE');
+  // Mantém o código de erro próprio da EXT para o diagnóstico do turno; texto livre não passa.
+  if (inputStatus === 'error' || !retailIsObj(decision)) {
+    throw new Error(/^[A-Z][A-Z0-9_]{2,119}$/.test(String(errorCode || '')) ? String(errorCode) : 'COMMERCIAL_DECISION_UNAVAILABLE');
+  }
   if (decision.contract !== pipeline.decision_contract || decision.provenance !== pipeline.decision_provenance
     || decision.noria_contract_version !== pipeline.contract_version || !['ok', 'refused'].includes(decision.status)
     || inputStatus !== decision.status) throw new Error('COMMERCIAL_DECISION_PROVENANCE_INVALID');

@@ -87,9 +87,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_20',
-  built_at: '2026-11-20T23:20:31.297Z',
-  core_sha256: '255932f2053cb3ba7f8753c6fd610a3453409001e47e564777999b1271ce5854',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21',
+  built_at: '2026-11-21T02:44:09.064Z',
+  core_sha256: 'cd0d2d47485dcb0aa133c322193253f0566ea4cccb688b22dd73b405f9196306',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -5326,6 +5326,9 @@ function retailCatalogShortlist(items, texts = {}, options = {}) {
       for (const width of retailWidths(text)) if (weight > (widths.get(width) || 0)) widths.set(width, weight);
     }
   }
+  const currentWidths = new Set(retailStrings(texts.current).flatMap(retailWidths));
+  const widthCount = new Map();
+  for (const item of all) if (item.width_mm !== null && item.width_mm !== undefined) widthCount.set(Number(item.width_mm), (widthCount.get(Number(item.width_mm)) || 0) + 1);
   const matched = all.map((item, index) => {
     let score = 0;
     for (const word of itemWords[index]) {
@@ -5333,6 +5336,8 @@ function retailCatalogShortlist(items, texts = {}, options = {}) {
     }
     const width = item.width_mm === null || item.width_mm === undefined ? null : Number(item.width_mm);
     if (score > 0 && widths.has(width)) score += widths.get(width);
+    // Largura pedida na mensagem atual traz, sozinha, os itens dessa largura (cliente cita só a medida), se ela discrimina.
+    else if (currentWidths.has(width) && (widthCount.get(width) || 0) <= limit) score += 0.5;
     return { item, index, score };
   }).filter(entry => entry.score > 0).sort((a, b) => b.score - a.score || a.index - b.index);
   if (!matched.length) return { mode: 'all', items: withCodes(all) };
@@ -5392,9 +5397,12 @@ function retailMediaState(rows, sessionId) {
 
 // ------------------------------------------------------------------- decisão da EXT (fase finalize)
 
-function retailVerifiedDecision(inputDecision, inputStatus, pipeline, identity) {
+function retailVerifiedDecision(inputDecision, inputStatus, pipeline, identity, errorCode = '') {
   const decision = inputDecision;
-  if (inputStatus === 'error' || !retailIsObj(decision)) throw new Error('COMMERCIAL_DECISION_UNAVAILABLE');
+  // Mantém o código de erro próprio da EXT para o diagnóstico do turno; texto livre não passa.
+  if (inputStatus === 'error' || !retailIsObj(decision)) {
+    throw new Error(/^[A-Z][A-Z0-9_]{2,119}$/.test(String(errorCode || '')) ? String(errorCode) : 'COMMERCIAL_DECISION_UNAVAILABLE');
+  }
   if (decision.contract !== pipeline.decision_contract || decision.provenance !== pipeline.decision_provenance
     || decision.noria_contract_version !== pipeline.contract_version || !['ok', 'refused'].includes(decision.status)
     || inputStatus !== decision.status) throw new Error('COMMERCIAL_DECISION_PROVENANCE_INVALID');
@@ -6459,7 +6467,20 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     await saveEvent(event); await complete('done');
     return servicesTerminal({ ok: true, skipped: true, human_lock: control.lockedByHuman === true }, pipeline);
   }
-  await transcribeTurnAudio(context);
+  // Áudio que não pode ser transcrito (desligado no tenant, ilegível ou falha) não derruba o turno: a cliente recebe um
+  // aviso e a equipe assume, como no caminho padrão.
+  try {
+    await transcribeTurnAudio(context);
+  } catch (error) {
+    if (!await commit()) return servicesTerminal({ ok: true, skipped: true }, pipeline);
+    Object.assign(event, { ai_provider: 'audio_handoff', handoff: true, stage: 'Atendimento humano', service: 'atendimento_humano',
+      ai_error: String(error?.message || error).slice(0, 160) });
+    recordTeamReviewWithoutTransfer(context, event);
+    await saveEvent(event);
+    const sent = await sendChannelMessage(context, await composeMediaNotice(context, history, 'audio_failed_handoff',
+      'Recebi seu áudio, mas não consegui ouvir por aqui. Só um momentinho, vou chamar a equipe para continuar com você.', { handoff: true }), event);
+    await complete('done'); return servicesTerminal({ ok: true, handoff: true, ...sent }, pipeline);
+  }
   const gate = usageGate(context);
   if (!gate.allowed) {
     if (!await commit()) return servicesTerminal({ ok: true, skipped: true }, pipeline);
@@ -6502,7 +6523,12 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     semantic = generated.value && typeof generated.value === 'object'
       ? { ...retailResolveProducts(generated.value, shortlist.items), contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
-  } catch (error) { semanticFailure = String(error?.message || error).slice(0, 120); }
+  } catch (error) {
+    // Pressão do provedor (limite, timeout, servidor) é passageira: nada foi enviado ainda, então a fila tenta de novo com o
+    // backoff do tenant em vez de recusar a decisão e passar a cliente para a equipe. Orçamento esgotado ainda vai à revisão.
+    if (turnFailureIsTransient(salesSafeFailureDiagnostics(error, 'retail_semantic'))) throw error;
+    semanticFailure = String(error?.message || error).slice(0, 120);
+  }
   return {
     contract: 'noria_intermediate_retail_turn_v1', noria_phase: 'commercial_decision', operation: 'commercial.decide',
     tenant_id: identity.tenant_id, tenant_slug: tenantSlug, instance: identity.instance, remoteJid: chatId,
@@ -6559,11 +6585,16 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
   // Qualquer verbo de envio perto de "foto", em qualquer ordem ("vou enviar as fotos", "a foto está chegando", "mando sim a foto").
-  const sendVerb = '(enviar|envio|envie|enviando|enviei|enviada|enviadas|mandar|mando|mande|mandando|mandei|reenviar|reenvio|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui|v[aã]o|vai|mostra)';
-  // Com fotos já enviadas antes nesta sessão, a frase que lembra disso ("já estão na conversa") é permitida.
-  const photoText = String(reply || '').split(/(?<=[.!?])\s+/).filter(sentence => !(photosAlready && /(^|\s)j[aá](?![a-z])/i.test(sentence))).join(' ');
+  const sendVerb = '(enviar|envio|envie|enviando|enviei|enviada|enviadas|mandar|mando|mande|mandando|mandei|reenviar|reenvio|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui|(?:v[aã]o|vai) (?:logo )?(?:abaixo|acima|chegar|em seguida))';
+  // Pergunta não é promessa ("de qual modelo quer que eu envie a foto primeiro?"). Com fotos já enviadas antes nesta
+  // sessão, a frase que lembra disso ("já estão na conversa") também é permitida.
+  const photoText = String(reply || '').split(/(?<=[.!?])\s+/)
+    .filter(sentence => !/\?\s*$/.test(sentence)
+      && !(photosAlready && /(^|\s)j[aá]\s+(?:est[aãá]o?|foram|foi|enviei|mandei|te\s+enviei|te\s+mandei)(?![a-z])/i.test(sentence))).join(' ');
   if (!photosSent && (new RegExp('\\b' + sendVerb + '\\b[^.!?]{0,50}\\bfotos?\\b', 'i').test(photoText)
-    || new RegExp('\\bfotos?\\b[^.!?]{0,50}\\b' + sendVerb + '\\b', 'i').test(photoText))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
+    || new RegExp('\\bfotos?\\b[^.!?]{0,50}\\b' + sendVerb + '\\b', 'i').test(photoText)
+    // "Esta foto mostra...": referência a uma foto que estaria sendo mostrada agora.
+    || /\b(?:n?est|n?ess)[ae]s? fotos?\b/i.test(photoText))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
   const text = String(reply || '');
   if (!text.trim()) failures.push('EMPTY_REPLY');
   const allowedPrices = new Set(items.map(item => Number(item.price_cents)));
@@ -6716,6 +6747,9 @@ async function retailNoticeAlreadyReserved(context, key) {
 
 async function retailSendSpecialistNotice(context, identity, notify, recipient, { items, sessionEvidence }) {
   const args = { tenantId: context.tenant.id, tenantSlug, chatId, sessionId: identity.session_id, requestId: identity.request_id, reason: notify.reason };
+  // Confere a continuidade ANTES de reservar: a reserva vale pela sessão inteira, então reservar e desistir em seguida
+  // (equipe assumiu, turno perdeu a vez) bloquearia o aviso até a sessão acabar.
+  if (!await retailCanContinue(context)) return { status: 'stopped_control_changed', reservation_event_id: null };
   let reservation;
   try { reservation = await retailInsertEvent(retailNoticeReservation({ ...args, reasons: notify.reasons, materials: notify.materials })); }
   catch (error) {
@@ -6746,7 +6780,8 @@ async function retailSendSpecialistNotice(context, identity, notify, recipient, 
 async function runRetailTurnFinalize(context, pipeline, history, event, control) {
   const identity = pipelineIdentity(context);
   // 1. Autorização antes de qualquer efeito.
-  const decision = retailVerifiedDecision(inputJson.commercial_decision, inputJson.commercial_decision_status, pipeline, identity);
+  const decision = retailVerifiedDecision(inputJson.commercial_decision, inputJson.commercial_decision_status, pipeline, identity,
+    inputJson.commercial_decision_error);
   const allowed = retailAuthorized(decision);
   if (!await commit()) return { ok: true, skipped: true, reason: 'superseded' };
   const settings = settingsFor(context);
@@ -6754,7 +6789,8 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
   let items = [], text = '', composed = null, audit = [], compositionError = null, customerLine = null, recipient = null, alreadyNotified = false, mediaPlan = null;
   try {
     if (decision.status !== 'ok') throw new Error('RETAIL_DECISION_REFUSED');
-    items = await retailLoadItems(context, [...allowed.present_item_ids, allowed.media?.item_id, allowed.site_link?.item_id]);
+    items = await retailLoadItems(context, [...allowed.present_item_ids, ...(allowed.media?.items || []).map(entry => entry.item_id),
+      allowed.media?.item_id, allowed.site_link?.item_id]);
     // 2. Aviso ao especialista: estado prévio decide se a frase ao cliente entra (um aviso por sessão e motivo).
     if (allowed.notify) {
       recipient = retailSpecialistRecipient(settings, chatId);

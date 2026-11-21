@@ -71,8 +71,16 @@ test('auditoria da redação: preço não autorizado, link e telefone são recus
     assert.deepEqual(retailAuditReply(claim, items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO'], claim);
   }
   assert.deepEqual(retailAuditReply('As fotos já foram enviadas aqui na conversa.', items, { photosSent: false, photosAlready: true }), []);
+  assert.deepEqual(retailAuditReply('A foto já está aqui na conversa.', items, { photosSent: false, photosAlready: true }), []);
+  assert.deepEqual(retailAuditReply('Vou enviar novamente a foto da Versati, e já seguimos para as medidas.', items, { photosSent: false, photosAlready: true }),
+    ['PHOTO_CLAIM_WITHOUT_PHOTO']);
   assert.deepEqual(retailAuditReply('As fotos já foram enviadas aqui na conversa.', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
   assert.deepEqual(retailAuditReply('Gostou da foto? O modelo é lindo.', items, { photosSent: false }), []);
+  assert.deepEqual(retailAuditReply('São dois modelos lindos. De qual deles você quer que eu envie a foto primeiro?', items, { photosSent: false }), []);
+  assert.deepEqual(retailAuditReply('Vou enviar a foto. Qual largura prefere?', items, { photosSent: false }), ['PHOTO_CLAIM_WITHOUT_PHOTO']);
+  for (const fine of ['A foto vai ser verificada com a equipe.', 'Vou verificar a foto para você.', 'O modelo vai bem no dia a dia; a foto do catálogo é ilustrativa.']) {
+    assert.deepEqual(retailAuditReply(fine, items, { photosSent: false }), [], fine);
+  }
   assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: false }), ['TEAM_CLAIM_WITHOUT_HANDOFF']);
   assert.deepEqual(retailAuditReply('Alguém da equipe vai continuar por aqui.', items, { teamHandoff: true }), []);
   assert.deepEqual(retailAuditReply('Ola. Alguem pode ajudar voce.', items), ['ACCENT_MISSING']);
@@ -91,7 +99,7 @@ const assetRow = n => ({ id: id(n), tenant_id: T, storage_bucket: 'product-catal
   public_url: ORIGIN + '/storage/v1/object/public/product-catalog/catalog/' + T + '/' + 'a'.repeat(63) + n + '.png', sha256: 'a'.repeat(63) + n, mime_type: 'image/png' });
 
 function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'], mediaResponse = null,
-  mediaHistory = [], reservationFails = false } = {}) {
+  mediaHistory = [], reservationFails = false, leaseLost = false } = {}) {
   const log = { inserts: [], provider: [], delivered: null, completed: false, events: [], composeInputs: [] };
   const identity = { tenant_id: T, tenant_slug: 'loja', instance: 'loja', remote_jid: LEAD, session_id: 's1', request_id: 'm1:tok', turn_token: 'tok', last_event_id: 'm1' };
   const decision = { contract: 'dec_r', provenance: 'prov_r', noria_contract_version: '1.0', status, ...identity, reason_codes: [], evidence_used: ['m1'], actions };
@@ -108,7 +116,7 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
     tenantBusinessHoursStatus: () => ({ configured: true, is_open: true }), cleanReplyText: text => text,
     servicesGeminiJson: async (context, label, input, schema, rules) => { log.composeInputs.push(input); (log.composeRules ||= []).push(rules);
       return { value: { reply: replies[Math.min(replyIndex++, replies.length - 1)] }, model: 'gemini-x', usage: {} }; },
-    turnQueueState: async () => ({ token: 'tok', lease_until: new Date(Date.now() + 60000).toISOString() }),
+    turnQueueState: async () => ({ token: leaseLost ? 'outro' : 'tok', lease_until: new Date(Date.now() + 60000).toISOString() }),
     env: name => ({ SUPABASE_URL: ORIGIN, EVOLUTION_API_URL_LOJA: 'https://evo.test', EVOLUTION_API_KEY_LOJA: 'k', EVOLUTION_INSTANCE_LOJA: 'loja' }[name] || ''),
     tenantEnvSuffix: slug => slug.toUpperCase(), encodeFilter: value => encodeURIComponent(String(value)),
     supabaseGet: async url => {
@@ -269,4 +277,58 @@ test('revisão da redação explica a falha em português e cita a versão anter
   const stubborn = finalizeHarness({ actions: present, replies: ['Não temos esse modelo, R$ 980,00 o par.'] });
   await stubborn.run();
   assert.match(stubborn.log.delivered, /^Não temos esse modelo/);
+});
+
+test('EXT com erro estruturado: o finalize recusa antes de qualquer efeito (o CORE fecha o turno para revisão)', async () => {
+  const h = finalizeHarness({ status: 'error', actions: present });
+  await assert.rejects(h.run(), /COMMERCIAL_DECISION_UNAVAILABLE/);
+  assert.equal(h.log.delivered, null);
+  assert.equal(h.log.provider.length, 0);
+  assert.equal(h.log.inserts.length, 0);
+});
+
+test('áudio que não pode ser transcrito no retail: avisa a cliente, chama a equipe e fecha o turno (não derruba)', async () => {
+  const log = { sent: [], events: [], completed: null };
+  const core = loadCore(['runRetailTurnPrepare'], {
+    normalized: 'oi', turn: { messages: [{ event_id: 'm1', text: '[audio]' }] }, chatId: '5522999990000@s.whatsapp.net',
+    pipelineIdentity: () => ({ session_id: 's1' }), settingsFor: () => ({ ai_enabled: true, whatsapp_audio_enabled: false }),
+    transcribeTurnAudio: async () => { throw new Error('audio_disabled_for_tenant'); },
+    commit: async () => true, saveEvent: async event => { log.events.push({ ...event }); }, recordTeamReviewWithoutTransfer: () => {},
+    composeMediaNotice: async (context, history, kind, fallback) => fallback,
+    sendChannelMessage: async (context, text) => { log.sent.push(text); return { sent: true }; },
+    complete: async status => { log.completed = status; }, servicesTerminal: value => ({ ...value, noria_terminal: true }),
+    usageGate: () => { throw new Error('não deveria seguir'); },
+  });
+  const result = await core.runRetailTurnPrepare({ tenant: { id: 't' } }, {}, [], { raw_payload: {} }, {});
+  assert.equal(result.noria_terminal, true);
+  assert.equal(result.handoff, true);
+  assert.equal(log.completed, 'done');
+  assert.match(log.sent[0], /Recebi seu áudio/);
+  assert.equal(log.events[0].ai_provider, 'audio_handoff');
+});
+
+test('falha passageira do Gemini na interpretação retail volta para a fila; falha definitiva segue para a EXT recusar', async () => {
+  const build = transient => loadCore(['runRetailTurnPrepare'], {
+    normalized: 'oi', turn: { messages: [{ event_id: 'm1', text: 'quero a prisma' }] }, chatId: '5522999990000@s.whatsapp.net',
+    tenantSlug: 'loja', tenantBusinessRules: {}, inputJson: { noria_extension: 'loja' }, RETAIL_DEFAULT_CANDIDATES: 250,
+    pipelineIdentity: () => ({ session_id: 's1', tenant_id: T, instance: 'loja', request_id: 'm1:tok', turn_token: 'tok' }),
+    settingsFor: () => ({ ai_enabled: true }), transcribeTurnAudio: async () => {}, usageGate: () => ({ allowed: true }),
+    supabaseGet: async () => [], retailLoadMediaState: async () => ({ presentedItemIds: [] }), audioHistoryText: row => row.message_text || '',
+    servicesGeminiJson: async () => { throw new Error(transient ? 'GEMINI_RATE_LIMIT' : 'GEMINI_SCHEMA_REJECTED'); },
+    salesSafeFailureDiagnostics: () => ({ category: transient ? 'rate_limit' : 'invalid_request' }),
+    turnFailureIsTransient: diagnostic => diagnostic.category === 'rate_limit',
+  });
+  const pipeline = { semantic_vocabulary: { intents: ['x'], roles: ['x'], materials: ['x'], decisions: ['x'], confidence: ['x'] }, semantic_contract: 'c', contract_version: '1.0' };
+  await assert.rejects(build(true).runRetailTurnPrepare({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), /GEMINI_RATE_LIMIT/);
+  const out = await build(false).runRetailTurnPrepare({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {});
+  assert.equal(out.semantic_intent, null);
+  assert.match(out.semantic_failure, /GEMINI_SCHEMA_REJECTED/);
+});
+
+test('turno que perdeu a vez não reserva o aviso ao especialista (a sessão não fica travada)', async () => {
+  const h = finalizeHarness({ actions: { ...present, ...notifyAction }, leaseLost: true });
+  const result = await h.run();
+  assert.equal(h.log.inserts.filter(row => String(row.service || '').startsWith('specialist_notice')).length, 0);
+  assert.equal(h.log.provider.filter(p => p.url.includes('/sendText/')).length, 0);
+  assert.equal(result.retail_execution?.notice?.status ?? 'stopped_control_changed', 'stopped_control_changed');
 });

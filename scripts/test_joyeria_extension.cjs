@@ -96,6 +96,17 @@ test('cliente decidido em item comprável no site (semijoia) recebe o link e nã
   assert.equal(d.actions.send_site_link.allowed, true);
 });
 
+test('comparou uma blend e escolheu a peça do site: decisão pelo escolhido (link, sem especialista)', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'compared'), ref(SEMIJOIA, 'selected')],
+    customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() } });
+  assert.equal(d.actions.notify_specialist.required, false);
+  assert.equal(d.actions.send_site_link.allowed, true);
+  assert.equal(d.actions.send_site_link.item_id, SEMIJOIA);
+  // Sem escolha, a blend comparada com interesse continua acionando o especialista.
+  const sem = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'compared'), ref(SEMIJOIA, 'compared')], commercial_interest: on() } });
+  assert.equal(sem.d.actions.notify_specialist.required, true);
+});
+
 test('cliente decidido em item sem link de compra continua indo ao especialista', async () => {
   const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(DESCONHECIDO, 'selected')],
     customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() },
@@ -240,9 +251,18 @@ test('contrato semântico inválido ou evidência fora da sessão recusa a decis
 });
 
 test('identidade do turno divergente ou outro tenant é rejeitada antes de ler o banco', async () => {
-  await assert.rejects(run({ semantic: {}, extra: { noria_business_context: { session_id: 'initial', request_id: 'm1:outro-token' } } }), /JOYERIA_EXT_TURNO_INVALIDO/);
-  await assert.rejects(run({ semantic: {}, extra: { tenant_slug: 'outro' } }), /JOYERIA_EXT_TENANT_INCORRETO/);
-  await assert.rejects(run({ semantic: {}, cfg: settings({ noria_client_policy: { profile: 'services_booking_v2' } }) }), /JOYERIA_EXT_POLITICA_INCOMPATIVEL/);
+  // Falha vira erro estruturado (nunca exceção): o CORE recebe status 'error', recusa a decisão e fecha o turno para revisão.
+  for (const [args, code] of [
+    [{ semantic: {}, extra: { noria_business_context: { session_id: 'initial', request_id: 'm1:outro-token' } } }, 'JOYERIA_EXT_TURNO_INVALIDO'],
+    [{ semantic: {}, extra: { tenant_slug: 'outro' } }, 'JOYERIA_EXT_TENANT_INCORRETO'],
+    [{ semantic: {}, cfg: settings({ noria_client_policy: { profile: 'services_booking_v2' } }) }, 'JOYERIA_EXT_POLITICA_INCOMPATIVEL'],
+  ]) {
+    const { out } = await run(args);
+    assert.equal(out.commercial_decision_status, 'error', code);
+    assert.equal(out.commercial_decision, null);
+    assert.equal(out.commercial_decision_error, code);
+    assert.equal(out.noria_phase, 'finalize');
+  }
 });
 
 test('a fonte da EXT não contém número de telefone, preço ou nome de produto', () => {
