@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const core = JSON.parse(fs.readFileSync(path.join(root,
+const buildRoot = process.env.NORIA_TEST_BUILD_DIR ? path.resolve(process.env.NORIA_TEST_BUILD_DIR) : root;
+const core = JSON.parse(fs.readFileSync(path.join(buildRoot,
   'n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'), 'utf8'));
 const NUBIA_EXT_ID = 'vCDXJLqIBCZJRTVv';
 const gate = 'CORE - É Núbia?';
@@ -35,6 +36,7 @@ test('nenhum turno de fila termina em "evento ignorado"; só eventos de webhook 
 test('a EXT Núbia v1 exige exatamente o que o roteador do CORE entrega', () => {
   const router = fs.readFileSync(path.join(root, 'n8n/sources/noria_router.js'), 'utf8');
   assert.match(router, /clinica_nubia_oficial: 'nubia'/);
+  // A EXT v1 é um artefato legado preservado, não gerado pelo builder do candidato.
   const ext = JSON.parse(fs.readFileSync(path.join(root, 'n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json'), 'utf8'));
   const guard = ext.nodes.find(n => n.name === 'Validar identidade e capacidade do tenant').parameters.jsCode;
   assert.match(guard, /expectedExtension = 'nubia'/);

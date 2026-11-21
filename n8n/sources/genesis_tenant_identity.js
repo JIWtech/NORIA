@@ -2,6 +2,20 @@
 // This is the canonical source for the EXT identity node.  It deliberately
 // carries only the configuration the Genesis extension needs to build its
 // tenant-scoped commercial contract.
+// >>> shared_tenant_identity
+// Funções puras projetadas nos nós n8n; manter autocontidas.
+function normalizeInstanceKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel?.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel?.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+// <<< shared_tenant_identity
 const input = $json || {};
 const expectedSlug = 'wesley_automoveis';
 if (String(input.tenant_slug || '') !== expectedSlug || String(input.noria_extension || '') !== 'genesis') throw new Error('NORIA_EXTENSAO_TENANT_INCORRETO');
@@ -46,7 +60,7 @@ const s = settingsRows?.[0] || {};
 if (s.whatsapp_processing_mode!=='conversation_core_v1') throw new Error('NORIA_MOTOR_INATIVO_TENANT');
 if (s.conversation_capability!=='sales_v1') throw new Error('NORIA_CAPACIDADE_DIVERGENTE');
 const channels = await get('channels?select=external_id,config,status&tenant_id=eq.'+encodeURIComponent(uuid)+'&type=eq.whatsapp&status=eq.active&limit=25');
-if (!Array.isArray(channels) || !channels.some(c => [c.external_id,c.config?.instance_name,c.config?.instance,c.config?.evolution_instance,c.config?.instance_id].filter(Boolean).includes(instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+if (!Array.isArray(channels) || !channels.some(c => channelMatchesInstance(c, instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
 const sourceSales = s.sales && typeof s.sales==='object' ? s.sales : {}, sales = {};
 for (const field of ['sheet_id','sheet_tab','google_sheets_access_token_env','google_sheets_refresh_token_env','google_sheets_client_id_env','google_sheets_client_secret_env','stages','stage_keys','conversation_contract','ad_campaign_routing','required_financing_documents','whatsapp_catalog_price_mode','catalog','catalog_presentation','inventory_max_age_hours','commercial_rules','hot_lead_rule','collect_documents','financing_require_deposit_for_progress','birth_date_required','document_ocr_enabled','whatsapp_catalog_photo_enabled','vehicle_photos_enabled','whatsapp_catalog_sync_enabled','whatsapp_catalog_fallback_max_age_minutes']) if (Object.prototype.hasOwnProperty.call(sourceSales,field)) sales[field]=sourceSales[field];
 const sourceRules = s.sdr_rules && typeof s.sdr_rules==='object' ? s.sdr_rules : {}, sdr_rules = {};

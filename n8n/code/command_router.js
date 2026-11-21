@@ -743,7 +743,7 @@ async function main(helpers) {
   if (command === 'invite_appointment_reschedule') {
     const appointmentId = required(payload.appointment_id, 'payload.appointment_id');
     const settings = await loadTenantSettings(tenant.id);
-    if (tenantSlug !== 'ic_salon' || settings.appointment_outcome_tracking !== true || normalizedChannel !== 'whatsapp')
+    if (settings.appointment_outcome_tracking !== true || normalizedChannel !== 'whatsapp')
       throw new Error('Convite de remarcação indisponível para este canal ou empresa.');
     const { supabaseUrl } = supabaseConfig();
     const path = supabaseUrl + '/rest/v1/appointments?tenant_id=eq.' + encodeURIComponent(tenant.id)

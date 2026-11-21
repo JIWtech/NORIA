@@ -31,6 +31,7 @@ try {
     'n8n/sources/whatsapp_normalize_entry.js', 'n8n/sources/nubia_extension.js', 'n8n/sources/noria_extension.js',
     'n8n/sources/joyeria_extension.js', 'clients/ic_saloon/salon_engine.js', 'clients/ic_saloon/conversation_adapter.cjs',
     'clients/ic_saloon/conversation_route.cjs', 'scripts/lib/retail_region.cjs', 'scripts/turn_queue_operational_bridge.cjs',
+    'n8n/sources/shared/tenant_identity.js', 'n8n/sources/shared/text_utils.js', 'n8n/sources/shared/whatsapp_jid.js',
     'n8n/code/whatsapp_recover_core.js', 'n8n/code/whatsapp_follow_up_dispatch.js', 'n8n/code/command_router.js',
     'n8n/code/whatsapp_sync_contact.js', 'n8n/code/broadcast_campaign_worker.js', 'n8n/code/whatsapp_capture_manual_reply.js',
     'n8n/code/whatsapp_prepare_context.js', 'n8n/code/whatsapp_avatar_refresh.js',

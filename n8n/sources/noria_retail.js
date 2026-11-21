@@ -108,10 +108,19 @@ const RETAIL_STOPWORDS = new Set(['que', 'com', 'para', 'por', 'uma', 'umas', 'u
   'dele', 'foto', 'fotos', 'link', 'manda', 'mande', 'mandar', 'pode', 'favor', 'obrigado', 'obrigada', 'como', 'muito', 'muita', 'bem',
   'meu', 'minha', 'seu', 'sua', 'tudo', 'ola', 'bom', 'boa', 'dia', 'tarde', 'noite']);
 
-function retailNormalize(text) {
-  return String(text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+// >>> shared_text_variants
+function sharedGenesisText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+function sharedCompactText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+function sharedRetailText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/(\d),(\d)/g, '$1.$2').replace(/[^a-z0-9.]+/g, ' ').trim();
 }
+// <<< shared_text_variants
+function retailNormalize(text) { return sharedRetailText(text); }
 
 function retailWords(text) {
   return retailNormalize(text).split(' ').map(word => word.replace(/\.+$/, ''))
@@ -332,10 +341,22 @@ function retailMediaPlan({ tenantId, storageOrigin, authorized, item, links, ass
 // ------------------------------------------------------------------- aviso ao especialista
 
 // Número do lead a partir do JID de telefone. LID, grupo ou broadcast não têm número utilizável.
-function retailLeadPhone(remoteJid) {
-  const match = /^(\d{10,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(remoteJid || ''));
-  return match ? match[1] : null;
+// >>> shared_whatsapp_jid
+function phoneFromJid(jid, minimumLength = 10, missing = null) {
+  const match = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || ''));
+  return match && match[1].length >= minimumLength ? match[1] : missing;
 }
+
+function normalizeWhatsappHandle(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const bare = raw.replace(/:(\d+)(?=@)/, '');
+  if (/@lid$/i.test(bare)) return bare;
+  const digits = bare.replace(/@(s\.whatsapp\.net|c\.us)$/i, '').replace(/\D/g, '');
+  return digits.length >= 8 ? `${digits}@s.whatsapp.net` : bare;
+}
+// <<< shared_whatsapp_jid
+function retailLeadPhone(remoteJid) { return phoneFromJid(remoteJid); }
 
 // Destino só vem do cadastro do tenant. Recusa número inválido ou igual ao do próprio lead.
 function retailSpecialistRecipient(settings, remoteJid) {

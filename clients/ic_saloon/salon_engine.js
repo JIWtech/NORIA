@@ -65,7 +65,12 @@ function salesDialogueCopy(key, fallback) {
 }
 // No tenant slug is hardcoded in the shared engine. Client ownership is checked
 // against the Supabase tenant and channel by each extension and loadTenantContext.
-const allowedBusinessProfiles = { nb_bronze_v1: 'standard', vehicle_sales_v1: 'sales_v1', services_booking_v2: 'standard' };
+const allowedBusinessProfiles = { vehicle_sales_v1: 'sales_v1', services_booking_v2: 'standard' };
+function hasRevisionedServiceTextsContract() {
+  const modules = tenantBusinessRules.modules;
+  return typeof modules?.approved_service_texts === 'boolean'
+    && modules.messages !== null && typeof modules.messages === 'object' && !Array.isArray(modules.messages);
+}
 function validateTenantPolicyContract() {
   if (salesUsesStructuredDialogue() && (!salesSupportedContractVersion()
     || typeof salesCommercialContract().provenance !== 'string' || !salesCommercialContract().provenance
@@ -73,14 +78,15 @@ function validateTenantPolicyContract() {
     || tenantBusinessRules.modules.dialogue.instructions.some(value => typeof value !== 'string'))) {
     throw new Error('NORIA_COMMERCIAL_PROTOCOL_INVALID');
   }
-  if (!Object.prototype.hasOwnProperty.call(allowedBusinessProfiles, tenantBusinessRules.profile)
-    || tenantBusinessRules.capability !== allowedBusinessProfiles[tenantBusinessRules.profile]
+  const knownProfile = Object.prototype.hasOwnProperty.call(allowedBusinessProfiles, tenantBusinessRules.profile);
+  if (!(knownProfile || (typeof tenantBusinessRules.profile === 'string' && tenantBusinessRules.profile.length > 0 && hasRevisionedServiceTextsContract()))
+    || tenantBusinessRules.capability !== (knownProfile ? allowedBusinessProfiles[tenantBusinessRules.profile] : 'standard')
     || tenantBusinessRules.contract !== 'noria_policy_v2'
     || tenantBusinessRules.tenant_slug !== tenantSlug
     || tenantBusinessRules.tenant_id !== inputJson.tenant_id
     || tenantBusinessRules.audio_enabled !== true && tenantBusinessRules.audio_enabled !== false
     || (tenantBusinessRules.profile === 'services_booking_v2' && tenantBusinessRules.modules?.turn_pipeline?.contract !== 'noria_turn_pipeline_v1')
-    || (tenantBusinessRules.profile === 'nb_bronze_v1' &&
+    || (hasRevisionedServiceTextsContract() &&
       !['home_booking', 'home_info', 'clinic_prefix', 'clinic_home_note', 'home_schedule', 'spray_schedule'].every(
         key => typeof tenantBusinessRules.modules?.messages?.[key] === 'string'))) {
     throw new Error('NORIA_POLICY_CONTRACT_MISMATCH');
@@ -135,6 +141,7 @@ function env(name, fallback = '') {
   return envValue || varsValue || fallback;
 }
 
+// >>> shared_text_utils
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
@@ -142,6 +149,7 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 }
+// <<< shared_text_utils
 
 // Diagnostic metadata only. Never persist upstream error bodies, exception messages,
 // API tokens, request payloads, phone numbers or customer content.
@@ -1738,6 +1746,14 @@ async function loadTenantContext() {
   const channelRows = await supabaseGet('/rest/v1/channels?select=*&tenant_id=eq.' + tenant.id
     + '&type=eq.whatsapp&status=eq.active&external_id=eq.' + encodeFilter(inputJson.instance) + '&limit=1');
   if (!channelRows.length) throw new Error('Instance does not belong to tenant');
+  let teamAgents = [];
+  if (settingRows[0].settings?.conversation_capability === 'sales_v1') {
+    try {
+      const rows = await supabaseGet('/rest/v1/team_agents?select=id,name,role&tenant_id=eq.' + encodeFilter(tenant.id)
+        + '&is_active=eq.true&order=created_at.asc&limit=10');
+      if (Array.isArray(rows)) teamAgents = rows;
+    } catch { }
+  }
   activeTenantTimeZone = String(settingRows[0].timezone || settingRows[0].settings?.timezone || '').trim();
   if (typeof helpers.setGeminiExtraReservation === 'function') helpers.setGeminiExtraReservation(reserveGeminiExtraCall);
   geminiTenantBudget = { tenant_id: tenant.id, daily_limit: tenantGeminiDailyLimit(settingRows[0].settings || {}) };
@@ -1748,6 +1764,7 @@ async function loadTenantContext() {
     || businessContext.tenant_slug !== tenantSlug)) throw new Error('NORIA_BUSINESS_CONTEXT_INVALID');
   return {
     tenant, settings: settingRows[0], agent: agentRows[0] || {}, channel: channelRows[0],
+    team_agents: teamAgents,
     client_policy: tenantBusinessRules, noria_client_policy: tenantBusinessRules,
     noria_business_context: businessContext || null, business_context: businessContext || null
   };
@@ -3748,7 +3765,7 @@ function groundingReconcileSchedulingState(state, customerMessages, context, act
 // their existing legacy approved-message data shapes and behavior.
 function groundingNubiaApprovedConfig(context) {
   const cfg = settingsFor(context).approved_messages;
-  return tenantBusinessRules.profile === 'nb_bronze_v1'
+  return hasRevisionedServiceTextsContract()
     && cfg?.enabled === true && typeof cfg?.revision === 'string'
     && /^nb-texts-v[1-9]\d*(?:-[a-z0-9-]+)?$/.test(cfg.revision)
     && tenantBusinessRules.modules?.approved_service_texts === true
@@ -3799,7 +3816,7 @@ function groundingApprovedMessageMap(context, catalog) {
   const nubiaCfg = groundingNubiaApprovedConfig(context);
   if (nubiaCfg) return groundingApprovedView(context, catalog)?.blocks || Object.create(null);
   // Fail closed if revision/enabled/shape is not the approved NB contract.
-  if (tenantBusinessRules.profile === 'nb_bronze_v1') return Object.create(null);
+  if (hasRevisionedServiceTextsContract()) return Object.create(null);
   const raw = cfg && !Array.isArray(cfg) && typeof cfg === 'object'
     && cfg.blocks && !Array.isArray(cfg.blocks) && typeof cfg.blocks === 'object'
     ? cfg.blocks : cfg;
@@ -3883,7 +3900,7 @@ function groundingResponseSchema(context = {}, catalog = { matches: [] }) {
   };
   // Gemini only sees keys with validated LIVE prices and active service IDs.
   const approved = groundingApprovedView(context, catalog);
-  if (tenantBusinessRules.profile === 'nb_bronze_v1') {
+  if (hasRevisionedServiceTextsContract()) {
     const keys = Object.keys(approved?.blocks || {});
     if (keys.length) schema.properties.message_keys = { type: 'ARRAY', items: { type: 'STRING', enum: keys } };
     else schema.properties.action.enum = schema.properties.action.enum.filter(action => action !== 'approved_reply');
@@ -4249,7 +4266,7 @@ async function callGroundedGemini(context, history, catalog, appointments) {
   if (approvedView) audit.unavailable_message_services = approvedView.invalid_service_ids;
   const approvedFacts = approvedView
     ? { enabled: true, revision: s.approved_messages.revision, blocks: approvedView.blocks }
-    : tenantBusinessRules.profile === 'nb_bronze_v1' ? { enabled: false, blocks: {} } : s.approved_messages || {};
+    : hasRevisionedServiceTextsContract() ? { enabled: false, blocks: {} } : s.approved_messages || {};
   const input = {
     official_facts: {
       tenant: context.tenant.name, date: buildDateContext(context),
@@ -4725,7 +4742,7 @@ async function schedulingValidateAction(context, generated, action, history = []
 }
 
 async function groundingGuardNubiaFutureAppointment(context, state) {
-  if (tenantBusinessRules.profile !== 'nb_bronze_v1' || !schedulingEnabled(context)) return;
+  if (!hasRevisionedServiceTextsContract() || !schedulingEnabled(context)) return;
   return guardFutureAppointment(context, state);
 }
 
@@ -4799,7 +4816,7 @@ function turnPipelineFor(context) {
     const legacyRoute = inputJson.noria_router === 'core_3wf_v1'
       && inputJson.noria_extension === 'nubia' && inputJson.noria_contract_version === '1.0'
       && inputJson.noria_dispatch_phase === 'bootstrap' && !inputJson.noria_pipeline && !inputJson.noria_preclaimed_turn
-      && tenantBusinessRules.contract === 'noria_policy_v2' && tenantBusinessRules.profile === 'nb_bronze_v1';
+      && tenantBusinessRules.contract === 'noria_policy_v2' && hasRevisionedServiceTextsContract();
     const validScope = raw.rollout === 'all' || (raw.rollout === 'pilot'
       && Array.isArray(raw.pilot?.allowed_contacts) && raw.pilot.allowed_contacts.length > 0
       && raw.pilot.allowed_contacts.every(contact => typeof contact === 'string' && /^\d{8,15}$/.test(contact.replace(/\D/g, ''))));
@@ -6009,7 +6026,7 @@ function salesMediaCapability(messages = []) {
 }
 
 // Genesis sheet rows use advertised status, not verified current availability.
-// Cars customers offer Wesley remain exclusively in Supabase sales_leads.
+// Cars customers offer the dealership remain exclusively in Supabase sales_leads.
 function salesParseAnnouncedInventory(data, columns) {
   // genesis-sheet-price-and-auction-v1
   const ids = new Set();
@@ -6365,7 +6382,7 @@ function salesCatalogEnrichWithSnapshot(raw = {}, snapshot = null, hours = 24) {
   // It is evidence for the crossed-out/sale pair, not authority that a product is
   // still active. The generic live `price` is used to decide whether the recent
   // snapshot promotion is still current, preventing a 24h-old sale from winning
-  // after Wesley removes the discount in WhatsApp.
+  // after the dealership removes the discount in WhatsApp.
   let usedSnapshotPrice = false;
   const providerRegular = product.priceAmount1000 ?? product.price_amount_1000 ?? product.regular_price_cents ?? product.price_cents;
   const providerSale = product.salePriceAmount1000 ?? product.sale_price_amount_1000 ?? product.sale_price_cents;
@@ -9105,22 +9122,102 @@ function salesPendingRequirementAttempts(history = [], pendingRequirement = '') 
   return count;
 }
 
-function salesFrustrationDetected(text = '') {
+function salesEscapeRegex(value = '') {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function salesTenantHumanTargetNames(context = {}) {
+  const settings = typeof settingsFor === 'function' ? settingsFor(context) : (context?.settings?.settings || context?.settings || {});
+  const sales = settings?.sales && typeof settings.sales === 'object' ? settings.sales : {};
+  const facts = settings?.business_facts && typeof settings.business_facts === 'object' ? settings.business_facts : {};
+  const candidates = [];
+  const pushEntry = entry => {
+    if (!entry) return;
+    if (typeof entry === 'string') { candidates.push(entry); return; }
+    if (typeof entry === 'object' && entry.is_active !== false) {
+      for (const key of ['name', 'full_name', 'display_name', 'label']) {
+        if (typeof entry[key] === 'string' && entry[key].trim()) candidates.push(entry[key]);
+      }
+    }
+  };
+  const pushList = list => {
+    if (Array.isArray(list)) for (const item of list) pushEntry(item);
+    else pushEntry(list);
+  };
+  pushList(context?.team_agents);
+  pushList(settings?.team_agents);
+  pushList(sales.team_agents);
+  pushEntry(settings?.default_operator);
+  pushEntry(sales.default_operator);
+  for (const source of [settings, sales, facts, context?.tenant]) {
+    if (!source || typeof source !== 'object') continue;
+    for (const key of ['responsible_name', 'responsible', 'owner_name', 'owner', 'attendant_name', 'human_contact_name']) {
+      pushEntry(source[key]);
+    }
+    for (const key of ['attendants', 'operators', 'human_names', 'responsible_names']) {
+      pushList(source[key]);
+    }
+  }
+  const genericStopwords = new Set([
+    'atendente', 'equipe', 'gerente', 'dono', 'humana', 'humano', 'alguem', 'pessoa',
+    'operador', 'operadora', 'responsavel', 'suporte', 'vendedor', 'vendedora',
+    'de', 'da', 'do', 'dos', 'das', 'e'
+  ]);
+  const patterns = new Set();
+  for (const raw of candidates) {
+    const clean = normalizeText(raw).replace(/\s+/g, ' ').trim();
+    if (!clean || clean.length < 2 || genericStopwords.has(clean)) continue;
+    patterns.add(clean);
+    const words = clean.split(/[^a-z0-9]+/).filter(word => word.length >= 2 && !genericStopwords.has(word));
+    if (words.length > 0 && words[0].length >= 3) patterns.add(words[0]);
+  }
+  return [...patterns].sort((a, b) => b.length - a.length);
+}
+
+function salesHumanTargetRegexSource(context = null) {
+  const names = salesTenantHumanTargetNames(context || {});
+  if (!names.length) return '';
+  return names
+    .map(name => '(?:(?:o|a)\\s+)?' + salesEscapeRegex(name).replace(/\s+/g, '\\s+') + '(?![a-z0-9])')
+    .join('|');
+}
+
+function salesExplicitHumanRequest(text = '', context = null) {
+  const v = normalizeText(text);
+  if (!v) return false;
+  const namesPattern = salesHumanTargetRegexSource(context);
+  const falarTargets = 'alguem|humano|pessoa|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  const chamaTargets = 'o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  return new RegExp(
+    '\\b(?:atendente|falar\\s+(?:com\\s+)?(?:' + falarTargets + ')|chama\\s+(?:' + chamaTargets + '))(?![a-z0-9])'
+  ).test(v);
+}
+
+function salesFrustrationDetected(text = '', context = null) {
   const v = normalizeText(text);
   if (!v) return false;
   if (/\b(?:casa\s+do\s+chapeu|va\s+a\s+merda|vai\s+tomar|se\s+foder|vai\s+te\s+catar|vsf|tnc|porra|caralho|bosta|merda|que\s+saco|palhacada|nao\s+aguenta|idiota|burra|burro|robo\s+burro)\b/.test(v)) {
     return true;
   }
-  if (/\b(?:atendente\s+humano|falar\s+com\s+(?:alguem|humano|pessoa|atendente|wesley)|chama\s+(?:alguem|um\s+humano|o\s+gerente|o\s+dono)|para\s+de\s+(?:perguntar|repetir)|ja\s+falei|ja\s+disse|nao\s+entendeu)\b/.test(v)) {
-    return true;
-  }
-  return false;
+  const namesPattern = salesHumanTargetRegexSource(context);
+  const falarTargets = 'alguem|humano|pessoa|atendente|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  const chamaTargets = 'alguem|um\\s+humano|o\\s+gerente|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  return new RegExp(
+    '\\b(?:atendente\\s+humano|falar\\s+com\\s+(?:' + falarTargets + ')|chama\\s+(?:' + chamaTargets + ')|para\\s+de\\s+(?:perguntar|repetir)|ja\\s+falei|ja\\s+disse|nao\\s+entendeu)(?![a-z0-9])'
+  ).test(v);
 }
 
 async function salesResolveDefaultAssignee(context) {
   const configured = settingsFor(context).default_operator || settingsFor(context).sales?.default_operator;
   if (configured && (configured.name || configured.id)) {
     return { id: configured.id || null, name: configured.name || 'Atendente', role: configured.role || 'operator' };
+  }
+  if (Array.isArray(context?.team_agents) && context.team_agents.length > 0) {
+    const active = context.team_agents.filter(agent => agent && agent.is_active !== false);
+    if (active.length > 0) {
+      const preferred = active[0];
+      return { id: preferred.id, name: preferred.name, role: preferred.role || 'operator' };
+    }
   }
   try {
     const agents = await supabaseGet('/rest/v1/team_agents?select=id,name,role&tenant_id=eq.' + encodeFilter(context.tenant.id)
@@ -12370,7 +12467,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
     if (Array.isArray(generated.state.buy_interest?.evidence_ids)) {
       generated.state.buy_interest.evidence_ids = [...new Set(generated.state.buy_interest.evidence_ids.filter(id => !currentIds.has(id)))].slice(-30);
     }
-    const explicitHumanRequest = /\b(?:atendente|falar\s+(?:com\s+)?(?:alguem|humano|pessoa)|chama\s+(?:o\s+)?wesley|falar\s+com\s+wesley)\b/.test(normalizeText(currentTurnText));
+    const explicitHumanRequest = salesExplicitHumanRequest(currentTurnText, context);
     if (['catalog', 'register_interest'].includes(generated.action)
       || (generated.action === 'handoff' && !explicitHumanRequest)) {
       generated.action = 'reply'; generated.reason = 'none';
@@ -13302,7 +13399,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
 
   const isFrustrated = salesUsesStructuredDialogue()
     ? salesSignalInTurn(generated.semantic_intent?.valid ? generated.semantic_intent.conversation?.frustration : null, turn.messages, 'frustrated')
-    : turn.messages.some(m => salesFrustrationDetected(m.text));
+    : turn.messages.some(m => salesFrustrationDetected(m.text, context));
   const requirementAttempts = pendingRequirement ? salesPendingRequirementAttempts(history, pendingRequirement) : 0;
   const previousRequirement = salesLastPendingRequirement(history);
   const currentRequirementProgress = mediaProgress && ['vehicle_description', 'vehicle_photo', 'documents'].includes(pendingRequirement);

@@ -703,7 +703,7 @@ function salesCatalogEnrichWithSnapshot(raw = {}, snapshot = null, hours = 24) {
   // It is evidence for the crossed-out/sale pair, not authority that a product is
   // still active. The generic live `price` is used to decide whether the recent
   // snapshot promotion is still current, preventing a 24h-old sale from winning
-  // after Wesley removes the discount in WhatsApp.
+  // after the dealership removes the discount in WhatsApp.
   let usedSnapshotPrice = false;
   const providerRegular = product.priceAmount1000 ?? product.price_amount_1000 ?? product.regular_price_cents ?? product.price_cents;
   const providerSale = product.salePriceAmount1000 ?? product.sale_price_amount_1000 ?? product.sale_price_cents;
@@ -3346,22 +3346,102 @@ function salesPendingRequirementAttempts(history = [], pendingRequirement = '') 
   return count;
 }
 
-function salesFrustrationDetected(text = '') {
+function salesEscapeRegex(value = '') {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function salesTenantHumanTargetNames(context = {}) {
+  const settings = typeof settingsFor === 'function' ? settingsFor(context) : (context?.settings?.settings || context?.settings || {});
+  const sales = settings?.sales && typeof settings.sales === 'object' ? settings.sales : {};
+  const facts = settings?.business_facts && typeof settings.business_facts === 'object' ? settings.business_facts : {};
+  const candidates = [];
+  const pushEntry = entry => {
+    if (!entry) return;
+    if (typeof entry === 'string') { candidates.push(entry); return; }
+    if (typeof entry === 'object' && entry.is_active !== false) {
+      for (const key of ['name', 'full_name', 'display_name', 'label']) {
+        if (typeof entry[key] === 'string' && entry[key].trim()) candidates.push(entry[key]);
+      }
+    }
+  };
+  const pushList = list => {
+    if (Array.isArray(list)) for (const item of list) pushEntry(item);
+    else pushEntry(list);
+  };
+  pushList(context?.team_agents);
+  pushList(settings?.team_agents);
+  pushList(sales.team_agents);
+  pushEntry(settings?.default_operator);
+  pushEntry(sales.default_operator);
+  for (const source of [settings, sales, facts, context?.tenant]) {
+    if (!source || typeof source !== 'object') continue;
+    for (const key of ['responsible_name', 'responsible', 'owner_name', 'owner', 'attendant_name', 'human_contact_name']) {
+      pushEntry(source[key]);
+    }
+    for (const key of ['attendants', 'operators', 'human_names', 'responsible_names']) {
+      pushList(source[key]);
+    }
+  }
+  const genericStopwords = new Set([
+    'atendente', 'equipe', 'gerente', 'dono', 'humana', 'humano', 'alguem', 'pessoa',
+    'operador', 'operadora', 'responsavel', 'suporte', 'vendedor', 'vendedora',
+    'de', 'da', 'do', 'dos', 'das', 'e'
+  ]);
+  const patterns = new Set();
+  for (const raw of candidates) {
+    const clean = normalizeText(raw).replace(/\s+/g, ' ').trim();
+    if (!clean || clean.length < 2 || genericStopwords.has(clean)) continue;
+    patterns.add(clean);
+    const words = clean.split(/[^a-z0-9]+/).filter(word => word.length >= 2 && !genericStopwords.has(word));
+    if (words.length > 0 && words[0].length >= 3) patterns.add(words[0]);
+  }
+  return [...patterns].sort((a, b) => b.length - a.length);
+}
+
+function salesHumanTargetRegexSource(context = null) {
+  const names = salesTenantHumanTargetNames(context || {});
+  if (!names.length) return '';
+  return names
+    .map(name => '(?:(?:o|a)\\s+)?' + salesEscapeRegex(name).replace(/\s+/g, '\\s+') + '(?![a-z0-9])')
+    .join('|');
+}
+
+function salesExplicitHumanRequest(text = '', context = null) {
+  const v = normalizeText(text);
+  if (!v) return false;
+  const namesPattern = salesHumanTargetRegexSource(context);
+  const falarTargets = 'alguem|humano|pessoa|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  const chamaTargets = 'o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  return new RegExp(
+    '\\b(?:atendente|falar\\s+(?:com\\s+)?(?:' + falarTargets + ')|chama\\s+(?:' + chamaTargets + '))(?![a-z0-9])'
+  ).test(v);
+}
+
+function salesFrustrationDetected(text = '', context = null) {
   const v = normalizeText(text);
   if (!v) return false;
   if (/\b(?:casa\s+do\s+chapeu|va\s+a\s+merda|vai\s+tomar|se\s+foder|vai\s+te\s+catar|vsf|tnc|porra|caralho|bosta|merda|que\s+saco|palhacada|nao\s+aguenta|idiota|burra|burro|robo\s+burro)\b/.test(v)) {
     return true;
   }
-  if (/\b(?:atendente\s+humano|falar\s+com\s+(?:alguem|humano|pessoa|atendente|wesley)|chama\s+(?:alguem|um\s+humano|o\s+gerente|o\s+dono)|para\s+de\s+(?:perguntar|repetir)|ja\s+falei|ja\s+disse|nao\s+entendeu)\b/.test(v)) {
-    return true;
-  }
-  return false;
+  const namesPattern = salesHumanTargetRegexSource(context);
+  const falarTargets = 'alguem|humano|pessoa|atendente|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  const chamaTargets = 'alguem|um\\s+humano|o\\s+gerente|o\\s+dono' + (namesPattern ? '|' + namesPattern : '');
+  return new RegExp(
+    '\\b(?:atendente\\s+humano|falar\\s+com\\s+(?:' + falarTargets + ')|chama\\s+(?:' + chamaTargets + ')|para\\s+de\\s+(?:perguntar|repetir)|ja\\s+falei|ja\\s+disse|nao\\s+entendeu)(?![a-z0-9])'
+  ).test(v);
 }
 
 async function salesResolveDefaultAssignee(context) {
   const configured = settingsFor(context).default_operator || settingsFor(context).sales?.default_operator;
   if (configured && (configured.name || configured.id)) {
     return { id: configured.id || null, name: configured.name || 'Atendente', role: configured.role || 'operator' };
+  }
+  if (Array.isArray(context?.team_agents) && context.team_agents.length > 0) {
+    const active = context.team_agents.filter(agent => agent && agent.is_active !== false);
+    if (active.length > 0) {
+      const preferred = active[0];
+      return { id: preferred.id, name: preferred.name, role: preferred.role || 'operator' };
+    }
   }
   try {
     const agents = await supabaseGet('/rest/v1/team_agents?select=id,name,role&tenant_id=eq.' + encodeFilter(context.tenant.id)
@@ -6386,7 +6466,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
     if (Array.isArray(generated.state.buy_interest?.evidence_ids)) {
       generated.state.buy_interest.evidence_ids = [...new Set(generated.state.buy_interest.evidence_ids.filter(id => !currentIds.has(id)))].slice(-30);
     }
-    const explicitHumanRequest = /\b(?:atendente|falar\s+(?:com\s+)?(?:alguem|humano|pessoa)|chama\s+(?:o\s+)?wesley|falar\s+com\s+wesley)\b/.test(normalizeText(currentTurnText));
+    const explicitHumanRequest = salesExplicitHumanRequest(currentTurnText, context);
     if (['catalog', 'register_interest'].includes(generated.action)
       || (generated.action === 'handoff' && !explicitHumanRequest)) {
       generated.action = 'reply'; generated.reason = 'none';
@@ -7318,7 +7398,7 @@ async function runSalesTurnFinalize(context, history, event, control, intermedia
 
   const isFrustrated = salesUsesStructuredDialogue()
     ? salesSignalInTurn(generated.semantic_intent?.valid ? generated.semantic_intent.conversation?.frustration : null, turn.messages, 'frustrated')
-    : turn.messages.some(m => salesFrustrationDetected(m.text));
+    : turn.messages.some(m => salesFrustrationDetected(m.text, context));
   const requirementAttempts = pendingRequirement ? salesPendingRequirementAttempts(history, pendingRequirement) : 0;
   const previousRequirement = salesLastPendingRequirement(history);
   const currentRequirementProgress = mediaProgress && ['vehicle_description', 'vehicle_photo', 'documents'].includes(pendingRequirement);

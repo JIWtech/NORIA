@@ -44,25 +44,49 @@ const extSourcePath = path.join(root, 'n8n/sources/genesis_extension.js');
 const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_identity.js');
 // Fontes lidas sempre em LF: no Windows o checkout com core.autocrlf=true traz CRLF, que iria literal para o jsCode do n8n.
 const readSource = file => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+function projectSharedRegion(code, name, source) {
+  const start = '// >>> shared_' + name, end = '// <<< shared_' + name;
+  if (code.split(start).length !== 2 || code.split(end).length !== 2) throw new Error('SHARED_REGION_MARKERS_INVALID: ' + name);
+  const from = code.indexOf(start), to = code.indexOf(end, from);
+  if (to < from) throw new Error('SHARED_REGION_MARKERS_INVALID: ' + name);
+  return code.slice(0, from) + start + '\n' + source.trimEnd() + '\n' + end + code.slice(to + end.length);
+}
+const textUtilsSource = readSource(path.join(root, 'n8n/sources/shared/text_utils.js'));
+const textVariantsStart = '// >>> text_variants', textVariantsEnd = '// <<< text_variants';
+const textVariantsFrom = textUtilsSource.indexOf(textVariantsStart), textVariantsTo = textUtilsSource.indexOf(textVariantsEnd);
+if (textVariantsFrom < 0 || textVariantsTo < textVariantsFrom) throw new Error('SHARED_TEXT_VARIANTS_INVALID');
+const textVariantsSource = textUtilsSource.slice(textVariantsFrom + textVariantsStart.length, textVariantsTo).trim();
+const whatsappJidSource = readSource(path.join(root, 'n8n/sources/shared/whatsapp_jid.js'));
+const tenantIdentitySource = readSource(path.join(root, 'n8n/sources/shared/tenant_identity.js')).trimEnd();
+function projectTenantIdentity(code) {
+  const start = '// >>> shared_tenant_identity';
+  const end = '// <<< shared_tenant_identity';
+  if (code.split(start).length !== 2 || code.split(end).length !== 2) throw new Error('SHARED_TENANT_IDENTITY_MARKERS_INVALID');
+  const from = code.indexOf(start), to = code.indexOf(end, from);
+  if (to < from) throw new Error('SHARED_TENANT_IDENTITY_MARKERS_INVALID');
+  return code.slice(0, from) + start + '\n' + tenantIdentitySource + '\n' + end + code.slice(to + end.length);
+}
 let coreCode = readSource(coreSourcePath);
+coreCode = projectTenantIdentity(coreCode);
+coreCode = projectSharedRegion(coreCode, 'text_utils', textUtilsSource);
 // Capability retail_v1: as funções puras vivem em n8n/sources/noria_retail.js (fonte canônica, testada isoladamente) e são
 // projetadas numa região marcada do motor, para que noria_core.js continue autocontido. Ver docs/operations/retail_pipeline_v1.md.
 const { syncRetailRegion } = require('./lib/retail_region.cjs');
-coreCode = syncRetailRegion(coreCode, readSource(path.join(root, 'n8n/sources/noria_retail.js')));
+coreCode = syncRetailRegion(coreCode, projectSharedRegion(projectSharedRegion(readSource(path.join(root, 'n8n/sources/noria_retail.js')), 'whatsapp_jid', whatsappJidSource), 'text_variants', textVariantsSource));
 // O I&C Salon tem motor próprio (decisão de 2026-11-12): evolui separado do compartilhado.
 const salonEngineSourcePath = path.join(root, 'clients/ic_saloon/salon_engine.js');
-const salonEngineSource = readSource(salonEngineSourcePath);
-const extCode = readSource(extSourcePath);
-const genesisIdentityCode = readSource(genesisIdentitySourcePath);
+const salonEngineSource = projectSharedRegion(readSource(salonEngineSourcePath), 'text_utils', textUtilsSource);
+const extCode = projectSharedRegion(readSource(extSourcePath), 'text_variants', textVariantsSource);
+const genesisIdentityCode = projectTenantIdentity(readSource(genesisIdentitySourcePath));
 const intakeNormalizerCode = readSource(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js')).trimEnd();
 // The Núbia v2 EXT remains an isolated, inactive workflow for future work; it is no longer embedded in the CORE.
-const nubiaExtCode = readSource(path.join(root, 'n8n/sources/nubia_extension.js'));
+const nubiaExtCode = projectSharedRegion(projectTenantIdentity(readSource(path.join(root, 'n8n/sources/nubia_extension.js'))), 'text_variants', textVariantsSource);
 const noriaExtCode = readSource(path.join(root, 'n8n/sources/noria_extension.js'));
 // Router of the CORE: selects the services pipeline (Núbia v2) only from a validated, enabled declaration in
 // tenant_settings.noria_turn_pipeline; without it every tenant routes exactly as before. Gênesis and the SaaS tenants never
 // read the declaration. The services chain below is reachable only through this selection.
 const coreRouterSourcePath = path.join(root, 'n8n/sources/noria_router.js');
-const routerSourceCode = fs.readFileSync(coreRouterSourcePath, 'utf8').replace(/\r\n/g, '\n');
+const routerSourceCode = projectSharedRegion(projectTenantIdentity(readSource(coreRouterSourcePath)), 'whatsapp_jid', whatsappJidSource);
 const servicesDispatchCode = fs.readFileSync(path.join(root, 'n8n/sources/noria_turn_dispatch.js'), 'utf8').replace(/\r\n/g, '\n');
 // Fallback recovery of the WhatsApp queue. The webhook path processes messages on arrival; this trigger only picks up
 // leftovers (expired leases, retries), so a longer interval cuts idle executions without changing the happy path.
@@ -72,7 +96,7 @@ const recoveryCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_recover_
 const followUpDispatchCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_follow_up_dispatch.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const routerCode = fs.readFileSync(path.join(root, 'n8n/code/command_router.js'), 'utf8').replace(/\r\n/g, '\n');
 // Sincronização de contato WhatsApp: a mesma fonte testada é projetada no nó do Roteador.
-const syncContactCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_sync_contact.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
+const syncContactCode = projectSharedRegion(readSource(path.join(root, 'n8n/code/whatsapp_sync_contact.js')), 'whatsapp_jid', whatsappJidSource).trimEnd();
 // Disparos: fluxo por lease do servidor (broadcast_claim_*), versionado em n8n/code e projetado no nó "Processar Disparos".
 const broadcastWorkerCode = fs.readFileSync(path.join(root, 'n8n/code/broadcast_campaign_worker.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 const manualReplyCaptureCode = fs.readFileSync(path.join(root, 'n8n/code/whatsapp_capture_manual_reply.js'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
@@ -743,7 +767,8 @@ const rawDiskSha256 = crypto.createHash('sha256').update(coreCode).digest('hex')
 // Hashes de bytes das fontes canônicas e módulos locais que participam do build.
 const sourceFiles = [
   'n8n/sources/noria_core.js', 'n8n/sources/noria_retail.js', 'n8n/sources/noria_router.js',
-  'n8n/sources/noria_turn_dispatch.js', 'n8n/sources/genesis_extension.js', 'n8n/sources/genesis_tenant_identity.js',
+  'n8n/sources/noria_turn_dispatch.js', 'n8n/sources/genesis_extension.js', 'n8n/sources/genesis_tenant_identity.js', 'n8n/sources/shared/tenant_identity.js',
+  'n8n/sources/shared/text_utils.js', 'n8n/sources/shared/whatsapp_jid.js',
   'n8n/sources/whatsapp_normalize_entry.js', 'n8n/sources/nubia_extension.js', 'n8n/sources/noria_extension.js',
   'n8n/sources/joyeria_extension.js', 'clients/ic_saloon/salon_engine.js', 'clients/ic_saloon/conversation_adapter.cjs',
   'clients/ic_saloon/conversation_route.cjs', 'scripts/lib/retail_region.cjs', 'scripts/turn_queue_operational_bridge.cjs',

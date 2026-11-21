@@ -14,6 +14,9 @@ const additional = ['scripts/test_noria_retail.cjs', 'scripts/test_retail_pipeli
   'scripts/audit_anti_hardcode.cjs', 'scripts/test_audit_anti_hardcode.cjs',
   'scripts/test_build_noria_workflows.cjs', 'scripts/test_noria_handoff_announcement.cjs',
   'scripts/test_noria_photo_promise.cjs',
+  'scripts/test_shared_tenant_identity.cjs', 'scripts/test_shared_text_jid.cjs',
+  'scripts/test_generic_approved_service_contract.cjs', 'scripts/test_nubia_previous_service.cjs',
+  'scripts/test_salon_reschedule_invite.cjs', 'scripts/test_human_request_tenant_names.cjs',
   'clients/ic_saloon/conversation_adapter.test.cjs', 'clients/ic_saloon/conversation_route.test.cjs',
   'clients/ic_saloon/price_relay.test.cjs', 'clients/ic_saloon/price_relay_queue.test.cjs'];
 const result = spawnSync(process.execPath, ['--test', '--test-concurrency=3', ...names.map(name => 'scripts/test_' + name + '.cjs'), ...additional], {

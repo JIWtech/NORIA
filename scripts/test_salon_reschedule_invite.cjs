@@ -7,9 +7,10 @@ const source = fs.readFileSync('n8n/code/command_router.js', 'utf8');
 const workflow = JSON.parse(fs.readFileSync('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json', 'utf8'));
 const exported = workflow.nodes.find(node => node.name === 'Executar Comando1').parameters.jsCode;
 
-function fixture(code, { timeout = false, member = true } = {}) {
+function fixture(code, { timeout = false, member = true, tenantSlug = 'ic_salon', tracking = true } = {}) {
   const env = { SUPABASE_URL: 'https://db.test', SUPABASE_SERVICE_ROLE_KEY: 'fixture',
-    EVOLUTION_API_URL_IC_SALON: 'https://evo.test', EVOLUTION_API_KEY_IC_SALON: 'fixture', EVOLUTION_INSTANCE_IC_SALON: 'salon' };
+    EVOLUTION_API_URL_IC_SALON: 'https://evo.test', EVOLUTION_API_KEY_IC_SALON: 'fixture', EVOLUTION_INSTANCE_IC_SALON: 'salon',
+    EVOLUTION_API_URL_OUTRO_TENANT: 'https://evo.test', EVOLUTION_API_KEY_OUTRO_TENANT: 'fixture', EVOLUTION_INSTANCE_OUTRO_TENANT: 'outro' };
   const row = { id: 'a', channel_type: 'whatsapp', external_conversation_id: 'chat', contact_name: 'Ana Souza',
     status: 'no_show', metadata: {}, updated_at: '2026-11-13T16:00:00Z' };
   const sends = [];
@@ -18,9 +19,9 @@ function fixture(code, { timeout = false, member = true } = {}) {
     const address = new URL(url);
     const route = address.pathname.split('/').at(-1);
     if (route === 'user') return { id: 'agent' };
-    if (route === 'tenants') return [{ id: 'tenant', slug: 'ic_salon' }];
+    if (route === 'tenants') return [{ id: 'tenant', slug: tenantSlug }];
     if (route === 'tenant_members') return member ? [{ role: 'agent' }] : [];
-    if (route === 'tenant_settings') return [{ settings: { appointment_outcome_tracking: true } }];
+    if (route === 'tenant_settings') return [{ settings: { appointment_outcome_tracking: tracking } }];
     if (route === 'appointments') {
       const filters = address.searchParams;
       assert.equal(filters.get('tenant_id'), 'eq.tenant');
@@ -46,12 +47,24 @@ function fixture(code, { timeout = false, member = true } = {}) {
   };
   const run = new AsyncFunction('$json', '$env', '$vars', code);
   const invite = async (override = {}) => (await run.call({ helpers: { httpRequest } }, {
-    headers: { authorization: 'Bearer fixture' }, body: { tenant_slug: 'ic_salon', command: 'invite_appointment_reschedule',
+    headers: { authorization: 'Bearer fixture' }, body: { tenant_slug: tenantSlug, command: 'invite_appointment_reschedule',
       payload: { appointment_id: 'a', channel_type: 'whatsapp', external_conversation_id: 'chat',
         message_text: 'Quer remarcar para Ana Souza?', ...override } },
   }, env, {})).json;
   return { invite, sends, events, row };
 }
+
+test('agendamento depende da capacidade configurada para qualquer tenant', async () => {
+  const oldGuard = source.replace("if (settings.appointment_outcome_tracking !== true || normalizedChannel !== 'whatsapp')",
+    "if (tenantSlug !== 'ic_salon' || settings.appointment_outcome_tracking !== true || normalizedChannel !== 'whatsapp')");
+  assert.notEqual(oldGuard, source);
+  assert.equal((await fixture(oldGuard, { tenantSlug: 'outro_tenant' }).invite()).ok, false);
+  const enabled = fixture(source, { tenantSlug: 'outro_tenant' });
+  assert.equal((await enabled.invite()).ok, true);
+  const disabled = fixture(source, { tracking: false });
+  assert.equal((await disabled.invite()).ok, false);
+  assert.equal(disabled.sends.length, 0);
+});
 
 test('fonte e export protegem destino, texto editado e concorrência de dois atendentes', async () => {
   for (const code of [source, exported]) {

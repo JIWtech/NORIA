@@ -333,7 +333,7 @@ test('groundingApprovedView valida catálogo e explicações femininas da NB Bro
   const viewRunner=await new AsyncFunction('$json','$env','$vars','$getWorkflowStaticData',code.replace(hook[0],
     `return {groundingApprovedView};\n`+hook[0])).call(
       {helpers:{httpRequest:async()=>({})}},
-      {tenant_slug:'clinica_nubia_oficial',tenant_id:'tenant',noria_client_policy:{profile:'nb_bronze_v1',modules:{approved_service_texts:true}}},
+      {tenant_slug:'clinica_nubia_oficial',tenant_id:'tenant',noria_client_policy:{profile:'nb_bronze_v1',modules:{approved_service_texts:true,messages:{}}}},
       {GEMINI_API_KEY:'fixture',GEMINI_ENABLED:'true',SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture'},{},()=>({})
     );
   const catalogPrices=Object.fromEntries(liveCatalog.matches.map(r=>[r.external_id,r.price]));

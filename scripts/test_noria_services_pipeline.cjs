@@ -9,6 +9,24 @@ const ts = require('../app/node_modules/typescript');
 
 const root = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const buildRoot = process.env.NORIA_TEST_BUILD_DIR ? path.resolve(process.env.NORIA_TEST_BUILD_DIR) : root;
+const readBuild = file => fs.readFileSync(path.join(buildRoot, file), 'utf8');
+const projectShared = (code, name) => {
+  const start = '// >>> shared_' + name, end = '// <<< shared_' + name;
+  assert.equal(code.split(start).length, 2);
+  assert.equal(code.split(end).length, 2);
+  const from = code.indexOf(start), to = code.indexOf(end, from);
+  assert.ok(to > from);
+  const raw = name === 'text_variants'
+    ? (() => {
+        const src = read('n8n/sources/shared/text_utils.js').replace(/\r\n/g, '\n');
+        const tvStart = '// >>> text_variants', tvEnd = '// <<< text_variants';
+        return src.slice(src.indexOf(tvStart) + tvStart.length, src.indexOf(tvEnd)).trim();
+      })()
+    : read('n8n/sources/shared/' + name + '.js').replace(/\r\n/g, '\n').trimEnd();
+  return code.slice(0, from) + start + '\n' + raw + '\n' + end + code.slice(to + end.length);
+};
+const projected = (file, names = ['tenant_identity']) => names.reduce(projectShared, read(file).replace(/\r\n/g, '\n'));
 const coreCode = read('n8n/sources/noria_core.js');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -30,6 +48,16 @@ const selector = ({ policy, settings = {}, version = '2.0' }) => {
   return () => core.turnPipelineFor({ settings: { settings } });
 };
 const servicesPolicy = { contract: 'noria_policy_v2', profile: 'services_booking_v2', capability: 'standard', modules: { turn_pipeline: offered } };
+
+test('atribuição automática exige decisão autorizada, declaração explícita e envio não cancelado', () => {
+  const { servicesAuthorized, servicesShouldAutoAssign } = loadCore(['servicesAuthorized', 'servicesShouldAutoAssign'], {});
+  const decision = { status: 'ok', actions: { handoff: { required: true, reason: 'qualquer_motivo', auto_assign: true } } };
+  assert.equal(servicesShouldAutoAssign(decision, {}), true);
+  assert.equal(servicesShouldAutoAssign({ ...decision, status: 'refused' }, {}), false);
+  assert.equal(servicesShouldAutoAssign({ ...decision, actions: { handoff: { required: true, auto_assign: false } } }, {}), false);
+  assert.equal(servicesShouldAutoAssign(decision, { cancelled: true }), false);
+  assert.equal(servicesAuthorized(decision).handoff, true);
+});
 
 test('contrato semântico do CORE expõe declaração de serviço anterior à EXT', () => {
   const { servicesSemanticSchema } = loadCore(['servicesSemanticSchema'], {});
@@ -217,7 +245,7 @@ test('preparação não reserva nem altera pagamento; só responde (após commit
 });
 
 test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançável pela configuração; rotas legadas intactas', () => {
-  const core = JSON.parse(read('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
+  const core = JSON.parse(readBuild('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
   const CHAIN = [
     'CORE | Serviços | Núbia v2?', 'CORE | Serviços | Executar EXT bootstrap', 'CORE | Serviços | Preparar dispatch',
     'CORE | Serviços | Turno terminal?', 'CORE | Serviços | Preparar resposta',
@@ -242,7 +270,7 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   assert.deepEqual(branches('CORE | Executar EXT NORIA'), [['CORE | Motor conversacional único | Fase']]);
   assert.deepEqual(branches('CORE | Serviços | Núbia v2?'), [['CORE | Serviços | Executar EXT bootstrap'], ['CORE - É Núbia?']]);
   assert.match(JSON.stringify(by('CORE | Serviços | Núbia v2?').parameters.conditions), /\$json\.noria_pipeline === 'services_v1'/);
-  assert.equal(by('CORE - Resolver extensão do tenant').parameters.jsCode, read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n'));
+  assert.equal(by('CORE - Resolver extensão do tenant').parameters.jsCode, projected('n8n/sources/noria_router.js', ['tenant_identity', 'whatsapp_jid']));
 
   // Sequência: bootstrap -> despacho -> prepare -> decisão -> disponibilidade -> reavaliação -> finalize, com atalhos terminais.
   assert.deepEqual(branches('CORE | Serviços | Executar EXT bootstrap'), [['CORE | Serviços | Preparar dispatch']]);
@@ -293,11 +321,11 @@ test('build: cadeia de serviços v2 remontada sobre o Motor atual, só alcançá
   assert.deepEqual(core.nodes.find(n => n.name === 'Recuperar Fila WhatsApp').parameters.rule.interval[0], { field: 'seconds', secondsInterval: 30 });
   const diff = execFileSync('git', ['diff', '--stat', '--', 'n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Politica-de-Atendimento--vCDXJLqIBCZJRTVv.json'], { cwd: root }).toString().trim();
   assert.equal(diff, '', 'EXT Núbia v1 não foi alterada');
-  const manifest = JSON.parse(read('n8n/build_manifest.json'));
+  const manifest = JSON.parse(readBuild('n8n/build_manifest.json'));
   const sha = text => require('node:crypto').createHash('sha256').update(text).digest('hex');
-  assert.equal(manifest.router_sha256, sha(read('n8n/sources/noria_router.js').replace(/\r\n/g, '\n')));
-  const ext = JSON.parse(read('n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Catalogo-de-Servicos--6jSiEH2ugboYSack.json'));
-  assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode.replace(/\r\n/g, '\n'), read('n8n/sources/nubia_extension.js').replace(/\r\n/g, '\n'));
+  assert.equal(manifest.router_sha256, sha(projected('n8n/sources/noria_router.js', ['tenant_identity', 'whatsapp_jid'])));
+  const ext = JSON.parse(readBuild('n8n/workflows/NORIA-EXT-Nubia-NB-Bronze-Catalogo-de-Servicos--6jSiEH2ugboYSack.json'));
+  assert.equal(ext.nodes.find(n => n.name === 'EXT | Serviços Núbia v2').parameters.jsCode.replace(/\r\n/g, '\n'), projected('n8n/sources/nubia_extension.js', ['tenant_identity', 'text_variants']));
 });
 
 test('auditoria semântica: cada afirmação precisa de uma autoridade existente e do tipo permitido; sem cobertura ou sem fonte, rejeita', () => {
@@ -434,7 +462,7 @@ test('publicação: a comparação com o n8n ignora a ordem das chaves e ainda a
 
 test('publicação: nova arquitetura é recusada para revisão', () => {
   const { buildArtifact } = require(path.join(root, 'scripts/publish_nubia_v2.cjs'));
-  const core = JSON.parse(read('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
+  const core = JSON.parse(readBuild('n8n/workflows/NORIA-CORE-Roteador-WhatsApp-Comandos-e-Follow-ups--3N5oN6sxtir9lFrA.json'));
   assert.throws(() => buildArtifact(core, 'EXT-V2-REAL-ID'), /NORIA_PARENT_ARCHITECTURE_REVIEW_REQUIRED/);
 });
 
@@ -645,7 +673,7 @@ test('contingência persiste candidata final e falhas no evento salvo', async ()
   const error = Object.assign(new Error('SERVICES_AUDIT_REJECTED:AUDIT_REQUEST_NOT_COVERED'), {
     rejected_candidates: [{ reply: 'x'.repeat(900), failures: ['AUDIT_REQUEST_NOT_COVERED'] }] });
   const decision = { status: 'ok', facts: [], actions: {}, reason_codes: [] };
-  const core = loadCore(['runServicesTurnFinalize', 'servicesRejectedCandidates', 'salesRedactPersonalData'], {
+  const core = loadCore(['runServicesTurnFinalize', 'servicesShouldAutoAssign', 'servicesRejectedCandidates', 'salesRedactPersonalData'], {
     inputJson: {}, turnAdContext: () => null,
     pipelineIdentity: () => ({ last_event_id: 'e', session_id: 's' }), servicesVerifiedDecision: () => decision,
     servicesAuthorized: () => ({ follow_up: 'none' }), servicesVerifiedProof: () => null, commit: async () => true,
@@ -817,7 +845,7 @@ test('finalização descarta anúncio adulterado e entrega contexto rederivado a
   const history = [{ direction: 'inbound', sender_type: 'contact', message_text: 'anúncio original' }];
   const messages = [{ event_id: 'e', text: 'pedido atual' }];
   const expected = { title: 'anúncio validado' };
-  const core = loadCore(['runServicesTurnFinalize', 'servicesComposeAudited', 'servicesComposeReply', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
+  const core = loadCore(['runServicesTurnFinalize', 'servicesShouldAutoAssign', 'servicesComposeAudited', 'servicesComposeReply', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
     ...COMPOSE_CONSTS, ...AUDIT_CONSTS, inputJson, turn: { messages },
     turnAdContext: rows => { assert.deepEqual(rows, [...history, ...messages]); return expected; },
     pipelineIdentity: () => ({ last_event_id: 'e', session_id: 's' }), servicesVerifiedDecision: () => ({ status: 'ok', facts: [], services: [], actions: {}, approved_blocks: [] }),
