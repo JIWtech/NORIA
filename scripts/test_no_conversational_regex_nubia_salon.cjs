@@ -125,7 +125,8 @@ test('[nubia] declaração de pagamento: só o gatilho configurado é comando; f
 });
 
 test('[nubia] composição de desfecho: validade vem de outcome_check do Gemini, não de regex na prosa', async () => {
-  for (const file of Object.values(SOURCES)) {
+  // Poda Fase 4.1 (ic_salon): composeSchedulingOutcomeReply e schedulingComposeReply sao exclusivos de canonical_v2/scheduling (Nubia) e foram removidos do Salon.
+  for (const file of [SOURCES.core]) {
     const { composeSchedulingOutcomeReply } = await loadEngine(file, ['composeSchedulingOutcomeReply']);
     const code = read(file);
     const composerSchema = between(code, 'async function schedulingComposeReply(', 'async function composeSchedulingOutcomeReply(');
@@ -140,7 +141,8 @@ test('[nubia] composição de desfecho: validade vem de outcome_check do Gemini,
 });
 
 test('[nubia] composeSchedulingOutcomeReply entrega outcome_check ao validador e cai no texto fixo se o Gemini negar', async () => {
-  for (const file of Object.values(SOURCES)) {
+  // Poda Fase 4.1 (ic_salon): composeSchedulingOutcomeReply foi removido de clients/ic_saloon/salon_engine.js por pertencer a canonical_v2.
+  for (const file of [SOURCES.core]) {
     const code = read(file);
     const hook = /try \{\n\s*const turnResult = await runTurn\(\);/.exec(code);
     let composed = { reply: 'Esse horário não está livre.', price_claims: [], outcome_check: { says_unavailable: true, says_deposit_pending: false, says_payment_confirmed: false, asks_full_name: false } };

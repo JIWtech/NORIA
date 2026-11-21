@@ -25,7 +25,7 @@
     "n8n/sources/nubia_extension.js": "76b31dcdb77a05de82a22e55eec13a23bf54fdac057f8af8af8d002ae204f6ab",
     "n8n/sources/noria_extension.js": "6eb51daca29a015291185436ea98268a6453c2e91dc4fb3ff22d1496ebf90af3",
     "n8n/sources/joyeria_extension.js": "5cb9600f089b1c420b2eaa50ff21504658eda24972c6bd67ac5651aa52191b51",
-    "clients/ic_saloon/salon_engine.js": "0b9191ada194913a903b7deeb09934da4c91146c5c61f822356413975f27ae02",
+    "clients/ic_saloon/salon_engine.js": "1ce156267f9ec62d99b67b4b2026c28dc5c4cad91abb9f4a3a5c4142c240c00e",
     "clients/ic_saloon/conversation_adapter.cjs": "7b7ab4e93519454554a605c9022b016435e1c8fa26645167a1aaa92fd627bd27",
     "clients/ic_saloon/conversation_route.cjs": "8dd55b6d285e52cf14de186971364e3fd2353cc490db882f41d785fb2da9258e",
     "scripts/lib/retail_region.cjs": "bd571315545e30d1369940531c5e18347b056afc68711b9965ff65dcb51f35c6",

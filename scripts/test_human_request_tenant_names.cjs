@@ -30,7 +30,8 @@ function makeTenantContext(tenantId, slug, { teamAgents = [], settings = {} } = 
   };
 }
 
-for (const file of ['n8n/sources/noria_core.js', 'clients/ic_saloon/salon_engine.js']) {
+// Poda Fase 4.1 (ic_salon): helpers sales_* de atendimento comercial e o ramo sales_v1 de loadTenantContext foram removidos de clients/ic_saloon/salon_engine.js.
+for (const file of ['n8n/sources/noria_core.js']) {
   test(`${file}: pedido com nome configurado em team_agents aciona deteccao sem hardcode`, () => {
     const fns = loadHumanRequestFns(file);
     const context = makeTenantContext('t-gen', 'tenant_alpha', {
