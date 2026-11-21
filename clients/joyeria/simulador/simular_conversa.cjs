@@ -87,6 +87,11 @@ async function httpJson(method, url, headers, body) {
   if (url.startsWith('https://generativelanguage.googleapis.com/')) {
     const response = await fetch(url, { method, headers: { ...headers, 'x-goog-api-key': GEMINI_KEY }, body: JSON.stringify(body) });
     const text = await response.text();
+    // Limite de uso ou teto de gasto do projeto: para a simulação na hora (não insiste e não consome mais).
+    if (response.status === 429) {
+      console.log('\n[SIMULAÇÃO INTERROMPIDA] Gemini respondeu 429 (limite de uso ou teto de gasto). Nada mais será enviado.');
+      process.exit(2);
+    }
     if (!response.ok) throw Object.assign(new Error('Gemini HTTP ' + response.status + ': ' + text.slice(0, 300)), { statusCode: response.status });
     const parsed = JSON.parse(text);
     // Soma de tokens por modelo, como o próprio Gemini informa (para estimar custo).
@@ -229,10 +234,23 @@ const SCENARIOS = {
     }
     wanted = Object.keys(scenarios);
   } else if (!wanted.length) wanted = Object.keys(SCENARIOS);
+  // Teto de gasto da simulação (Gemini real é pago): por padrão no máximo 15 mensagens e 80 mil tokens por execução.
+  // Para rodar mais, é preciso pedir explicitamente: SIM_MAX_MENSAGENS e SIM_MAX_TOKENS.
+  const maxMessages = Number(process.env.SIM_MAX_MENSAGENS || 15);
+  const maxTokens = Number(process.env.SIM_MAX_TOKENS || 80000);
+  const spentTokens = () => Object.values(usage).reduce((sum, u) => sum + u.input + u.output, 0);
+  const planned = wanted.reduce((sum, label) => sum + (scenarios[label] || []).length, 0);
+  console.log('Simulação: ' + planned + ' mensagens planejadas; teto ' + maxMessages + ' mensagens e ' + maxTokens + ' tokens.');
+  let sent = 0;
   for (const [i, label] of wanted.entries()) {
     const chatId = '55219' + String(10000000 + i).slice(-8) + '@s.whatsapp.net';
     console.log('\n==================== ' + label + ' ====================');
     for (const [t, text] of scenarios[label].entries()) {
+      if (sent >= maxMessages || spentTokens() >= maxTokens) {
+        console.log('\n[TETO DE GASTO ATINGIDO] ' + sent + ' mensagens, ' + spentTokens() + ' tokens. Simulação encerrada.');
+        return;
+      }
+      sent++;
       try { report(label, text, await runTurn(chatId, text, t, 'Cliente Teste')); }
       catch (error) { console.log('\nCLIENTE: ' + text + '\n  [ERRO] ' + String(error?.stack || error).slice(0, 600)); }
     }
