@@ -10738,7 +10738,22 @@ async function salesAssignConversation(context, assignee, lead, assignedBy = 'IA
       }
     }
   };
-  return await supabasePost('/rest/v1/channel_events', event);
+  // Atribuição e origem do controle na mesma transação (magia_record_engine_assignment): a próxima mensagem do
+  // cliente é suprimida com evidência, sem TURN_CONTROL_ORIGIN_REQUIRED. O encaminhamento nunca pode falhar por
+  // causa da prova: se a RPC recusar ou não existir, grava como antes e marca a origem como não comprovada.
+  try {
+    return await supabasePost('/rest/v1/rpc/magia_record_engine_assignment', {
+      p_tenant: context.tenant.id, p_chat: chatId, p_token: turn?.token || null, p_event: event,
+    });
+  } catch (originError) {
+    const fallback = { ...event, raw_payload: { ...event.raw_payload, control_origin: 'unproven_fallback',
+      control_origin_error: String(originError?.message || originError).slice(0, 160) } };
+    try {
+      return await supabasePost('/rest/v1/channel_events', fallback);
+    } catch {
+      throw originError;
+    }
+  }
 }
 
 function salesAttendantLanguage(text = '') {
