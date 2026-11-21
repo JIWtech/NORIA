@@ -12,8 +12,8 @@ import { loadTeamAgents } from '../../src/services/agents/teamAgentReads.js';
 import { mapAppointment } from '../../src/services/appointments/appointmentPresentation.js';
 
 test('6B.13 conversation presentation preserves location cache and audio normalization', () => {
-  normalizeLocation({ location: { latitude: -23.5, longitude: -46.6, name: 'Loja' } });
-  const cachedLocation = normalizeLocation({ location: { latitude: -23.5, longitude: -46.6 } });
+  normalizeLocation({ location: { latitude: -23.5, longitude: -46.6, name: 'Loja' } }, null, 'tenant-a');
+  const cachedLocation = normalizeLocation({ location: { latitude: -23.5, longitude: -46.6 } }, null, 'tenant-a');
   assert.equal(cachedLocation.name, 'Loja');
 
   const event = {

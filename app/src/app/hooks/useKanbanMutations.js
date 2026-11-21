@@ -4,9 +4,31 @@ import {
   isGenesisSalesTenant,
   moveKanbanCard,
   sortKanbanCardsByConversationActivity,
-} from '../../dataService';
+} from '../../dataService.js';
 import { placeKanbanCard } from '../../services/kanban/pendingKanbanMoves.js';
-import { isSameScope } from '../appScope';
+import { normalizeChannel } from '../../services/identity/conversationIdentity.js';
+import { isSameScope } from '../appScope.js';
+
+export function matchesCardConversation(conv, card) {
+  if (!conv || !card) return false;
+  if (conv.tenantSlug && card.tenantSlug && conv.tenantSlug !== card.tenantSlug) return false;
+  const convChannel = conv.channelType || conv.channel;
+  const cardChannel = card.channelType || card.channel;
+  if (convChannel && cardChannel && normalizeChannel(convChannel).type !== normalizeChannel(cardChannel).type) return false;
+  if (
+    (conv.id && conv.id === card.id)
+    || (conv.id && conv.id === card.conversationId)
+    || (card.canonicalKey && conv.id === `conv-${card.canonicalKey}`)
+    || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
+  ) {
+    return true;
+  }
+  if (!convChannel || !cardChannel) return false;
+  return Boolean(
+    (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
+    || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId)
+  );
+}
 
 export function useKanbanMutations({
   activeTenantSlug,
@@ -102,14 +124,7 @@ export function useKanbanMutations({
       });
 
       const nextConversations = (prev.conversations || []).map((conv) => {
-        const matches = conv.id === card.id
-          || conv.id === card.conversationId
-          || conv.id === `conv-${card.canonicalKey}`
-          || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
-          || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
-          || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
-
-        if (!matches) return conv;
+        if (!matchesCardConversation(conv, card)) return conv;
 
         if (isClosedTarget) {
           return {
@@ -175,13 +190,7 @@ export function useKanbanMutations({
                 : currentCard),
             })),
             conversations: (prev?.conversations || []).map((conv) => {
-              const matches = conv.id === card.id
-                || conv.id === card.conversationId
-                || conv.id === `conv-${card.canonicalKey}`
-                || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
-                || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
-                || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
-              if (!matches) return conv;
+              if (!matchesCardConversation(conv, card)) return conv;
               return {
                 ...conv,
                 salesStageKey: persistedMove.salesStageKey || conv.salesStageKey,

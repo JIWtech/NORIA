@@ -82,7 +82,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
       const hasCanonicalContactName = isUsefulContactName(canonicalContactName, conversationPhoneFallback(event), resolvedTenant);
       const contactName = resolveConversationDisplayName(event, fallbackName);
       const initialAvatar = extractAvatarUrlFromEvent(event);
-      const initialPreview = resolveEventMessagePreview(event, initialOwner);
+      const initialPreview = resolveEventMessagePreview(event, initialOwner, resolvedTenant);
       byChat.set(key, {
         id: `conv-${key}`,
         canonicalKey: key,
@@ -154,7 +154,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
       conversation.avatarUrl = normalizeAvatarUrl(event.avatar_url) || conversation.avatarUrl;
     }
 
-    const previewInfo = resolveEventMessagePreview(event, conversation.owner || initialOwner);
+    const previewInfo = resolveEventMessagePreview(event, conversation.owner || initialOwner, resolvedTenant);
     if (previewInfo) {
       conversation.lastMessage = previewInfo.text;
       conversation.lastMessageSender = previewInfo.sender;
@@ -162,7 +162,7 @@ export function eventsToConversations(events = [], tenantSlug = '', teamAgents =
     }
     const media = normalizeMedia(event.raw_payload, event);
     const audioTranscription = normalizeAudioTranscription(event.raw_payload, event);
-    const location = normalizeLocation(event.raw_payload, event);
+    const location = normalizeLocation(event.raw_payload, event, resolvedTenant);
     const visibleText = resolveEventVisibleText(event, media);
     const eventTime = event.created_at ? Date.parse(event.created_at) : NaN;
     const currentActivityTime = conversation.lastActivityAt ? Date.parse(conversation.lastActivityAt) : NaN;

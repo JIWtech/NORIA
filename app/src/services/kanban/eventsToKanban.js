@@ -37,7 +37,7 @@ const HUMAN_HELD_COLUMNS = new Set(['aguardando_humano', 'com_humano', 'conversa
 
 export function eventsToKanban(
   events,
-  tenantSlug = 'clinica_nubia',
+  tenantSlug = '',
   appointments = [],
   kanbanConfig = null,
   followUpJobs = [],
@@ -48,7 +48,9 @@ export function eventsToKanban(
 
   const columns = buildKanbanColumns(kanbanConfig, tenantSlug);
   const salesLeadsByConversation = buildSalesLeadIndexWithHelpers(
-    isGenesisSalesTenant(tenantSlug) ? salesLeads : [], canonicalConversationKey, isMoreRecentRecord,
+    isGenesisSalesTenant(tenantSlug) ? salesLeads : [],
+    (channelType, externalId, fallbackId) => canonicalConversationKey(channelType, externalId, fallbackId, tenantSlug),
+    isMoreRecentRecord,
   );
   const latestByChat = new Map();
   const latestConversationActivityByChat = new Map();
@@ -65,8 +67,13 @@ export function eventsToKanban(
   const isAttended = appointment => tenantSlug === 'ic_salon' && ['completed', 'done'].includes(appointment?.status);
   for (const appointment of appointments) {
     if (isAttended(appointment)) {
-      attendedConversations.add(canonicalConversationKey(appointment.channelType || appointment.channel_type,
-        appointment.externalConversationId || appointment.external_conversation_id, `appointment-${appointment.id}`));
+      const appointmentTenant = tenantSlug || appointment.raw?.tenant_slug || appointment.tenant_slug || '';
+      attendedConversations.add(canonicalConversationKey(
+        appointment.channelType || appointment.channel_type,
+        appointment.externalConversationId || appointment.external_conversation_id,
+        `appointment-${appointment.id}`,
+        appointmentTenant,
+      ));
     }
   }
   const eventCardsByConversation = new Map();
@@ -75,7 +82,13 @@ export function eventsToKanban(
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
     if (isKnownKanbanTestArtifact(event) || isSpecialistNotice(event) || isRetailAttempt(event)) continue;
     if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;
-    const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
+    const resolvedTenant = tenantSlug || event.tenant_slug || '';
+    const key = canonicalConversationKey(
+      event.channel_type,
+      event.external_conversation_id,
+      event.contact_handle || event.id,
+      resolvedTenant,
+    );
     if (!conversationStatesByChat.has(key)) conversationStatesByChat.set(key, { status: 'ia_ativa' });
     const state = conversationStatesByChat.get(key);
     const humanStage = humanKanbanStage(event);
@@ -100,7 +113,13 @@ export function eventsToKanban(
   for (const event of [...events].sort((a, b) => compareDateLabel(a.created_at, b.created_at))) {
     if (tenantSlug && event.tenant_slug && event.tenant_slug !== tenantSlug) continue;
     if (isKnownKanbanTestArtifact(event) || isSpecialistNotice(event) || isRetailAttempt(event)) continue;
-    const key = canonicalConversationKey(event.channel_type, event.external_conversation_id, event.id);
+    const resolvedTenant = tenantSlug || event.tenant_slug || '';
+    const key = canonicalConversationKey(
+      event.channel_type,
+      event.external_conversation_id,
+      event.contact_handle || event.id,
+      resolvedTenant,
+    );
     // O pin do pipeline é só um marcador interno: o primeiro loop e o tempo real o ignoram, e a recarga também.
     if (isInternalOperationalEvent(event) && !asObject(event.raw_payload).kanban_transition?.to_column) continue;
     eventCountsByChat.set(key, (eventCountsByChat.get(key) || 0) + 1);
@@ -164,8 +183,10 @@ export function eventsToKanban(
     if (latestByChat.has(key)) continue;
     latestByChat.set(key, {
       id: `sales-${lead.id}`,
+      tenant_slug: tenantSlug || undefined,
       channel_type: lead.channel_type,
       external_conversation_id: lead.chat_id,
+      contact_handle: lead.chat_id,
       contact_name_canonical: lead.state?.customer_name,
       message_text: lead.product?.name || 'Lead comercial',
       direction: 'internal',
@@ -316,6 +337,7 @@ export function eventsToKanban(
     const card = {
       id: `card-${event.id}`,
       canonicalKey: key,
+      tenantSlug: tenantSlug || event.tenant_slug || '',
       normalizedExternalId: normalizeExternalConversationId(channelType.type, event.external_conversation_id),
       externalConversationId: event.external_conversation_id,
       title: resolveConversationDisplayName(identityEvent, `Contato ${channelType.label}`),
@@ -384,11 +406,14 @@ export function eventsToKanban(
   const latestAppointmentsByConversation = new Map();
   const extraAppointments = [];
   for (const appointment of appointments) {
-    if (isAttended(appointment) || ['cancelled', 'canceled'].includes(appointment.status)) continue;
+    if (isAttended(appointment)) continue;
+    if (['cancelled', 'canceled'].includes(appointment.status)) continue;
+    const appointmentTenant = tenantSlug || appointment.raw?.tenant_slug || appointment.tenant_slug || '';
     const key = canonicalConversationKey(
       appointment.channelType || appointment.channel_type,
       appointment.externalConversationId || appointment.external_conversation_id,
       `appointment-${appointment.id}`,
+      appointmentTenant,
     );
     const current = latestAppointmentsByConversation.get(key);
     const priority = appointmentKanbanPriority(appointment.status);
@@ -405,6 +430,7 @@ export function eventsToKanban(
 
   const toAppointmentCard = (appointment) => ({
       id: `appointment-${appointment.id}`,
+      tenantSlug: tenantSlug || appointment.raw?.tenant_slug || appointment.tenant_slug || '',
       appointmentId: appointment.id,
       appointmentTitle: appointment.title || '',
       title: appointment.title,
@@ -441,6 +467,7 @@ export function eventsToKanban(
       appointmentCard.channelType,
       appointmentCard.externalConversationId,
       appointmentCard.id,
+      appointmentCard.tenantSlug || tenantSlug,
     );
     const matchingEvent = eventCardsByConversation.get(key);
     const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
@@ -498,7 +525,12 @@ export function eventsToKanban(
     const appointmentCard = toAppointmentCard(appointment);
     const targetColumn = findKanbanColumn(columns, appointmentCard.targetColumnId) || findKanbanColumn(columns, 'agendamentos');
     if (!targetColumn) continue;
-    const key = canonicalConversationKey(appointmentCard.channelType, appointmentCard.externalConversationId, appointmentCard.id);
+    const key = canonicalConversationKey(
+      appointmentCard.channelType,
+      appointmentCard.externalConversationId,
+      appointmentCard.id,
+      appointmentCard.tenantSlug || tenantSlug,
+    );
     const conversationCard = eventCardsByConversation.get(key)?.card;
     targetColumn.cards.push(conversationCard
       ? detachedAppointmentCard(appointmentCard, conversationCard, targetColumn)
@@ -519,6 +551,7 @@ export function eventsToKanban(
     appointment.channelType || appointment.channel_type,
     appointment.externalConversationId || appointment.external_conversation_id,
     `appointment-${appointment.id}`,
+    tenantSlug || appointment.raw?.tenant_slug || appointment.tenant_slug || '',
   ));
   const visibleProposals = new Set();
   for (const column of columns) {
@@ -527,7 +560,12 @@ export function eventsToKanban(
       if (card.appointmentId && card.appointmentStatus !== 'pending_confirmation') continue;
       let proposal = own?.status === 'accepted'
         ? own
-        : proposalsByConversation.get(canonicalConversationKey(card.channelType, card.externalConversationId, card.id));
+        : proposalsByConversation.get(canonicalConversationKey(
+          card.channelType,
+          card.externalConversationId,
+          card.id,
+          card.tenantSlug || tenantSlug,
+        ));
       // Pedido pendente registrado depois da proposta (a pessoa recusou e pediu outro horário): o selo antigo não descreve este pedido.
       if (proposal && proposal !== own && card.appointmentStatus === 'pending_confirmation') {
         const requestedAt = Date.parse(card.appointmentMetadata?.request_updated_at || '');

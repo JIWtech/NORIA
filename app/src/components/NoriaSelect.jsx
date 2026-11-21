@@ -29,24 +29,33 @@ export function NoriaSelect({
   className = '',
   contentClassName = '',
 }) {
-  const selectedOption = options.find((opt) => String(opt.value) === String(value));
+  const normalizedValue = value === null || value === undefined ? '' : String(value);
+  const validOptions = React.useMemo(
+    () => (Array.isArray(options) ? options : []).filter(
+      (opt) => opt && opt.value !== undefined && opt.value !== null && String(opt.value) !== '',
+    ),
+    [options],
+  );
+  const selectedOption = normalizedValue !== ''
+    ? validOptions.find((opt) => String(opt.value) === normalizedValue)
+    : undefined;
 
-  const hasCategories = options.some((opt) => Boolean(opt.category));
+  const hasCategories = validOptions.some((opt) => Boolean(opt.category));
   const groups = React.useMemo(() => {
     if (!hasCategories) {
-      return [{ category: null, items: options }];
+      return [{ category: null, items: validOptions }];
     }
     const map = new Map();
-    for (const opt of options) {
+    for (const opt of validOptions) {
       const cat = opt.category || 'Outros';
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat).push(opt);
     }
     return Array.from(map.entries()).map(([category, items]) => ({ category, items }));
-  }, [options, hasCategories]);
+  }, [validOptions, hasCategories]);
 
   return (
-    <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
+    <Select.Root value={normalizedValue} onValueChange={onValueChange} disabled={disabled}>
       <Select.Trigger
         className={`noria-select-trigger ${className}`}
         aria-label={ariaLabel}

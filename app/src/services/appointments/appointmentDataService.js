@@ -2,6 +2,7 @@ export function createAppointmentDataService({ getClient, loadTenant }) {
 async function loadAppointmentScheduling(activeTenantSlug) {
   const supabase = getClient();
   if (!supabase) throw new Error('Supabase nao configurado');
+  if (!String(activeTenantSlug || '').trim()) throw new Error('Tenant ativo nao informado');
   const tenant = await loadTenant(activeTenantSlug);
   if (!tenant) throw new Error('Tenant nao encontrado');
   const { data, error } = await supabase.from('tenant_settings').select('settings').eq('tenant_id', tenant.id).maybeSingle();
@@ -15,11 +16,12 @@ async function loadAppointmentScheduling(activeTenantSlug) {
 }
 
 async function loadAppointmentAvailability(tenantId, unitId, serviceId, date) {
+  if (!tenantId) throw new Error('Tenant ativo nao informado');
   const { data, error } = await getClient().rpc('magia_appointment_availability', {
     p_tenant: tenantId, p_unit: unitId, p_service: serviceId, p_date: date,
   });
   if (error) throw error;
-  return data.available_starts;
+  return Array.isArray(data?.available_starts) ? data.available_starts : [];
 }
 
 async function loadTenantSettings(tenantSlug) {

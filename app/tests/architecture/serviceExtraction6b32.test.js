@@ -101,7 +101,7 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
   assert.equal(assignmentStats.effectCount, 0);
 
   assert.equal(readTrackerStats.stateCount, 0);
-  assert.equal(readTrackerStats.refCount, 2, 'useConversationReadTracker concentra conversationViewRef e conversationReadTimersRef');
+  assert.equal(readTrackerStats.refCount, 3, 'useConversationReadTracker inclui a ref de refreshData atual para rollback');
   assert.equal(readTrackerStats.effectCount, 1, 'useConversationReadTracker concentra o efeito de limpeza dos timers de leitura');
 
   assert.equal(
@@ -111,8 +111,8 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
   );
   assert.equal(
     appStats.refCount + kanbanStats.refCount + assignmentStats.refCount + readTrackerStats.refCount,
-    7,
-    'Total de useRef preservado em 7 entre App.jsx e hooks extraídos',
+    8,
+    'Total de useRef atualizado para 8 entre App.jsx e hooks extraídos',
   );
   assert.equal(
     appStats.effectCount + kanbanStats.effectCount + assignmentStats.effectCount + readTrackerStats.effectCount,

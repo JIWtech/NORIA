@@ -26,6 +26,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   async function upsertBroadcastContacts(activeTenantSlug, contacts) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
+    if (!String(activeTenantSlug || '').trim()) throw new Error('Tenant ativo nao informado');
     const tenant = await loadTenant(activeTenantSlug);
     if (!tenant) throw new Error('Tenant nao encontrado');
     const clean = contacts
@@ -53,6 +54,7 @@ export function createBroadcastOperations({ getClient, loadTenant, currentUserId
   async function createBroadcastCampaign(activeTenantSlug, campaign, recipients) {
     const supabase = getClient();
     if (!supabase) throw new Error('Supabase nao configurado');
+    if (!String(activeTenantSlug || '').trim()) throw new Error('Tenant ativo nao informado');
     const tenant = await loadTenant(activeTenantSlug);
     if (!tenant) throw new Error('Tenant nao encontrado');
     const userId = await currentUserId();

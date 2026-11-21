@@ -1,11 +1,12 @@
 import { getValidatedSession } from './auth/authService.js';
 import { isEligibleForExternalOutbound } from './timeline/eventClassification.js';
 
+const runtimeEnv = (typeof import.meta !== 'undefined' && import.meta.env) || {};
 const env = {
-  supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
-  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-  n8nBaseUrl: import.meta.env.VITE_N8N_BASE_URL || 'http://localhost:5678',
-  tenantSlug: import.meta.env.VITE_TENANT_SLUG || 'jiw',
+  supabaseUrl: runtimeEnv.VITE_SUPABASE_URL || '',
+  supabaseAnonKey: runtimeEnv.VITE_SUPABASE_ANON_KEY || '',
+  n8nBaseUrl: runtimeEnv.VITE_N8N_BASE_URL || 'http://localhost:5678',
+  tenantSlug: runtimeEnv.VITE_TENANT_SLUG || 'jiw',
 };
 
 export function getIntegrationStatus(activeTenantSlug = env.tenantSlug) {
@@ -18,6 +19,10 @@ export function getIntegrationStatus(activeTenantSlug = env.tenantSlug) {
 }
 
 async function sendCommand(command, payload, activeTenantSlug, { external = true } = {}) {
+  const tenantSlug = String(activeTenantSlug || '').trim();
+  if (!tenantSlug) {
+    throw new Error('Tenant ativo não informado para enviar comando.');
+  }
   const outboundCandidate = {
     ...payload,
     event_type: payload?.event_type || command,
@@ -35,7 +40,7 @@ async function sendCommand(command, payload, activeTenantSlug, { external = true
   }
 
   if (isKanbanFlowCommand) {
-    console.info('[Kanban flow] command request', { command, endpoint: url, tenantSlug: activeTenantSlug, payload });
+    console.info('[Kanban flow] command request', { command, endpoint: url, tenantSlug, payload });
   }
 
   const post = (accessToken) => fetch(url, {
@@ -45,7 +50,7 @@ async function sendCommand(command, payload, activeTenantSlug, { external = true
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      tenant_slug: activeTenantSlug,
+      tenant_slug: tenantSlug,
       command,
       payload,
     }),
@@ -92,19 +97,19 @@ async function sendCommand(command, payload, activeTenantSlug, { external = true
   return data;
 }
 
-export async function sendN8nCommand(command, payload, activeTenantSlug = env.tenantSlug) {
+export async function sendN8nCommand(command, payload, activeTenantSlug) {
   return sendCommand(command, payload, activeTenantSlug, { external: true });
 }
 
-export async function requestKanbanFlowSuggestion(payload, activeTenantSlug = env.tenantSlug) {
+export async function requestKanbanFlowSuggestion(payload, activeTenantSlug) {
   return sendCommand('suggest_kanban_flow_order', payload, activeTenantSlug, { external: false });
 }
 
-export async function applyKanbanFlowOrder(payload, activeTenantSlug = env.tenantSlug) {
+export async function applyKanbanFlowOrder(payload, activeTenantSlug) {
   return sendCommand('apply_kanban_flow_order', payload, activeTenantSlug, { external: false });
 }
 
-export async function requestCatalogProductRefresh(payload, activeTenantSlug = env.tenantSlug) {
+export async function requestCatalogProductRefresh(payload, activeTenantSlug) {
   return sendCommand('refresh_whatsapp_catalog_products', payload, activeTenantSlug, { external: false });
 }
 

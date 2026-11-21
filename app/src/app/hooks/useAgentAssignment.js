@@ -1,7 +1,27 @@
 import { sendN8nCommand } from '../../services/integration.js';
-import { isGenesisSalesTenant, moveKanbanCard } from '../../dataService';
+import { isGenesisSalesTenant, moveKanbanCard } from '../../dataService.js';
 import { requirePersistedAssignment } from '../../services/conversations/conversationLifecycle.js';
-import { isSameScope } from '../appScope';
+import { normalizeChannel } from '../../services/identity/conversationIdentity.js';
+import { isSameScope } from '../appScope.js';
+
+export function matchesConversationCard(card, selectedConversation) {
+  if (!card || !selectedConversation) return false;
+  if (card.tenantSlug && selectedConversation.tenantSlug && card.tenantSlug !== selectedConversation.tenantSlug) return false;
+  const cardChannel = card.channelType || card.channel;
+  const convChannel = selectedConversation.channelType || selectedConversation.channel;
+  if (cardChannel && convChannel && normalizeChannel(cardChannel).type !== normalizeChannel(convChannel).type) return false;
+  if (
+    (selectedConversation.canonicalKey && card.canonicalKey === selectedConversation.canonicalKey)
+    || (selectedConversation.id && card.id === selectedConversation.id)
+  ) {
+    return true;
+  }
+  if (!cardChannel || !convChannel) return false;
+  return Boolean(
+    (selectedConversation.normalizedExternalId && card.normalizedExternalId === selectedConversation.normalizedExternalId)
+    || (selectedConversation.externalConversationId && card.externalConversationId === selectedConversation.externalConversationId)
+  );
+}
 
 export function useAgentAssignment({
   activeTenantSlug,
@@ -76,12 +96,7 @@ export function useAgentAssignment({
       const nextKanbanColumns = (prev.kanbanColumns || []).map((col) => ({
         ...col,
         cards: (col.cards || []).map((card) => {
-          if (
-            card.canonicalKey === selectedConversation?.canonicalKey
-            || (selectedConversation?.normalizedExternalId && card.normalizedExternalId === selectedConversation.normalizedExternalId)
-            || (selectedConversation?.externalConversationId && card.externalConversationId === selectedConversation.externalConversationId)
-            || card.id === selectedConversation?.id
-          ) {
+          if (matchesConversationCard(card, selectedConversation)) {
             return {
               ...card,
               owner: agent.name,
