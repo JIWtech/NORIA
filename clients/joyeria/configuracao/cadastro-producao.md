@@ -30,6 +30,14 @@ Executado em 2026-11-21, com autorização explícita do responsável.
    clientes). Backup e recibos em `.local/deploy_backups/retail-joyeria-2026-11-21T02-18-33-035Z/`. Regerar com
    `NORIA_RETAIL_EXT_WORKFLOW_ID=vE8rPAAdzkkVzPBG`.
 
+6. **Republicação com as correções da revisão** (2026-11-21, 03:25 UTC): Motor e Roteador por
+   `scripts/publish_retail_chain.cjs` (backup em `.local/deploy_backups/retail-joyeria-2026-11-21T03-25-26-498Z/`) e
+   EXT `vE8rPAAdzkkVzPBG` (backup em `.local/deploy_backups/ext-joyeria-2026-11-21T03-26-04-185Z/`), com código conferido
+   depois de publicado. Commits `499901a` e `c6512d0`.
+7. **Evolution, instância `joyeria`**: conectada ao número de teste da loja (21 96661-4251); `groupsIgnore: true`
+   (confirmado em `settings/find`); webhook ainda desligado (aguarda o ingresso). Especialista: 22 99796-3611 (Joyce).
+   Testes: várias pessoas escrevem para o número da loja → ativar o pipeline com `rollout: "all"` (número só de teste).
+
 ## Falta (cada item exige autorização)
 
 - Produtos do site (prata, aço, semijoias) e suas fotos, quando o responsável decidir.
