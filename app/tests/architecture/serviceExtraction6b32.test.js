@@ -26,9 +26,11 @@ test('6B.32 integridade do roteamento visual e ciclo de vida das 7 páginas em A
 
   // Cada página recebe dados e callbacks legítimos de App.jsx
   assert.match(appCode, /tenantSlug=\{activeTenantSlug\}/);
-  assert.match(appCode, /tenantSettings=\{tenantSettings\}/);
+  // As páginas recebem só dados do escopo atual (usuário + tenant), nunca o estado bruto de outro escopo.
+  assert.match(appCode, /tenantSettings=\{scopedTenantSettings\}/);
   assert.match(appCode, /allowedChannels=\{allowedChannels\}/);
-  assert.match(appCode, /ready=\{appDataReady\}/);
+  assert.match(appCode, /ready=\{scopedReady\}/);
+  assert.doesNotMatch(appCode, /ready=\{appDataReady\}/);
 });
 
 test('6B.32 comprovação contratual de impedimento para extração de roteador intermediário', () => {
@@ -81,8 +83,8 @@ test('6B.32 fechamento de App.jsx: AST limpa, orquestração coesa e estabilidad
   assert.ok(bootstrap && subscription && bootstrap !== subscription);
   assert.match(effectBody(bootstrap), /refreshData\(\{ showLoading: false \}\)/);
   assert.doesNotMatch(effectBody(subscription), /setDataScope\(scopeKey\)/);
-  assert.match(appCode.slice(subscription.arguments[1].start, subscription.arguments[1].end), /appData\?\.tenantId/);
-  assert.doesNotMatch(appCode.slice(bootstrap.arguments[1].start, bootstrap.arguments[1].end), /appData\?\.tenantId/);
+  assert.match(appCode.slice(subscription.arguments[1].start, subscription.arguments[1].end), /scopedData\?\.tenantId/);
+  assert.doesNotMatch(appCode.slice(bootstrap.arguments[1].start, bootstrap.arguments[1].end), /(?:appData|scopedData)\?\.tenantId/);
   assert.match(appCode, /const fullyLoadedScope = useRef\(''\)/);
 
   // Validação da integração com componentes modulares do shell

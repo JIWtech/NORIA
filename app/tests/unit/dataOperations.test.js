@@ -69,7 +69,7 @@ test('contact avatars keep their tenant scope and nullable-handle exclusion with
   assert.ok(calls.some((call) => call.join('|') === 'not|external_handle|is|'));
 });
 
-test('contatos iniciam até três lotes, preservam ordem e toleram falha de um lote', async () => {
+test('contatos iniciam até três lotes e propagam falha de um lote', async () => {
   const pending = [];
   const queries = [];
   const client = { from() {
@@ -86,16 +86,17 @@ test('contatos iniciam até três lotes, preservam ordem e toleram falha de um l
   } };
   const events = Array.from({ length: 800 }, (_, i) => ({ channel_type: 'whatsapp', external_conversation_id: `5511${String(i).padStart(8, '0')}@s.whatsapp.net` }));
   const loading = loadRelevantContacts(client, 'tenant-a', events);
+  const rejected = assert.rejects(loading, /carregar os contatos/);
   await new Promise(resolve => setImmediate(resolve));
   try {
     assert.equal(pending.length, 3);
     pending[2]({ data: [{ id: 'terceiro' }], error: null });
-    pending[1]({ data: null, error: { message: 'indisponível' } });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(pending.length, 4);
+    pending[1]({ data: null, error: { message: 'indisponível' } });
     pending[3]({ data: [{ id: 'quarto' }], error: null });
     pending[0]({ data: [{ id: 'primeiro' }], error: null });
-    assert.deepEqual((await loading).map(row => row.id), ['primeiro', 'terceiro', 'quarto']);
+    await rejected;
     for (const calls of queries) assert.ok(calls.some(call => call.join('|') === 'eq|tenant_id|tenant-a'));
   } finally {
     for (const resolve of pending) resolve({ data: [], error: null });

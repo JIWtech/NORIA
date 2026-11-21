@@ -66,7 +66,7 @@ export function AppointmentEditDialog({ appointment, timeZone, onClose, onDone }
               <input type="time" value={draft.time} onChange={set('time')} required /></label>
           </div>
           <label className="appointment-field-label"><span className="appointment-label-text">Serviços (separe com +)</span>
-            <input value={draft.servicesText} onChange={set('servicesText')} placeholder="Ex: Corte + Escova" required /></label>
+            <input value={draft.servicesText} onChange={set('servicesText')} placeholder="Ex.: Atendimento inicial" required /></label>
           <label className="appointment-field-label"><span className="appointment-label-text">Profissional</span>
             <input value={draft.professional} onChange={set('professional')} placeholder="Opcional" /></label>
           <label className="textarea-label appointment-field-label"><span className="appointment-label-text">Observações</span>

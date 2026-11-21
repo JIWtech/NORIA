@@ -74,6 +74,7 @@ export function NoriaSelect({
           className={`noria-select-content ${contentClassName}`}
           position="popper"
           sideOffset={6}
+          collisionPadding={8}
           align="start"
         >
           <Select.Viewport className="noria-select-viewport">

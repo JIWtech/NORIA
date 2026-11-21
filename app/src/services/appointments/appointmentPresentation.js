@@ -27,7 +27,7 @@ export function mapAppointment(row) {
 
 function statusAppointmentLabel(status) {
   const labels = {
-    scheduled: 'Agendado', confirmed: 'Confirmado', pending_payment: 'Aguardando sinal', done: 'Concluido',
+    scheduled: 'Agendado', confirmed: 'Confirmado', pending_payment: 'Aguardando sinal', done: 'Concluído',
     cancelled: 'Cancelado', payment_reported: 'Pagamento informado', aguardando_verificacao: 'Pagamento informado',
     no_show: 'Não compareceu', completed: 'Compareceu', pending_confirmation: 'Aguardando confirmação',
   };

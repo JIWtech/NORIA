@@ -1,11 +1,11 @@
 export async function loadUserTenants(client) {
   const { data: auth, error: authError } = await client.auth.getUser();
-  if (authError || !auth?.user?.id) throw new Error('Sessao expirada. Entre novamente.');
+  if (authError || !auth?.user?.id) throw new Error('Sessão expirada. Entre novamente.');
   const { data, error } = await client.from('tenant_members')
     .select('user_id, role, status, tenants(id, slug, name, industry, plan, status)')
     .eq('user_id', auth.user.id)
     .eq('status', 'active');
-  if (error) throw new Error('Nao foi possivel verificar o acesso a empresa.');
+  if (error) throw new Error('Não foi possível verificar o acesso à empresa.');
   return [...new Map((data || [])
     .map(row => {
       const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;

@@ -3,22 +3,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 const root = path.join(import.meta.dirname, '../..');
 const require = createRequire(import.meta.url);
 let React;
 let server;
 let Kanban;
+let cacheDir;
 
 async function setup() {
   if (Kanban) return Kanban;
   const { createServer } = await import('vite');
+  cacheDir = await mkdtemp(path.join(tmpdir(), 'noria-kanban-test-'));
   server = await createServer({
     root,
     configFile: false,
     appType: 'custom',
     logLevel: 'error',
-    server: { middlewareMode: true },
+    cacheDir,
+    server: { middlewareMode: true, hmr: false, ws: false },
   });
   const mod = await server.ssrLoadModule('/src/features/kanban/components/Kanban.jsx');
   React = require('react');
@@ -26,7 +31,10 @@ async function setup() {
   return Kanban;
 }
 
-test.after(async () => { await server?.close(); });
+test.after(async () => {
+  await server?.close();
+  if (cacheDir) await rm(cacheDir, { recursive: true, force: true });
+});
 
 const APPOINTMENT_CARD = {
   id: 'appointment-appt-1',

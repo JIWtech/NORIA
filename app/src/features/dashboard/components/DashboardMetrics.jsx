@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { SkeletonLine } from '../../../components/ui/Skeletons';
 import { buildSparklinePaths, getDashboardMetricsData, getMetricTrendSeries } from '../utils/activityData';
 
 function MetricSparkline({ color, values, id }) {
@@ -86,7 +87,9 @@ export function DashboardMetrics({ conversations = [], ready = true }) {
               <span className="metric-card-badge">{card.badge}</span>
             </div>
             <div className="metric-card-value-row">
-              <strong className="metric-card-value">{ready ? card.value : '—'}</strong>
+              <strong className="metric-card-value">
+                {ready ? card.value : <SkeletonLine width="56px" height="24px" />}
+              </strong>
             </div>
           </div>
           <div className="metric-card-chart-wrap">

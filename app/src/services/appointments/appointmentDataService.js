@@ -18,12 +18,7 @@ async function loadAppointmentAvailability(tenantId, unitId, serviceId, date) {
   const { data, error } = await getClient().rpc('magia_appointment_availability', {
     p_tenant: tenantId, p_unit: unitId, p_service: serviceId, p_date: date,
   });
-  if (error) {
-    if (error.message?.includes('SCHEDULE_NOT_CONFIGURED')) {
-      return ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
-    }
-    throw error;
-  }
+  if (error) throw error;
   return data.available_starts;
 }
 

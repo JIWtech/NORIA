@@ -21,7 +21,7 @@ const row = (overrides = {}) => ({
 });
 
 test('unauthenticated access fails closed', async () => {
-  await assert.rejects(loadUserTenants(client([], null, null)), /Sessao expirada/);
+  await assert.rejects(loadUserTenants(client([], null, null)), /Sessão expirada/);
 });
 test('no membership returns no company, never a demo tenant', async () => {
   assert.deepEqual(await loadUserTenants(client([])), []);

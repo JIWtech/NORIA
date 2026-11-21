@@ -1,6 +1,7 @@
 import { userFacingError } from '../utils/userFacingError.js';
 import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Building2,
   CalendarDays,
   KanbanSquare,
@@ -84,13 +85,22 @@ import {
   appDataCachePrefix,
   appDataSignature,
   cacheAppData,
+  clearAppDataCache,
   clearSessionBootstrapped,
+  createEmptyAppData,
   getInitialActivePage,
   getInitialAppData,
   isSessionBootstrapped,
   loadCachedAppData,
   setSessionBootstrapped,
 } from './appStorage';
+import {
+  buildScopeKey,
+  isSameScope,
+  resourceErrorsForPage,
+  selectScopedAppData,
+  withScopeKey,
+} from './appScope';
 import { AppNavigation } from './AppNavigation';
 import { AppTopbar } from './AppTopbar';
 
@@ -191,14 +201,16 @@ function App() {
     : (tenantAccess.loaded && !availableTenants.some((tenant) => tenant.slug === activeTenantSlug)
       ? 'A empresa selecionada não está disponível para esta conta.'
       : '');
-  const scopeKey = JSON.stringify([session?.user?.id || 'local', activeTenantSlug]);
+  const scopeKey = buildScopeKey(session?.user?.id, activeTenantSlug);
   const currentScope = useRef(scopeKey);
   const fullyLoadedScope = useRef('');
   const kanbanMoveInFlightRef = useRef(new Set());
   const conversationViewRef = useRef({ canonicalKey: '', visible: false });
   const conversationReadTimersRef = useRef(new Map());
   currentScope.current = hasTenantAccess ? scopeKey : '';
-  const allowedChannels = appData.enabledChannels || [];
+  const emptyScopedData = useMemo(() => createEmptyAppData(), []);
+  const { data: scopedData, ready: scopedReady } = selectScopedAppData(appData, appDataReady, scopeKey, emptyScopedData);
+  const allowedChannels = scopedData.enabledChannels || [];
 
   const [agentsList, setAgentsList] = useState([]);
   const [tenantSettings, setTenantSettings] = useState(null);
@@ -207,13 +219,44 @@ function App() {
   const [prefilledAppointment, setPrefilledAppointment] = useState(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const refreshCoordinator = useMemo(() => createRefreshCoordinator(), []);
+  const scopedTenantSettings = tenantSettings?.scopeKey === scopeKey ? tenantSettings : null;
+  const isCacheSnapshot = scopedReady && scopedData.source === 'cache';
+  const pageResourceErrors = resourceErrorsForPage(scopedData.resourceErrors, active);
+
+  const clearKanbanMovesInFlight = useCallback(() => {
+    const ref = kanbanMoveInFlightRef.current;
+    if (!ref) return;
+    ref.clear();
+    ref.pendingMoves?.clear();
+    ref.confirmedMoves?.clear();
+  }, []);
+
+  const handleTenantChange = useCallback((nextSlug) => {
+    if (!nextSlug || nextSlug === activeTenantSlug) return;
+    persistTenantSlug(nextSlug);
+    fullyLoadedScope.current = '';
+    clearKanbanMovesInFlight();
+    conversationViewRef.current = { canonicalKey: '', visible: false };
+    for (const timer of conversationReadTimersRef.current.values()) window.clearTimeout(timer);
+    conversationReadTimersRef.current.clear();
+    setAppDataReady(false);
+    setInitialConversationId(null);
+    setNotificationCard(null);
+    setPrefilledAppointment(null);
+    setLoadError('');
+    setAgentsReady(false);
+    setAgentsList([]);
+    setTenantSettings(null);
+    setTenantSlug(nextSlug);
+  }, [activeTenantSlug, clearKanbanMovesInFlight]);
 
   const scheduleConversationRead = useCallback((conversation) => {
     const userId = session?.user?.id || null;
+    const requestedScope = currentScope.current;
     const currentAppData = appDataRef.current;
-    const tenantId = currentAppData?.tenantId;
+    const tenantId = currentAppData?.scopeKey === requestedScope ? currentAppData?.tenantId : null;
     const latestEvent = getLatestReadableEvent(conversation);
-    if (!tenantId || !userId || !conversation || !latestEvent?.eventId || !latestEvent?.createdAt) return;
+    if (!requestedScope || !tenantId || !userId || !conversation || !latestEvent?.eventId || !latestEvent?.createdAt) return;
 
     const channelType = conversation.channelType || conversation.channel;
     const externalConversationId = conversation.externalConversationId || conversation.normalizedExternalId;
@@ -235,7 +278,7 @@ function App() {
       last_read_at: latestEvent.createdAt,
     };
     setAppData((previous) => {
-      if (!previous || previous.tenantId !== tenantId) return previous;
+      if (!previous || previous.scopeKey !== requestedScope || previous.tenantId !== tenantId) return previous;
       const previousMarker = (previous.conversationReads || []).find((marker) => conversationReadKey(
         marker.tenant_id,
         marker.user_id,
@@ -255,6 +298,7 @@ function App() {
     if (existingTimer) window.clearTimeout(existingTimer);
     const timer = window.setTimeout(async () => {
       conversationReadTimersRef.current.delete(key);
+      if (!isSameScope(currentScope.current, requestedScope)) return;
       try {
         const persistedMarker = await markConversationRead({
           tenantId,
@@ -262,9 +306,9 @@ function App() {
           externalConversationId,
           lastReadEventId: latestEvent.eventId,
         });
-        if (!persistedMarker) return;
+        if (!persistedMarker || !isSameScope(currentScope.current, requestedScope)) return;
         setAppData((previous) => {
-          if (!previous || previous.tenantId !== tenantId) return previous;
+          if (!previous || previous.scopeKey !== requestedScope || previous.tenantId !== tenantId) return previous;
           const conversationReads = upsertConversationReadMarker(previous.conversationReads || [], persistedMarker);
           return {
             ...previous,
@@ -273,8 +317,10 @@ function App() {
           };
         });
       } catch (error) {
-        console.warn('Nao foi possivel salvar a leitura da conversa:', error.message || error);
-        refreshData({ showLoading: false });
+        console.warn('Não foi possível salvar a leitura da conversa:', error.message || error);
+        if (isSameScope(currentScope.current, requestedScope)) {
+          refreshData({ showLoading: false });
+        }
       }
     }, 180);
     conversationReadTimersRef.current.set(key, timer);
@@ -305,10 +351,21 @@ function App() {
 
   const handleSignOut = async () => {
     clearSessionBootstrapped();
+    clearAppDataCache();
+    clearKanbanMovesInFlight();
+    fullyLoadedScope.current = '';
+    conversationViewRef.current = { canonicalKey: '', visible: false };
     setAvailableTenants([]);
     setTenantAccess({ userId: null, loaded: false, error: '' });
     setDataScope('');
-    setAppData(getInitialAppData('').data);
+    setAppData(createEmptyAppData());
+    setAppDataReady(false);
+    setAgentsReady(false);
+    setAgentsList([]);
+    setTenantSettings(null);
+    setInitialConversationId(null);
+    setNotificationCard(null);
+    setPrefilledAppointment(null);
     setSession(null);
     clearTenantSlug();
     setTenantSlug(null);
@@ -332,7 +389,7 @@ function App() {
   const handleOpenAppointmentFromKanban = useCallback((card) => {
     setPrefilledAppointment({
       contactName: card.title || '',
-      title: card.service || card.subtitle || 'Bronzeamento',
+      title: card.service || card.subtitle || 'Atendimento inicial',
       notes: `Agendamento via Kanban (${card.stage || 'Qualificação'})`,
       selectedConversationId: card.externalConversationId || '',
     });
@@ -345,6 +402,8 @@ function App() {
   }, [scopeKey]);
 
   const handleMoveKanbanCard = async (card, targetColumnKey, targetColObj = null) => {
+    const requestedScope = currentScope.current;
+    if (!requestedScope) return;
     const currentColumn = String(card.targetColumnId || card.stage || '');
     if (currentColumn === targetColumnKey || (targetColObj && currentColumn === targetColObj.id)) return;
 
@@ -356,8 +415,8 @@ function App() {
     if (kanbanMoveInFlightRef.current.has(moveKey)) return;
     kanbanMoveInFlightRef.current.add(moveKey);
     const targetStageLabel = targetColObj?.title || getStageLabel(targetColumnKey, {
-      kanbanColumns: appDataRef.current?.kanbanColumns || appData.kanbanColumns,
-      tenantSettings,
+      kanbanColumns: (appDataRef.current?.scopeKey === requestedScope ? appDataRef.current?.kanbanColumns : null) || scopedData.kanbanColumns,
+      tenantSettings: scopedTenantSettings,
       tenantSlug: activeTenantSlug,
     });
     if (!kanbanMoveInFlightRef.current.pendingMoves) {
@@ -376,10 +435,10 @@ function App() {
 
     // Atualização otimista no estado local
     setAppData((prev) => {
-      if (!prev?.kanbanColumns) return prev;
+      if (!prev?.kanbanColumns || prev.scopeKey !== requestedScope) return prev;
       const targetStageLabel = targetColObj?.title || getStageLabel(targetColumnKey, {
         kanbanColumns: prev.kanbanColumns,
-        tenantSettings,
+        tenantSettings: scopedTenantSettings,
         tenantSlug: activeTenantSlug,
       });
       const isClosedTarget = targetColumnKey === 'finalizadas'
@@ -455,6 +514,7 @@ function App() {
 
     try {
       const [persistedMove] = await moveKanbanCard(activeTenantSlug, card, targetColumnKey, null, targetColObj);
+      if (!isSameScope(currentScope.current, requestedScope)) return;
       const currentPending = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
       if (currentPending && currentPending.moveSeq === moveSeq) {
         currentPending.inFlight = false;
@@ -472,38 +532,42 @@ function App() {
         confirmedAt: Date.now(),
       });
       if (persistedMove?.salesLeadId) {
-        setAppData((prev) => ({
-          ...prev,
-          kanbanColumns: (prev?.kanbanColumns || []).map((column) => ({
-            ...column,
-            cards: (column.cards || []).map((currentCard) => currentCard.id === card.id
-              ? {
-                ...currentCard,
-                salesLeadId: persistedMove.salesLeadId,
-                salesStageKey: persistedMove.salesStageKey,
-                salesRevision: persistedMove.salesRevision,
-                salesAiLocked: persistedMove.salesAiLocked,
-              }
-              : currentCard),
-          })),
-          conversations: (prev?.conversations || []).map((conv) => {
-            const matches = conv.id === card.id
-              || conv.id === card.conversationId
-              || conv.id === `conv-${card.canonicalKey}`
-              || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
-              || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
-              || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
-            if (!matches) return conv;
-            return {
-              ...conv,
-              salesStageKey: persistedMove.salesStageKey || conv.salesStageKey,
-              salesAiLocked: typeof persistedMove.salesAiLocked === 'boolean' ? persistedMove.salesAiLocked : conv.salesAiLocked,
-            };
-          }),
-        }));
+        setAppData((prev) => {
+          if (!prev || prev.scopeKey !== requestedScope) return prev;
+          return {
+            ...prev,
+            kanbanColumns: (prev?.kanbanColumns || []).map((column) => ({
+              ...column,
+              cards: (column.cards || []).map((currentCard) => currentCard.id === card.id
+                ? {
+                  ...currentCard,
+                  salesLeadId: persistedMove.salesLeadId,
+                  salesStageKey: persistedMove.salesStageKey,
+                  salesRevision: persistedMove.salesRevision,
+                  salesAiLocked: persistedMove.salesAiLocked,
+                }
+                : currentCard),
+            })),
+            conversations: (prev?.conversations || []).map((conv) => {
+              const matches = conv.id === card.id
+                || conv.id === card.conversationId
+                || conv.id === `conv-${card.canonicalKey}`
+                || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
+                || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
+                || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
+              if (!matches) return conv;
+              return {
+                ...conv,
+                salesStageKey: persistedMove.salesStageKey || conv.salesStageKey,
+                salesAiLocked: typeof persistedMove.salesAiLocked === 'boolean' ? persistedMove.salesAiLocked : conv.salesAiLocked,
+              };
+            }),
+          };
+        });
       }
     } catch (err) {
       console.warn('Falha ao salvar movimentação de card no banco:', err);
+      if (!isSameScope(currentScope.current, requestedScope)) return;
       const current = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
       if (current && current.moveSeq === moveSeq) {
         kanbanMoveInFlightRef.current.pendingMoves.delete(card.id);
@@ -515,6 +579,7 @@ function App() {
     } finally {
       kanbanMoveInFlightRef.current.delete(moveKey);
       window.setTimeout(() => {
+        if (!isSameScope(currentScope.current, requestedScope)) return;
         const current = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
         if (current && current.moveSeq === moveSeq) {
           kanbanMoveInFlightRef.current.pendingMoves.delete(card.id);
@@ -524,19 +589,26 @@ function App() {
   };
 
   const handleKanbanOrderApplied = (orderedAutomationKeys) => {
+    const requestedScope = currentScope.current;
     const positions = new Map(orderedAutomationKeys.map((key, index) => [key, index]));
-    setAppData((prev) => ({
-      ...prev,
-      kanbanColumns: [...(prev?.kanbanColumns || [])]
-        .map((column) => ({ ...column, position: positions.get(column.automationKey || column.id) }))
-        .sort((left, right) => left.position - right.position),
-    }));
+    setAppData((prev) => {
+      if (!prev || prev.scopeKey !== requestedScope) return prev;
+      return {
+        ...prev,
+        kanbanColumns: [...(prev?.kanbanColumns || [])]
+          .map((column) => ({ ...column, position: positions.get(column.automationKey || column.id) }))
+          .sort((left, right) => left.position - right.position),
+      };
+    });
   };
 
   const handleFinishConversationFromKanban = async (card) => {
+    const requestedScope = currentScope.current;
+    if (!requestedScope) return;
     if (isGenesisSalesTenant(activeTenantSlug)) {
       try {
         await moveKanbanCard(activeTenantSlug, card, 'conversation_closed');
+        if (!isSameScope(currentScope.current, requestedScope)) return;
         refreshData({ showLoading: false });
       } catch (err) {
         console.warn('Falha ao encerrar conversa do Kanban:', err);
@@ -556,26 +628,29 @@ function App() {
   useEffect(() => {
     let active = true;
     if (!hasTenantAccess) return undefined;
+    const requestedScope = scopeKey;
     setAgentsReady(false);
     setAgentsList([]);
     setTenantSettings(null);
     loadTeamAgents(activeTenantSlug)
       .then((list) => {
-        if (active) {
+        if (active && isSameScope(currentScope.current, requestedScope)) {
           setAgentsList(list);
           setAgentsReady(true);
         }
       })
       .catch(() => {
-        if (active) setAgentsReady(true);
+        if (active && isSameScope(currentScope.current, requestedScope)) setAgentsReady(true);
       });
     loadTenantSettings(activeTenantSlug)
       .then((settings) => {
-        if (active) setTenantSettings(settings);
+        if (active && isSameScope(currentScope.current, requestedScope)) {
+          setTenantSettings(settings ? { ...settings, scopeKey: requestedScope } : null);
+        }
       })
       .catch((err) => {
-        console.warn('Falha ao carregar configuracoes do tenant:', err);
-        if (active) setTenantSettings(null);
+        console.warn('Falha ao carregar configurações do tenant:', err);
+        if (active && isSameScope(currentScope.current, requestedScope)) setTenantSettings(null);
       });
     return () => {
       active = false;
@@ -583,28 +658,37 @@ function App() {
   }, [activeTenantSlug, session?.user?.id, hasTenantAccess]);
 
   async function handleAddAgent(newAgent) {
+    const requestedScope = currentScope.current;
     const saved = await saveTeamAgent(activeTenantSlug, newAgent);
+    if (!isSameScope(currentScope.current, requestedScope)) return;
     setAgentsList((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
   }
 
   async function handleToggleAgentStatus(agentId) {
+    const requestedScope = currentScope.current;
     const agent = agentsList.find((ag) => ag.id === agentId);
     const newStatus = agent?.status === 'online' ? 'standby' : 'online';
     setAgentsList((prev) => prev.map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag));
     await updateTeamAgentStatus(agentId, newStatus, activeTenantSlug);
+    if (!isSameScope(currentScope.current, requestedScope)) return;
   }
 
   async function handleDeleteAgent(agentId) {
+    const requestedScope = currentScope.current;
     setAgentsList((prev) => prev.filter((ag) => ag.id !== agentId));
     await removeTeamAgent(agentId, activeTenantSlug);
+    if (!isSameScope(currentScope.current, requestedScope)) return;
   }
 
   async function handleAssignAgent(conversationOrId, agent) {
+    const requestedScope = currentScope.current;
+    if (!requestedScope) return;
+    const scopedRefData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
     const selectedConversation = typeof conversationOrId === 'object'
       ? conversationOrId
-      : (appDataRef.current?.conversations || []).find((conv) => conv.id === conversationOrId);
+      : (scopedRefData?.conversations || []).find((conv) => conv.id === conversationOrId);
     const conversationId = selectedConversation?.id || conversationOrId;
-    const request = tenantSettings?.tenantId === appDataRef.current?.tenantId ? tenantSettings?.settings?.appointment_request : null;
+    const request = scopedTenantSettings?.tenantId === scopedRefData?.tenantId ? scopedTenantSettings?.settings?.appointment_request : null;
     const reviewOnly = (selectedConversation?.channelType || selectedConversation?.channel?.toLowerCase()) === 'whatsapp'
       && request?.mode === 'operator_confirmation' && request.team_review_control === 'manual_reply';
 
@@ -615,6 +699,7 @@ function App() {
       } catch (e) {
         console.warn('Falha ao sincronizar etapa Genesis com sales_human:', e.message || e);
       }
+      if (!isSameScope(currentScope.current, requestedScope)) return;
     }
     // A tela só mostra o responsável depois que o roteador confirma o evento que pausa a IA.
     // Sem confirmação, o erro sobe para quem clicou: "assumido" na tela com a IA ativa é o pior caso.
@@ -622,7 +707,7 @@ function App() {
       channel_type: selectedConversation.channelType || selectedConversation.channel?.toLowerCase(),
       external_conversation_id: selectedConversation.externalConversationId || selectedConversation.id.replace(/^conv-/, ''),
       contact_name: selectedConversation.contact,
-      message_text: `Conversa atribuida a ${agent.name}`,
+      message_text: `Conversa atribuída a ${agent.name}`,
       sent_by_user: agent.name,
       assignee: {
         id: agent.id,
@@ -631,9 +716,10 @@ function App() {
       },
     }, activeTenantSlug);
     requirePersistedAssignment(result, { reviewOnly });
+    if (!isSameScope(currentScope.current, requestedScope)) return;
 
     setAppData((prev) => {
-      if (reviewOnly) return prev;
+      if (reviewOnly || !prev || prev.scopeKey !== requestedScope) return prev;
       const nextConversations = prev.conversations.map((conv) => {
         if (conv.id === conversationId) {
           const newMessages = [
@@ -681,11 +767,15 @@ function App() {
       };
     });
 
-    if (!reviewOnly) setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
+    if (!reviewOnly && isSameScope(currentScope.current, requestedScope)) {
+      setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
+    }
 
     // A atribuição já está gravada; falha só no recarregamento não desfaz nem esconde a confirmação.
     try {
-      await refreshData();
+      if (isSameScope(currentScope.current, requestedScope)) {
+        await refreshData();
+      }
     } catch (error) {
       console.warn('Atribuição confirmada, mas o recarregamento falhou:', error.message || error);
     }
@@ -695,9 +785,11 @@ function App() {
     if (!isAuthRequired()) return undefined;
     let mounted = true;
     let authSeq = 0;
+    let currentUserId = null;
     const initialSeq = ++authSeq;
     getCurrentSession().then((currentSession) => {
       if (!mounted || authSeq !== initialSeq) return;
+      currentUserId = currentSession?.user?.id || null;
       setSession(currentSession);
       setCheckingAuth(false);
       if (currentSession) {
@@ -710,6 +802,22 @@ function App() {
       if (!mounted) return;
       authSeq += 1;
       if (event === 'SIGNED_OUT') {
+        currentUserId = null;
+        clearAppDataCache();
+        clearKanbanMovesInFlight();
+        fullyLoadedScope.current = '';
+        conversationViewRef.current = { canonicalKey: '', visible: false };
+        setAvailableTenants([]);
+        setTenantAccess({ userId: null, loaded: false, error: '' });
+        setDataScope('');
+        setAppData(createEmptyAppData());
+        setAppDataReady(false);
+        setAgentsReady(false);
+        setAgentsList([]);
+        setTenantSettings(null);
+        setInitialConversationId(null);
+        setNotificationCard(null);
+        setPrefilledAppointment(null);
         setSession(null);
         setCheckingAuth(false);
         clearSessionBootstrapped();
@@ -719,11 +827,25 @@ function App() {
         setCheckingAuth(false);
         return;
       }
+      const nextUserId = nextSession?.user?.id || null;
+      if (currentUserId && nextUserId && currentUserId !== nextUserId) {
+        clearAppDataCache();
+        clearKanbanMovesInFlight();
+        fullyLoadedScope.current = '';
+        conversationViewRef.current = { canonicalKey: '', visible: false };
+        setDataScope('');
+        setTenantAccess({ userId: nextUserId, loaded: false, error: '' });
+        setAppData(createEmptyAppData());
+        setAppDataReady(false);
+        setAgentsReady(false);
+        setAgentsList([]);
+        setTenantSettings(null);
+        setInitialConversationId(null);
+        setNotificationCard(null);
+        setPrefilledAppointment(null);
+      }
+      currentUserId = nextUserId;
       setSession((prevSession) => {
-        if (prevSession?.user?.id && nextSession?.user?.id && prevSession.user.id !== nextSession.user.id) {
-          setTenantAccess({ userId: nextSession.user.id, loaded: false, error: '' });
-          setAppDataReady(false);
-        }
         if (
           prevSession?.access_token === nextSession?.access_token &&
           prevSession?.user?.id === nextSession?.user?.id
@@ -754,7 +876,7 @@ function App() {
     return refreshCoordinator.run(requestedScope, async (requestedResources) => {
       if (showLoading) setLoading(true);
       try {
-        const currentData = appDataRef.current;
+        const currentData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
         const partialResources = selectPartialRefresh(requestedResources, currentData, fullyLoadedScope.current, requestedScope);
         const expectedTenantId = currentData?.tenantId;
         const data = await loadClientData({
@@ -771,13 +893,13 @@ function App() {
           // Conversas sem atividade há mais de 30 dias só entram quando a pessoa pede (desempenho em tenants grandes).
           includeOlderConversations: includeOlderConversationsRef.current,
         });
-        if (currentScope.current !== requestedScope) return false;
+        if (!isSameScope(currentScope.current, requestedScope)) return false;
         if (partialResources) {
           if (!mergeCampaignPatch(appDataRef.current, data, expectedTenantId)) return false;
           setLoadError('');
           setAppData((previous) => {
-            if (currentScope.current !== requestedScope || previous?.tenantId !== expectedTenantId) return previous;
-            const merged = mergeCampaignPatch(previous, data, expectedTenantId);
+            if (!isSameScope(currentScope.current, requestedScope) || previous?.scopeKey !== requestedScope || previous?.tenantId !== expectedTenantId) return previous;
+            const merged = withScopeKey(mergeCampaignPatch(previous, data, expectedTenantId), requestedScope);
             if (!merged) return previous;
             cacheAppData(activeTenantSlug, merged, session?.user?.id || null);
             return appDataSignature(previous) === appDataSignature(merged) ? previous : merged;
@@ -785,29 +907,39 @@ function App() {
           return true;
         }
         setLoadError('');
-        const reconciled = preserveLocalMediaStates(
-          appDataRef.current,
-          reconcilePendingKanbanMoves(
-            data,
-            kanbanMoveInFlightRef.current.pendingMoves,
-            kanbanMoveInFlightRef.current.confirmedMoves
+        const previousForScope = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
+        const reconciled = withScopeKey(
+          preserveLocalMediaStates(
+            previousForScope,
+            reconcilePendingKanbanMoves(
+              data,
+              kanbanMoveInFlightRef.current.pendingMoves,
+              kanbanMoveInFlightRef.current.confirmedMoves
+            ),
           ),
+          requestedScope,
         );
-        cacheAppData(activeTenantSlug, reconciled, session?.user?.id || null);
+        if (!reconciled.resourceErrors?.length) {
+          cacheAppData(activeTenantSlug, reconciled, session?.user?.id || null);
+        } else if (previousForScope?.source === 'cache') {
+          reconciled.source = 'cache';
+        }
         // A fila pode continuar antes do próximo render; publique o mesmo snapshot
         // usado pelo estado antes de permitir uma recarga parcial desse escopo.
         appDataRef.current = reconciled;
-        fullyLoadedScope.current = requestedScope;
-        refreshCoordinator.markFresh(requestedScope);
+        fullyLoadedScope.current = reconciled.resourceErrors?.length ? '' : requestedScope;
+        if (!reconciled.resourceErrors?.length) refreshCoordinator.markFresh(requestedScope);
         setAppData((previous) => (
-          appDataSignature(previous) === appDataSignature(reconciled) ? previous : reconciled
+          previous?.scopeKey === requestedScope && appDataSignature(previous) === appDataSignature(reconciled)
+            ? previous
+            : reconciled
         ));
         return true;
       } catch (error) {
-        if (currentScope.current === requestedScope) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
+        if (isSameScope(currentScope.current, requestedScope)) setLoadError(userFacingError(error, 'Falha ao carregar os dados.'));
         return false;
       } finally {
-        if (currentScope.current === requestedScope) {
+        if (isSameScope(currentScope.current, requestedScope)) {
           setAppDataReady(true);
           if (showLoading) setLoading(false);
         }
@@ -815,10 +947,11 @@ function App() {
     }, resources);
   }
 
-  const updateConversationMessageMedia = useCallback((eventId, nextMedia) => {
+  const updateConversationMessageMedia = useCallback((eventId, nextMedia, expectedScope = null) => {
     if (!eventId || !nextMedia) return;
     setAppData((previous) => {
       if (!previous?.conversations) return previous;
+      if (expectedScope && previous.scopeKey !== expectedScope) return previous;
       let changed = false;
       const conversationsWithMedia = previous.conversations.map((conversation) => {
         if (!(conversation.messages || []).some((message) => message.eventId === eventId)) return conversation;
@@ -834,24 +967,26 @@ function App() {
   }, []);
 
   const retryConversationMedia = useCallback(async (message) => {
+    const requestedScope = currentScope.current;
     const media = message?.media;
-    if (!message?.eventId || !media?.bucket || !media?.storagePath || media.status !== 'stored') return false;
+    if (!requestedScope || !message?.eventId || !media?.bucket || !media?.storagePath || media.status !== 'stored') return false;
 
-    updateConversationMessageMedia(message.eventId, { loadState: 'resolving' });
+    updateConversationMessageMedia(message.eventId, { loadState: 'resolving' }, requestedScope);
     const retryEvent = {
       id: message.eventId,
       raw_payload: { media: { ...media, url: '' } },
     };
     const enriched = await enrichSingleMediaEvent(retryEvent, undefined, { force: true });
+    if (!isSameScope(currentScope.current, requestedScope)) return false;
     if (hasResolvedMediaUrl(enriched)) {
       updateConversationMessageMedia(message.eventId, {
         ...enriched.raw_payload.media,
         loadState: '',
-      });
+      }, requestedScope);
       return true;
     }
 
-    updateConversationMessageMedia(message.eventId, { loadState: 'retryable_error' });
+    updateConversationMessageMedia(message.eventId, { loadState: 'retryable_error' }, requestedScope);
     return false;
   }, [updateConversationMessageMedia]);
 
@@ -907,10 +1042,19 @@ function App() {
     persistTenantSlug(activeTenantSlug);
     const cached = loadCachedAppData(activeTenantSlug, userId);
     if (cached) {
-      setAppData(cached);
+      const scopedCached = withScopeKey(cached, scopeKey);
+      appDataRef.current = scopedCached;
+      setAppData(scopedCached);
+      setAppDataReady(true);
+    } else if (!hasSupabaseConfig()) {
+      const mockInitial = withScopeKey(getInitialAppData(activeTenantSlug).data, scopeKey);
+      appDataRef.current = mockInitial;
+      setAppData(mockInitial);
       setAppDataReady(true);
     } else {
-      setAppData(getInitialAppData(activeTenantSlug).data);
+      const empty = createEmptyAppData();
+      appDataRef.current = empty;
+      setAppData(empty);
       setAppDataReady(false);
     }
     refreshData({ showLoading: false });
@@ -919,15 +1063,18 @@ function App() {
   useEffect(() => {
     if (!hasTenantAccess || dataScope !== scopeKey) return undefined;
     const userId = session?.user?.id || null;
-    const subscribedTenantId = appData?.tenantId;
+    const requestedScope = scopeKey;
+    const subscribedTenantId = scopedData?.tenantId;
 
     const refreshFromRealtime = createDebouncedRealtimeRefresh((resources) => {
+      if (!isSameScope(currentScope.current, requestedScope)) return;
       refreshData({ showLoading: false, resources });
     });
 
     let cancelled = false;
 
     const applyRealtimeEvent = (incomingEvent) => {
+      if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
       const incomingConversationKey = canonicalConversationKey(
         incomingEvent.channel_type,
         incomingEvent.external_conversation_id,
@@ -937,7 +1084,7 @@ function App() {
       const markIncomingAsRead = conversationViewRef.current.visible
         && conversationViewRef.current.canonicalKey === incomingConversationKey;
       setAppData((prev) => {
-        if (!prev) return prev;
+        if (!prev || prev.scopeKey !== requestedScope) return prev;
         const nextConversations = applyIncomingEventToConversations(
           prev.conversations,
           incomingEvent,
@@ -945,7 +1092,7 @@ function App() {
           {
             markIncomingAsRead,
             kanbanColumns: prev.kanbanColumns,
-            tenantSettings,
+            tenantSettings: scopedTenantSettings,
             teamAgents: prev.teamAgents,
           },
         );
@@ -967,28 +1114,31 @@ function App() {
       for (let attempt = 0; attempt < mediaRetryDelays.length; attempt += 1) {
         const delay = mediaRetryDelays[attempt];
         if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay));
-        if (cancelled) return;
+        if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
 
         const enriched = await enrichSingleMediaEvent(event);
-        if (cancelled) return;
+        if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
         if (hasResolvedMediaUrl(enriched)) {
           applyRealtimeEvent(withLocalMediaLoadState(enriched));
           return;
         }
       }
-      if (!cancelled) applyRealtimeEvent(withLocalMediaLoadState(event, 'retryable_error'));
+      if (!cancelled && isSameScope(currentScope.current, requestedScope)) {
+        applyRealtimeEvent(withLocalMediaLoadState(event, 'retryable_error'));
+      }
     };
 
     const unsubscribe = subscribeToClientEvents(async (payload) => {
-      if (cancelled) return;
+      if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
+      const scopedRefData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
       window.dispatchEvent(new CustomEvent('noria:operator-event', { detail: {
-        tenantId: appDataRef.current?.tenantId, userId, payload,
+        tenantId: scopedRefData?.tenantId, userId, payload,
       } }));
       if (payload?.table === 'channel_events' && payload?.new) {
         const incomingEvent = payload.new;
         const conversationKey = canonicalConversationKey(incomingEvent.channel_type, incomingEvent.external_conversation_id,
           incomingEvent.contact_handle || incomingEvent.id, activeTenantSlug);
-        const knownConversation = appDataRef.current?.conversations?.find((conversation) => conversation.canonicalKey === conversationKey);
+        const knownConversation = scopedRefData?.conversations?.find((conversation) => conversation.canonicalKey === conversationKey);
         const isNewConversation = Boolean(incomingEvent.external_conversation_id) && !knownConversation;
         // Estado antes deste evento: conversa já com a equipe não precisa de recarga completa a cada mensagem.
         const alreadyHumanControlled = knownConversation?.status === 'atendimento_humano';
@@ -1005,19 +1155,20 @@ function App() {
           refreshFromRealtime();
         }
       } else {
-        const resources = realtimeRefreshTargets(payload, appDataRef.current?.tenantId);
+        const resources = realtimeRefreshTargets(payload, scopedRefData?.tenantId);
         if (!resources || resources.length) refreshFromRealtime(resources);
       }
     }, activeTenantSlug, subscribedTenantId);
 
     const unsubscribeConversationReads = subscribeToConversationReads((payload) => {
+      if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
       const marker = payload?.new;
       if (!marker?.tenant_id || !marker?.user_id) {
         refreshFromRealtime();
         return;
       }
       setAppData((prev) => {
-        if (!prev || marker.tenant_id !== prev.tenantId || marker.user_id !== userId) return prev;
+        if (!prev || prev.scopeKey !== requestedScope || marker.tenant_id !== prev.tenantId || marker.user_id !== userId) return prev;
         const conversationReads = upsertConversationReadMarker(prev.conversationReads || [], marker);
         return {
           ...prev,
@@ -1028,12 +1179,15 @@ function App() {
     }, userId);
 
     const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible'
-        && refreshCoordinator.shouldRefreshOnVisibility(scopeKey)) {
+      if (!cancelled
+        && isSameScope(currentScope.current, requestedScope)
+        && document.visibilityState === 'visible'
+        && refreshCoordinator.shouldRefreshOnVisibility(requestedScope)) {
         refreshData({ showLoading: false });
       }
     };
-    const refreshCatalogAfterWrite = (event) => {
+    const refreshCatalogAfterWrite = () => {
+      if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
       refreshFromRealtime();
     };
     document.addEventListener('visibilitychange', refreshWhenVisible);
@@ -1042,14 +1196,16 @@ function App() {
     // para tabelas ainda não cobertas pela subscription. Enquanto a aba estiver
     // oculta, não acumulamos uma carga completa para executar ao retornar.
     const fallbackPolling = window.setInterval(() => {
-      if (document.visibilityState === 'visible') refreshData({ showLoading: false });
+      if (!cancelled && isSameScope(currentScope.current, requestedScope) && document.visibilityState === 'visible') {
+        refreshData({ showLoading: false });
+      }
     }, VISIBILITY_REFRESH_STALE_AFTER_MS);
 
     return () => {
       cancelled = true;
       unsubscribe();
       unsubscribeConversationReads();
-      if (currentScope.current === scopeKey && appDataRef.current?.tenantId !== subscribedTenantId) {
+      if (isSameScope(currentScope.current, requestedScope) && appDataRef.current?.tenantId !== subscribedTenantId) {
         refreshFromRealtime.flush();
       } else {
         refreshFromRealtime.cancel();
@@ -1058,24 +1214,32 @@ function App() {
       window.removeEventListener('noria:catalog-cache-updated', refreshCatalogAfterWrite);
       window.clearInterval(fallbackPolling);
     };
-  }, [activeTenantSlug, session?.user?.id, hasTenantAccess, dataScope, appData?.tenantId]);
+  }, [activeTenantSlug, session?.user?.id, hasTenantAccess, dataScope, scopedData?.tenantId]);
 
-  const activeSubscriptionTenantId = appData?.tenantId;
+  const activeSubscriptionTenantId = scopedData?.tenantId;
   useEffect(() => {
     if (!activeSubscriptionTenantId) return undefined;
+    const requestedScope = scopeKey;
+    let cancelled = false;
 
-    return subscribeToContacts((payload) => {
+    const unsubscribe = subscribeToContacts((payload) => {
+      if (cancelled || !isSameScope(currentScope.current, requestedScope)) return;
       const contact = payload?.new;
       if (!contact || contact.tenant_id !== activeSubscriptionTenantId) return;
       setAppData((prev) => {
-        if (!prev || prev.tenantId !== activeSubscriptionTenantId) return prev;
+        if (!prev || prev.scopeKey !== requestedScope || prev.tenantId !== activeSubscriptionTenantId) return prev;
         return {
           ...prev,
           conversations: applyContactUpdateToConversations(prev.conversations, contact, activeSubscriptionTenantId),
         };
       });
     }, activeSubscriptionTenantId);
-  }, [activeSubscriptionTenantId]);
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [activeSubscriptionTenantId, scopeKey]);
 
   const hasBootstrapped = isSessionBootstrapped();
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -1142,10 +1306,7 @@ function App() {
         <div className="auth-tenant-selector">
           <NoriaSelect
             value={activeTenantSlug || availableTenants[0]?.slug}
-            onValueChange={(val) => {
-              setTenantSlug(val);
-              persistTenantSlug(val);
-            }}
+            onValueChange={handleTenantChange}
             options={availableTenants.map((t) => ({
               value: t.slug,
               label: t.name,
@@ -1159,10 +1320,11 @@ function App() {
               className="primary-button"
               type="button"
               onClick={() => {
-                const targetSlug = activeTenantSlug || availableTenants[0]?.slug;
+                const targetSlug = (activeTenantSlug && availableTenants.some((t) => t.slug === activeTenantSlug))
+                  ? activeTenantSlug
+                  : availableTenants[0]?.slug;
                 if (targetSlug) {
-                  setTenantSlug(targetSlug);
-                  persistTenantSlug(targetSlug);
+                  handleTenantChange(targetSlug);
                 }
               }}
             >
@@ -1190,49 +1352,67 @@ function App() {
       />
 
       <main className="main" data-page={active} style={{ position: 'relative' }}>
-        <div className={`refresh-progress-bar ${loading ? 'active' : ''}`} />
-        {loadError && <div className="inline-error" role="alert">{loadError}</div>}
+        <div className={`refresh-progress-bar ${loading || isCacheSnapshot ? 'active' : ''}`} />
+        {loadError && <div className="inline-error" role="alert">{loadError} <button type="button" onClick={() => refreshData()}>Tentar de novo</button></div>}
         <AppTopbar
           active={active}
           activeTenantSlug={activeTenantSlug}
           availableTenants={availableTenants}
           handleSignOut={handleSignOut}
           isAuthRequired={isAuthRequired}
+          isRefreshingCache={isCacheSnapshot}
           loading={loading}
           menu={menu}
           mobileNavOpen={mobileNavOpen}
           onOpenMobileNav={handleOpenMobileNav}
           refreshData={refreshData}
           selectedTenant={selectedTenant}
-          setTenantSlug={setTenantSlug}
-          notificationTenantId={hasTenantAccess ? appData.tenantId : null}
+          setTenantSlug={handleTenantChange}
+          notificationTenantId={hasTenantAccess && scopedReady && !isCacheSnapshot ? scopedData.tenantId : null}
           notificationUserId={session?.user?.id || null}
-          notificationSettings={tenantSettings?.tenantId === appData.tenantId ? tenantSettings?.settings : null}
-          notificationConversations={appData.conversations}
+          notificationSettings={scopedTenantSettings?.tenantId && scopedTenantSettings.tenantId === scopedData.tenantId ? scopedTenantSettings?.settings : null}
+          notificationConversations={scopedData.conversations}
           notificationConversationViewRef={conversationViewRef}
-          notificationAppointments={appData.appointments}
-          notificationKanbanColumns={appData.kanbanColumns}
+          notificationAppointments={scopedData.appointments}
+          notificationKanbanColumns={scopedData.kanbanColumns}
           onOpenNotificationPage={handleSelectPage}
           onOpenNotificationConversation={handleOpenChatFromKanban}
           onOpenNotificationCard={handleOpenNotificationCard}
         />
 
+        {pageResourceErrors.length > 0 && (
+          <div className="resource-error-banner" role="alert">
+            <span className="resource-error-banner-copy">
+              <AlertTriangle size={16} className="resource-error-banner-icon" aria-hidden="true" />
+              <span>
+                Não foi possível atualizar {pageResourceErrors.join(', ')}. Os dados anteriores foram mantidos.
+              </span>
+            </span>
+            <button type="button" className="secondary-button resource-error-retry-btn" onClick={() => refreshData()}>
+              Tentar de novo
+            </button>
+          </div>
+        )}
+
+        <div className="app-page-stage">
         {active === 'dashboard' && (
           <Dashboard
-            conversations={appData.conversations}
-            dataSource={appData.source}
-            status={appData.status}
-            ready={appDataReady}
+            key={scopeKey}
+            conversations={scopedData.conversations}
+            dataSource={scopedData.source}
+            status={scopedData.status}
+            ready={scopedReady}
             onOpenConversation={handleOpenChatFromKanban}
-            kanbanColumns={appData.kanbanColumns}
-            tenantSettings={tenantSettings}
+            kanbanColumns={scopedData.kanbanColumns}
+            tenantSettings={scopedTenantSettings}
             tenantSlug={activeTenantSlug}
           />
         )}
         {active === 'conversas' && (
           <Conversations
+            key={scopeKey}
             allowedChannels={allowedChannels}
-            conversations={appData.conversations}
+            conversations={scopedData.conversations}
             tenantSlug={activeTenantSlug}
             onSent={refreshData}
             agentsList={agentsList}
@@ -1243,20 +1423,21 @@ function App() {
             onNavigateSettings={() => setActive('configuracoes')}
             onConversationViewStateChange={handleConversationViewStateChange}
             onRetryAudioMedia={retryConversationMedia}
-            ready={appDataReady}
-            kanbanColumns={appData.kanbanColumns}
-            tenantSettings={tenantSettings}
+            ready={scopedReady}
+            kanbanColumns={scopedData.kanbanColumns}
+            tenantSettings={scopedTenantSettings}
             olderConversations={{ shown: showOlderConversations, toggle: toggleOlderConversations }}
           />
         )}
         {active === 'kanban' && (
           <Kanban
+            key={scopeKey}
             allowedChannels={allowedChannels}
-            kanbanColumns={appData.kanbanColumns}
+            kanbanColumns={scopedData.kanbanColumns}
             tenantName={selectedTenant?.name || ''}
             agentsList={agentsList}
             tenantSlug={activeTenantSlug}
-            tenantSettings={tenantSettings}
+            tenantSettings={scopedTenantSettings}
             onChanged={refreshData}
             onOpenChat={handleOpenChatFromKanban}
             onOpenAppointment={handleOpenAppointmentFromKanban}
@@ -1265,49 +1446,54 @@ function App() {
             onFinishConversation={handleFinishConversationFromKanban}
             focusedCardId={notificationCard?.scopeKey === scopeKey ? notificationCard.cardId : undefined}
             onCardFocused={() => setNotificationCard(null)}
-            ready={appDataReady}
+            ready={scopedReady}
             olderConversations={{ shown: showOlderConversations, toggle: toggleOlderConversations }}
           />
         )}
-        {active === 'funil' && <Funnel funnelStages={appData.funnelStages} tenantName={selectedTenant?.name || ''} ready={appDataReady} />}
+        {active === 'funil' && <Funnel key={scopeKey} funnelStages={scopedData.funnelStages} tenantName={selectedTenant?.name || ''} ready={scopedReady} />}
         {active === 'disparos' && (
           <Broadcasts
+            key={scopeKey}
             allowedChannels={allowedChannels}
-            conversations={appData.conversations}
-            contacts={appData.broadcastContacts || []}
-            campaigns={appData.broadcastCampaigns || []}
+            conversations={scopedData.conversations}
+            contacts={scopedData.broadcastContacts || []}
+            campaigns={scopedData.broadcastCampaigns || []}
             tenantSlug={activeTenantSlug}
             onChanged={refreshData}
-            ready={appDataReady}
+            ready={scopedReady}
           />
         )}
         {active === 'agendamentos' && (
           <Appointments
-            appointments={appData.appointments || []}
-            conversations={appData.conversations}
+            key={scopeKey}
+            appointments={scopedData.appointments || []}
+            conversations={scopedData.conversations}
             tenantSlug={activeTenantSlug}
             onChanged={refreshData}
             initialData={prefilledAppointment}
-            ready={appDataReady}
-            outcomeTracking={isOutcomeTrackingEnabled(tenantSettings)}
-            tenantSettings={tenantSettings}
+            ready={scopedReady}
+            outcomeTracking={isOutcomeTrackingEnabled(scopedTenantSettings)}
+            tenantSettings={scopedTenantSettings}
           />
         )}
         {active === 'configuracoes' && (
           <SettingsPage
+            key={scopeKey}
             allowedChannels={allowedChannels}
             agents={agentsList}
             agentsReady={agentsReady}
+            ready={scopedReady}
             onAddAgent={handleAddAgent}
             onToggleAgentStatus={handleToggleAgentStatus}
             onDeleteAgent={handleDeleteAgent}
             tenant={selectedTenant}
             tenantName={selectedTenant?.name || ''}
-            tenantSettings={tenantSettings}
+            tenantSettings={scopedTenantSettings}
             tenantSlug={activeTenantSlug}
             integration={integration}
           />
         )}
+        </div>
       </main>
     </div>
   );

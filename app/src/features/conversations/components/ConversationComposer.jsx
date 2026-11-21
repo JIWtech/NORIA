@@ -211,9 +211,9 @@ export function ConversationComposer({
                 ref={attachBtnRef}
                 type="button"
                 className={`composer-icon-btn ${showAttachMenu ? 'active' : ''}`}
-                onClick={() => setShowAttachMenu?.((prev) => !prev)}
-                title="Anexar arquivo"
-                aria-label="Anexar arquivo"
+                disabled
+                title="Anexar arquivo — em breve"
+                aria-label="Anexar arquivo — em breve"
               >
                 <Paperclip size={18} />
               </button>
@@ -254,9 +254,9 @@ export function ConversationComposer({
               <button
                 type="button"
                 className="composer-icon-btn mic-btn"
-                onClick={startAudioRecording}
-                title="Gravar áudio"
-                aria-label="Gravar áudio"
+                disabled
+                title="Gravar áudio — em breve"
+                aria-label="Gravar áudio — em breve"
               >
                 <Mic size={18} />
               </button>

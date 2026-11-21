@@ -31,7 +31,7 @@ async function sendCommand(command, payload, activeTenantSlug, { external = true
   const isKanbanFlowCommand = command === 'suggest_kanban_flow_order' || command === 'apply_kanban_flow_order';
   let session = await getValidatedSession();
   if (!session?.access_token) {
-    throw new Error('Sessao expirada. Entre novamente para enviar mensagens.');
+    throw new Error('Sessão expirada. Entre novamente para enviar mensagens.');
   }
 
   if (isKanbanFlowCommand) {
@@ -58,7 +58,7 @@ async function sendCommand(command, payload, activeTenantSlug, { external = true
     // Renew once through Auth; a genuine authorization denial stays denied.
     if (response.status === 401 || response.status === 403) {
       const renewed = await getValidatedSession({ forceRefresh: true });
-      if (!renewed?.access_token) throw new Error('Sessao expirada. Entre novamente para enviar mensagens.');
+      if (!renewed?.access_token) throw new Error('Sessão expirada. Entre novamente para enviar mensagens.');
       if (renewed.access_token !== session.access_token) response = await post(renewed.access_token);
     }
   } catch (error) {
@@ -128,7 +128,7 @@ export const integrationTargets = [
     status: 'mockado',
   },
   {
-    area: 'Automacoes',
+    area: 'Automações',
     table: 'automation_rules, automation_executions',
     webhook: 'Telegram Multi-tenant + Command Router',
     status: 'ativo_parcial',

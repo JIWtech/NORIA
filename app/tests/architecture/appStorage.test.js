@@ -18,6 +18,7 @@ import {
   appDataSignature,
   loadCachedAppData,
   cacheAppData,
+  clearAppDataCache,
   getInitialAppData,
 } from '../../src/app/appStorage.js';
 
@@ -41,6 +42,8 @@ class MockStorage {
   clear() {
     this.store.clear();
   }
+  get length() { return this.store.size; }
+  key(index) { return [...this.store.keys()][index] ?? null; }
 }
 
 const mockLocalStorage = new MockStorage();
@@ -57,6 +60,39 @@ function resetStorages() {
   mockLocalStorage.clear();
   mockSessionStorage.clear();
 }
+
+test('cache expira em 15 minutos e rejeita registros antigos ou com data futura', () => {
+  resetStorages();
+  const key = `${appDataCachePrefix}user:tenant`;
+  for (const cached_at of [Date.now() - 15 * 60_000 - 1, Date.now() + 60_000, undefined]) {
+    mockLocalStorage.setItem(key, JSON.stringify({ conversations: [], cached_at }));
+    assert.equal(loadCachedAppData('tenant', 'user'), null);
+  }
+  cacheAppData('tenant', { conversations: [] }, 'user');
+  assert.ok(loadCachedAppData('tenant', 'user').cached_at <= Date.now());
+});
+
+test('limpeza remove somente cache do painel, preservando outras preferências', () => {
+  resetStorages();
+  cacheAppData('a', { conversations: [] }, 'user');
+  cacheAppData('b', { conversations: [] }, 'other');
+  mockLocalStorage.setItem(activePageStorageKey, 'kanban');
+  clearAppDataCache();
+  assert.equal(mockLocalStorage.getItem(`${appDataCachePrefix}user:a`), null);
+  assert.equal(mockLocalStorage.getItem(`${appDataCachePrefix}other:b`), null);
+  assert.equal(mockLocalStorage.getItem(activePageStorageKey), 'kanban');
+});
+
+test('snapshot limita textos e remove payloads sem alterar o objeto original', () => {
+  resetStorages();
+  const data = { conversations: [{ id: 'c', messages: [{ text: 'x'.repeat(1200), raw_payload: { secret: 'segredo' }, payload: { secret: 'segredo' } }] }] };
+  cacheAppData('tenant', data, 'user');
+  const stored = JSON.parse(mockLocalStorage.getItem(`${appDataCachePrefix}user:tenant`));
+  assert.equal(stored.conversations[0].messages[0].text.length, 500);
+  assert.equal(stored.conversations[0].messages[0].raw_payload, undefined);
+  assert.equal(stored.conversations[0].messages[0].payload, undefined);
+  assert.equal(data.conversations[0].messages[0].text.length, 1200);
+});
 
 const jsGlobals = new Set([
   'window', 'document', 'console', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',

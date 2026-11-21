@@ -346,7 +346,7 @@ export function ConversationSidebar({
           onClick={() => setActiveTab('follow_up')}
         >
           <span>Follow-up</span>
-          <span className="tab-badge follow-up">{followUpCount}</span>
+          {ready && <span className="tab-badge follow-up">{followUpCount}</span>}
         </button>
       </div>
 

@@ -38,9 +38,7 @@ export async function loadAppointments(supabase, tenantId, mapAppointment) {
   const { data, error } = historyResult;
   const { data: openAppointments, error: openError } = openResult;
   const { data: proposalAppointments, error: proposalError } = proposalResult;
-  if (error) console.warn('Appointments fallback:', error.message);
-  if (openError) console.warn('Active appointments fallback:', openError.message);
-  if (proposalError) console.warn('Slot proposal appointments fallback:', proposalError.message);
+  if (error || openError || proposalError) throw new Error('Não foi possível carregar os agendamentos.');
   return mergeOpenAppointmentRequests(mergeOpenAppointmentRequests(data || [], openAppointments || []), proposalAppointments || []).map(mapAppointment);
 }
 
@@ -52,8 +50,7 @@ export async function loadBroadcastContacts(supabase, tenantId) {
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) {
-    console.warn('Broadcast contacts fallback:', error.message);
-    return [];
+    throw new Error('Não foi possível carregar os contatos de disparos.');
   }
   return data || [];
 }
@@ -66,8 +63,7 @@ export async function loadBroadcastCampaigns(supabase, tenantId) {
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) {
-    console.warn('Broadcast campaigns fallback:', error.message);
-    return [];
+    throw new Error('Não foi possível carregar as campanhas.');
   }
   return data || [];
 }

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import {
   getConversationsForPeriod,
   getPeakActivityData,
@@ -61,7 +62,7 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
         <div className="peak-card-header">
           <div className="peak-header-titles">
             <h3 className="peak-title">Horários de pico</h3>
-            <p className="peak-subtitle">Conversas iniciadas por hora · {PERIOD_LABELS[period]}</p>
+            <p className="peak-subtitle">Conversas iniciadas por hora · filtro: {PERIOD_LABELS[period]}</p>
           </div>
 
           <div className="peak-period-toggles" role="radiogroup" aria-label="Período do gráfico">
@@ -96,22 +97,31 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
         </div>
 
         {/* 3 Caixas de Destaque */}
-        <div className="peak-boxes-row">
+        <div className="peak-boxes-row" aria-busy={!ready || undefined}>
           <div className="peak-summary-box">
             <div className="summary-box-header">
               <span className="summary-box-dot dot-primary" aria-hidden="true" />
               <span className="summary-box-label">Pico principal</span>
             </div>
             <div className="summary-box-body">
-              <strong className="summary-box-hour">
-                {activity.primaryPeak.value > 0 ? `${activity.primaryPeak.hour}:00` : 'Sem pico'}
-              </strong>
-              {activity.primaryPeak.value > 0 ? (
-                <span className="summary-box-pill pill-primary">
-                  {activity.primaryPeak.value} {activity.primaryPeak.value === 1 ? 'conversa' : 'conversas'}
-                </span>
+              {!ready ? (
+                <>
+                  <SkeletonLine width="64px" height="18px" />
+                  <SkeletonLine width="82px" height="14px" />
+                </>
               ) : (
-                <span className="summary-box-pill pill-muted">0 conversas</span>
+                <>
+                  <strong className="summary-box-hour">
+                    {activity.primaryPeak.value > 0 ? `${activity.primaryPeak.hour}:00` : 'Sem pico'}
+                  </strong>
+                  {activity.primaryPeak.value > 0 ? (
+                    <span className="summary-box-pill pill-primary">
+                      {activity.primaryPeak.value} {activity.primaryPeak.value === 1 ? 'conversa' : 'conversas'}
+                    </span>
+                  ) : (
+                    <span className="summary-box-pill pill-muted">0 conversas</span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -122,15 +132,24 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
               <span className="summary-box-label">Segundo pico</span>
             </div>
             <div className="summary-box-body">
-              <strong className="summary-box-hour">
-                {activity.secondaryPeak && activity.secondaryPeak.value > 0 ? `${activity.secondaryPeak.hour}:00` : 'Sem pico'}
-              </strong>
-              {activity.secondaryPeak && activity.secondaryPeak.value > 0 ? (
-                <span className="summary-box-pill pill-secondary">
-                  {activity.secondaryPeak.value} {activity.secondaryPeak.value === 1 ? 'conversa' : 'conversas'}
-                </span>
+              {!ready ? (
+                <>
+                  <SkeletonLine width="64px" height="18px" />
+                  <SkeletonLine width="82px" height="14px" />
+                </>
               ) : (
-                <span className="summary-box-pill pill-muted">0 conversas</span>
+                <>
+                  <strong className="summary-box-hour">
+                    {activity.secondaryPeak && activity.secondaryPeak.value > 0 ? `${activity.secondaryPeak.hour}:00` : 'Sem pico'}
+                  </strong>
+                  {activity.secondaryPeak && activity.secondaryPeak.value > 0 ? (
+                    <span className="summary-box-pill pill-secondary">
+                      {activity.secondaryPeak.value} {activity.secondaryPeak.value === 1 ? 'conversa' : 'conversas'}
+                    </span>
+                  ) : (
+                    <span className="summary-box-pill pill-muted">0 conversas</span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -141,54 +160,80 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
               <span className="summary-box-label">Média por hora</span>
             </div>
             <div className="summary-box-body">
-              <strong className="summary-box-hour">
-                {activity.averageHourly}
-              </strong>
-              <span className="summary-box-pill pill-average">
-                {activity.averageHourly === 1 ? 'conversa / hora' : 'conversas / hora'}
-              </span>
+              {!ready ? (
+                <>
+                  <SkeletonLine width="44px" height="18px" />
+                  <SkeletonLine width="96px" height="14px" />
+                </>
+              ) : (
+                <>
+                  <strong className="summary-box-hour">
+                    {activity.averageHourly}
+                  </strong>
+                  <span className="summary-box-pill pill-average">
+                    {activity.averageHourly === 1 ? 'conversa / hora' : 'conversas / hora'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         {/* Gráfico de Barras por Hora */}
-        <div className="peak-barchart-container">
-          <div className="peak-barchart">
-            {activity.points.map((item) => {
-              const isPeak = item.value > 0 && (item.hour === activity.primaryPeak.hour || item.hour === activity.secondaryPeak?.hour);
-              return (
+        <div className="peak-barchart-container" aria-busy={!ready || undefined}>
+          {!ready ? (
+            <div className="peak-barchart">
+              {activity.points.map((item, idx) => (
                 <div className="barchart-col" key={item.hour}>
                   <div className="barchart-bar-track">
-                    {isPeak && (
-                      <span className="barchart-floating-badge">
-                        {item.value}
-                      </span>
-                    )}
-                    <div
-                      className={`barchart-bar ${isPeak ? 'bar-peak' : ''}`}
-                      style={{ height: `${item.heightPct}%` }}
-                    >
-                      {item.value > 0 && <span className="bar-top-highlight" aria-hidden="true" />}
-                      {isPeak && <span className="bar-peak-glow" aria-hidden="true" />}
-                    </div>
+                    <SkeletonBlock
+                      width="100%"
+                      height={`${22 + ((idx * 17) % 45)}%`}
+                      style={{ borderRadius: '4px 4px 0 0', marginTop: 'auto' }}
+                    />
                   </div>
-                  <span className={`barchart-label ${isPeak ? 'label-peak' : ''}`}>
-                    {item.hour}
-                  </span>
+                  <span className="barchart-label">{item.hour}</span>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="peak-barchart">
+              {activity.points.map((item) => {
+                const isPeak = item.value > 0 && (item.hour === activity.primaryPeak.hour || item.hour === activity.secondaryPeak?.hour);
+                return (
+                  <div className="barchart-col" key={item.hour}>
+                    <div className="barchart-bar-track">
+                      {isPeak && (
+                        <span className="barchart-floating-badge">
+                          {item.value}
+                        </span>
+                      )}
+                      <div
+                        className={`barchart-bar ${isPeak ? 'bar-peak' : ''}`}
+                        style={{ height: `${item.heightPct}%` }}
+                      >
+                        {item.value > 0 && <span className="bar-top-highlight" aria-hidden="true" />}
+                        {isPeak && <span className="bar-peak-glow" aria-hidden="true" />}
+                      </div>
+                    </div>
+                    <span className={`barchart-label ${isPeak ? 'label-peak' : ''}`}>
+                      {item.hour}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
       {/* 2. LINHA INFERIOR: QUEM ATENDE + FUNIL POR ETAPA */}
       <div className="dashboard-bottom-dual-grid">
         {/* Card A: Quem atende (Donut Chart) */}
-        <section className="dashboard-subcard card-who-attends" aria-label="Quem atende">
+        <section className="dashboard-subcard card-who-attends" aria-label="Quem atende" aria-busy={!ready || undefined}>
           <div className="subcard-header">
             <h4 className="subcard-title">Quem atende</h4>
-            <span className="subcard-subtitle">{stats.total} conversas</span>
+            <span className="subcard-subtitle">{ready ? `${stats.total} conversas` : 'Carregando…'}</span>
           </div>
 
           <div className="donut-content-row">
@@ -211,69 +256,94 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
                   r={circleRadius}
                   className="donut-bg-ring"
                 />
-                {/* Arc IA (azul/índigo) */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={circleRadius}
-                  className="donut-arc-ia"
-                  stroke="url(#iaArcGradient)"
-                  strokeDasharray={`${iaStrokeDash} ${circumference}`}
-                  strokeDashoffset="0"
-                />
-                {/* Arc Humano (cyan) */}
-                <circle
-                  cx="50"
-                  cy="50"
-                  r={circleRadius}
-                  className="donut-arc-human"
-                  stroke="url(#humanArcGradient)"
-                  strokeDasharray={`${humanStrokeDash} ${circumference}`}
-                  strokeDashoffset={`-${iaStrokeDash}`}
-                />
+                {ready && (
+                  <>
+                    {/* Arc IA (azul/índigo) */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={circleRadius}
+                      className="donut-arc-ia"
+                      stroke="url(#iaArcGradient)"
+                      strokeDasharray={`${iaStrokeDash} ${circumference}`}
+                      strokeDashoffset="0"
+                    />
+                    {/* Arc Humano (cyan) */}
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r={circleRadius}
+                      className="donut-arc-human"
+                      stroke="url(#humanArcGradient)"
+                      strokeDasharray={`${humanStrokeDash} ${circumference}`}
+                      strokeDashoffset={`-${iaStrokeDash}`}
+                    />
+                  </>
+                )}
               </svg>
               <div className="donut-center-info">
-                <strong className="donut-center-pct">{stats.iaPct}%</strong>
+                <strong className="donut-center-pct">{ready ? `${stats.iaPct}%` : '—'}</strong>
                 <span className="donut-center-sublabel">IA</span>
               </div>
             </div>
 
             <div className="donut-legend">
-              <div className="donut-legend-item">
-                <span className="legend-square square-ia" aria-hidden="true" />
-                <span className="legend-text">IA <strong>{stats.iaCount}</strong></span>
-              </div>
-              <div className="donut-legend-item">
-                <span className="legend-square square-human" aria-hidden="true" />
-                <span className="legend-text">Humano <strong>{stats.humanCount}</strong></span>
-              </div>
+              {!ready ? (
+                <>
+                  <SkeletonLine width="70px" height="14px" />
+                  <SkeletonLine width="82px" height="14px" />
+                </>
+              ) : (
+                <>
+                  <div className="donut-legend-item">
+                    <span className="legend-square square-ia" aria-hidden="true" />
+                    <span className="legend-text">IA <strong>{stats.iaCount}</strong></span>
+                  </div>
+                  <div className="donut-legend-item">
+                    <span className="legend-square square-human" aria-hidden="true" />
+                    <span className="legend-text">Humano <strong>{stats.humanCount}</strong></span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </section>
 
         {/* Card B: Funil por etapa (Barras Horizontais) */}
-        <section className="dashboard-subcard card-funnel" aria-label="Funil por etapa">
+        <section className="dashboard-subcard card-funnel" aria-label="Funil por etapa" aria-busy={!ready || undefined}>
           <div className="subcard-header">
             <h4 className="subcard-title">Funil por etapa</h4>
           </div>
 
           <div className="funnel-rows-list">
-            {funnel.map((step) => (
-              <div className="funnel-row" key={step.id}>
-                <span className="funnel-label" title={step.label}>{step.label}</span>
-                <div className="funnel-bar-track">
-                  <div
-                    className={`funnel-bar-fill funnel-bar-${step.id}`}
-                    style={{
-                      width: `${step.widthPct}%`,
-                    }}
-                  >
-                    <span className="funnel-shimmer-beam" aria-hidden="true" />
+            {!ready ? (
+              [1, 2, 3, 4].map((i) => (
+                <div className="funnel-row" key={i}>
+                  <SkeletonLine width="92px" height="12px" />
+                  <div className="funnel-bar-track">
+                    <SkeletonLine width="100%" height="8px" style={{ display: 'block' }} />
                   </div>
+                  <SkeletonLine width="24px" height="12px" />
                 </div>
-                <span className="funnel-value">{step.count}</span>
-              </div>
-            ))}
+              ))
+            ) : (
+              funnel.map((step) => (
+                <div className="funnel-row" key={step.id}>
+                  <span className="funnel-label" title={step.label}>{step.label}</span>
+                  <div className="funnel-bar-track">
+                    <div
+                      className={`funnel-bar-fill funnel-bar-${step.id}`}
+                      style={{
+                        width: `${step.widthPct}%`,
+                      }}
+                    >
+                      <span className="funnel-shimmer-beam" aria-hidden="true" />
+                    </div>
+                  </div>
+                  <span className="funnel-value">{step.count}</span>
+                </div>
+              ))
+            )}
           </div>
         </section>
       </div>

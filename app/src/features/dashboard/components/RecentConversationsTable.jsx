@@ -185,7 +185,7 @@ export function RecentConversationsTable({
 
                     {/* 5. HORÁRIO + AÇÃO */}
                     <div className="recent-cell td-time">
-                      <span className="recent-timestamp">{item.lastAt || '12/10 · 11:24'}</span>
+                      <span className="recent-timestamp">{item.lastAt || '—'}</span>
                       <button
                         type="button"
                         className="recent-open-btn"

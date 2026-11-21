@@ -123,7 +123,7 @@ export function requirePersistedAssignment(result, { reviewOnly = false } = {}) 
 export function requirePersistedClosure(result) {
   const closed = result?.saved?.find?.(event => event.id && event.service === 'conversation_closed');
   if (result?.ok !== true || !closed) {
-    throw new Error('O encerramento nao foi confirmado pelo servidor. Atualize a conversa e tente novamente.');
+    throw new Error('O encerramento não foi confirmado pelo servidor. Atualize a conversa e tente novamente.');
   }
   return closed;
 }

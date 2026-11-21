@@ -7,7 +7,7 @@
   background: var(--red); color: #111827; font-size: 10px; font-weight: 800;
 }
 .notification-popover {
-  position: absolute; z-index: 1100; top: calc(100% + 10px); right: 0; width: 432px;
+  position: absolute; z-index: var(--z-popover); top: calc(100% + 10px); right: 0; width: 432px;
   max-width: calc(100vw - 24px); max-height: min(608px, calc(100dvh - 90px)); overflow: hidden;
   display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 15px;
   background: var(--surface); color: var(--text); box-shadow: 0 20px 60px #0007; font-family: var(--font-sans);

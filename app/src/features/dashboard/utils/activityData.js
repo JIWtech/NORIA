@@ -1,4 +1,4 @@
-export const DASHBOARD_HOURS = Array.from({ length: 15 }, (_, index) => String(index + 8).padStart(2, '0'));
+export const DASHBOARD_HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
 
 const PERIOD_DAYS = { today: 1, '7d': 7, '30d': 30 };
 
@@ -78,8 +78,7 @@ function getHourIndex(conversation) {
   const startedAt = getConversationStartedAt(conversation);
   if (!startedAt) return -1;
   const hour = startedAt.getHours();
-  const clampedHour = Math.max(8, Math.min(22, hour));
-  return DASHBOARD_HOURS.indexOf(String(clampedHour).padStart(2, '0'));
+  return DASHBOARD_HOURS.indexOf(String(hour).padStart(2, '0'));
 }
 
 export function getPeakActivityData(conversations = [], period = '7d', now = new Date()) {
@@ -151,7 +150,7 @@ export function getDashboardMetricsData(conversations = [], now = new Date()) {
   const averageFirstResponseSeconds = responseSeconds.length > 0
     ? Math.round(responseSeconds.reduce((sum, value) => sum + value, 0) / responseSeconds.length)
     : null;
-  const currentHourIndex = Math.max(0, Math.min(DASHBOARD_HOURS.length - 1, now.getHours() - 8));
+  const currentHourIndex = Math.max(0, Math.min(DASHBOARD_HOURS.length - 1, now.getHours()));
   const visibleLength = currentHourIndex + 1;
   let cumulativeConversations = 0;
   let cumulativeAi = 0;

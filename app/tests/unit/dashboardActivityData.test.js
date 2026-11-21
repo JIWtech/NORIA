@@ -7,6 +7,16 @@ import {
   getPeakActivityData,
 } from '../../src/features/dashboard/utils/activityData.js';
 
+test('distribui conversas nas 24 horas reais, inclusive madrugada e fim do dia', () => {
+  const now = new Date(2026, 10, 21, 23, 59);
+  const conversations = [0, 7, 23].map((hour) => ({ createdAt: new Date(2026, 10, 21, hour, 0).toISOString() }));
+  const result = getPeakActivityData(conversations, 'today', now);
+  assert.equal(result.points.length, 24);
+  assert.equal(result.points.find((point) => point.hour === '00').value, 1);
+  assert.equal(result.points.find((point) => point.hour === '07').value, 1);
+  assert.equal(result.points.find((point) => point.hour === '23').value, 1);
+});
+
 function conversation(id, startedAt, options = {}) {
   return {
     id,
@@ -63,15 +73,15 @@ test('dashboard metrics use real data and keep empty states at zero', () => {
     aiSharePct: 0,
     averageFirstResponseSeconds: null,
     qualifiedLeads: 0,
-    hourlyConversationCounts: Array(15).fill(0),
-    hourlyAiCounts: Array(15).fill(0),
-    hourlyQualifiedCounts: Array(15).fill(0),
-    hourlyResponseSeconds: Array(15).fill(0),
+    hourlyConversationCounts: Array(24).fill(0),
+    hourlyAiCounts: Array(24).fill(0),
+    hourlyQualifiedCounts: Array(24).fill(0),
+    hourlyResponseSeconds: Array(24).fill(0),
     trendSeries: {
-      conversations: Array(11).fill(0),
-      aiShare: Array(11).fill(0),
-      responseSeconds: Array(11).fill(0),
-      qualified: Array(11).fill(0),
+      conversations: Array(19).fill(0),
+      aiShare: Array(19).fill(0),
+      responseSeconds: Array(19).fill(0),
+      qualified: Array(19).fill(0),
     },
   });
 
@@ -98,16 +108,16 @@ test('dashboard metrics use real data and keep empty states at zero', () => {
   assert.equal(metrics.aiSharePct, 50);
   assert.equal(metrics.averageFirstResponseSeconds, 30);
   assert.equal(metrics.qualifiedLeads, 1);
-  assert.equal(metrics.hourlyConversationCounts[2], 1);
-  assert.equal(metrics.hourlyConversationCounts[8], 1);
-  assert.equal(metrics.hourlyAiCounts[2], 1);
-  assert.equal(metrics.hourlyQualifiedCounts[2], 1);
-  assert.equal(metrics.hourlyResponseSeconds[2], 30);
-  assert.equal(metrics.hourlyResponseSeconds[8], 0);
-  assert.deepEqual(metrics.trendSeries.conversations, [0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2]);
-  assert.deepEqual(metrics.trendSeries.aiShare, [0, 0, 100, 100, 100, 100, 100, 100, 50, 50, 50]);
-  assert.deepEqual(metrics.trendSeries.responseSeconds, [0, 0, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
-  assert.deepEqual(metrics.trendSeries.qualified, [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+  assert.equal(metrics.hourlyConversationCounts[10], 1);
+  assert.equal(metrics.hourlyConversationCounts[16], 1);
+  assert.equal(metrics.hourlyAiCounts[10], 1);
+  assert.equal(metrics.hourlyQualifiedCounts[10], 1);
+  assert.equal(metrics.hourlyResponseSeconds[10], 30);
+  assert.equal(metrics.hourlyResponseSeconds[16], 0);
+  assert.deepEqual(metrics.trendSeries.conversations, [...Array(10).fill(0), ...Array(6).fill(1), ...Array(3).fill(2)]);
+  assert.deepEqual(metrics.trendSeries.aiShare, [...Array(10).fill(0), ...Array(6).fill(100), ...Array(3).fill(50)]);
+  assert.deepEqual(metrics.trendSeries.responseSeconds, [...Array(10).fill(0), ...Array(9).fill(30)]);
+  assert.deepEqual(metrics.trendSeries.qualified, [...Array(10).fill(0), ...Array(9).fill(1)]);
 });
 
 test('sparkline paths reflect the supplied realtime series', () => {

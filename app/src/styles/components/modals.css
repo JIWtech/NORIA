@@ -9,7 +9,7 @@
   -webkit-backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
-  z-index: 1200;
+  z-index: var(--z-modal);
   padding: 20px;
   animation: fadeIn 180ms ease;
 }
@@ -832,7 +832,7 @@
   gap: 10px;
   font-size: 14px;
   font-weight: 500;
-  z-index: 1300;
+  z-index: var(--z-toast);
   border: 1px solid rgba(0, 224, 255, 0.25);
   animation: slideUp 200ms ease;
 }
