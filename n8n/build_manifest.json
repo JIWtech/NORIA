@@ -7,9 +7,9 @@
     "production_approved": false
   },
   "core_revision": "conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21",
-  "built_at": "2026-11-21T02:44:09.064Z",
-  "core_sha256": "cd0d2d47485dcb0aa133c322193253f0566ea4cccb688b22dd73b405f9196306",
-  "raw_disk_sha256": "81764cf55f5eb63b3fd8fa95100f283aeb61379861a0d4466f124dae38013639",
+  "built_at": "2026-11-21T03:00:31.608Z",
+  "core_sha256": "80aee5d4cc2bc05b4bd1bd1a57a632359afba3d7c2e0ecbfc51f06b459fb328c",
+  "raw_disk_sha256": "daa85195ba40796fcad19e5374c1b693f500cca0db44ad1845f7e50e2d017f63",
   "hash_explanation": "core_sha256 is the deterministic normalized hash embedded into the runtime code block; raw_disk_sha256 is the direct sha256 of the generated source file on disk after metadata embedding.",
   "ext_sha256": "4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb",
   "ext_identity_sha256": "780c78f0e5cda477de6a6745684994259f839a00c19b5873dedb517d9c55ad55",

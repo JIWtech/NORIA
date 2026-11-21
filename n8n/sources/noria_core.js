@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21',
-  built_at: '2026-11-21T02:44:09.064Z',
-  core_sha256: 'cd0d2d47485dcb0aa133c322193253f0566ea4cccb688b22dd73b405f9196306',
+  built_at: '2026-11-21T03:00:31.608Z',
+  core_sha256: '80aee5d4cc2bc05b4bd1bd1a57a632359afba3d7c2e0ecbfc51f06b459fb328c',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6567,7 +6567,7 @@ function retailAuditHint(code) {
     LINK_CLAIM_WITHOUT_LINK: 'não mencione link',
     PHOTO_CLAIM_WITHOUT_PHOTO: 'não diga que está enviando fotos',
     EMPTY_REPLY: 'escreva uma resposta',
-    PRICE_NOT_AUTHORIZED: 'use só os preços de product_facts, exatamente como estão',
+    PRICE_NOT_AUTHORIZED: 'use só os preços de product_facts, exatamente como estão; não repita nem cite nenhum valor que o cliente escreveu (anúncio, desconto, concorrente) e não informe preço de item que não está em product_facts',
     URL_NOT_ALLOWED: 'não escreva endereços de site',
     PHONE_NOT_ALLOWED: 'não escreva números de telefone',
   }[code] || code;
@@ -6583,17 +6583,35 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   if (/\bn[aã]o\s+(temos|trabalhamos\s+com|vendemos|possu[ií]mos)\b(?!\s+pronta)/i.test(String(reply || ''))) failures.push('UNAVAILABILITY_CLAIM');
   // Promessa de envio que o sistema não vai cumprir: o texto não pode anunciar link ou foto que não sairão.
   if (!linkAppended && /\blink\b/i.test(String(reply || ''))) failures.push('LINK_CLAIM_WITHOUT_LINK');
-  // Qualquer verbo de envio perto de "foto", em qualquer ordem ("vou enviar as fotos", "a foto está chegando", "mando sim a foto").
-  const sendVerb = '(enviar|envio|envie|enviando|enviei|enviada|enviadas|mandar|mando|mande|mandando|mandei|reenviar|reenvio|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui|(?:v[aã]o|vai) (?:logo )?(?:abaixo|acima|chegar|em seguida))';
-  // Pergunta não é promessa ("de qual modelo quer que eu envie a foto primeiro?"). Com fotos já enviadas antes nesta
-  // sessão, a frase que lembra disso ("já estão na conversa") também é permitida.
-  const photoText = String(reply || '').split(/(?<=[.!?])\s+/)
-    .filter(sentence => !/\?\s*$/.test(sentence)
-      && !(photosAlready && /(^|\s)j[aá]\s+(?:est[aãá]o?|foram|foi|enviei|mandei|te\s+enviei|te\s+mandei)(?![a-z])/i.test(sentence))).join(' ');
-  if (!photosSent && (new RegExp('\\b' + sendVerb + '\\b[^.!?]{0,50}\\bfotos?\\b', 'i').test(photoText)
-    || new RegExp('\\bfotos?\\b[^.!?]{0,50}\\b' + sendVerb + '\\b', 'i').test(photoText)
-    // "Esta foto mostra...": referência a uma foto que estaria sendo mostrada agora.
-    || /\b(?:n?est|n?ess)[ae]s? fotos?\b/i.test(photoText))) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
+  // Foto prometida sem foto saindo neste turno. Analisa frase a frase; numa pergunta, só o trecho antes da última vírgula
+  // é afirmação ("Vou enviar as fotos agora, prefere a de 4 ou a de 6?"). Não são promessa: negação ("não consigo enviar
+  // fotos"), a cliente como quem envia ("você pode enviar uma foto", "a foto que você mandou") e, com fotos já enviadas
+  // nesta sessão, lembrar que estão na conversa ("já estão/já foram") ou comentar a foto ("nessa foto da Prisma...").
+  if (!photosSent) {
+    const noun = '(?:fotos?|imagens?|imagem)';
+    const send = '(?:enviar|envio|envie|enviando|enviei|enviad[ao]s?|reenviar|reenvio|mandar|mando|mande|mandando|mandei'
+      + '|encaminh(?:ar|o|ando)|mostrar|mostro|mostrando|segue|seguem|chegando|chega|chegam|aqui est[aã]o|est[aã]o aqui'
+      + '|(?:v[aã]o|vai) (?:logo |agora |agora mesmo )?(?:abaixo|acima|chegar|aparecer|em seguida|na sequ[eê]ncia))';
+    const sendThenNoun = new RegExp('\\b' + send + '\\b[^.!?]{0,50}\\b' + noun + '\\b', 'i');
+    const nounThenSend = new RegExp('\\b' + noun + '\\b[^.!?]{0,50}\\b' + send + '\\b', 'i');
+    const pointing = new RegExp('\\b' + noun + '\\s+(?:logo\\s+)?(?:abaixo|acima|a seguir)\\b', 'i');
+    const demonstrative = new RegExp('\\b(?:n?est|n?ess)[ae]s?\\s+' + noun + '\\b', 'i');
+    const negated = /\bn[aã]o\s+(?:consigo|conseguimos|posso|podemos|tenho como|temos como|vou|vamos|[eé] poss[ií]vel)\b/i;
+    const customerSends = /\b(?:voc[eê]|vc)\s+(?:pode|poderia|consegue|conseguiria)\s+(?:me\s+|nos\s+)?(?:enviar|mandar)\b|\b(?:me|nos)\s+(?:envie|mande|manda|envia)\b|\bque\s+voc[eê]\s+(?:mandou|enviou)\b/i;
+    const alreadyHere = /(?:^|\s)j[aá]\s+(?:te\s+|lhe\s+)?(?:est[aãá]o?|foram|foi|enviei|mandei|enviamos|mandamos)(?![a-z])/i;
+    const statements = String(reply || '').split(/(?<=[.!?])\s+/).map(sentence => {
+      if (!/\?\s*$/.test(sentence)) return sentence;
+      const cut = sentence.lastIndexOf(',');
+      return cut > 0 ? sentence.slice(0, cut) : '';
+    }).filter(Boolean);
+    const promised = statements.some(sentence => {
+      if (negated.test(sentence) || customerSends.test(sentence)) return false;
+      if (photosAlready && alreadyHere.test(sentence)) return false;
+      return sendThenNoun.test(sentence) || nounThenSend.test(sentence) || pointing.test(sentence)
+        || (!photosAlready && demonstrative.test(sentence));
+    });
+    if (promised) failures.push('PHOTO_CLAIM_WITHOUT_PHOTO');
+  }
   const text = String(reply || '');
   if (!text.trim()) failures.push('EMPTY_REPLY');
   const allowedPrices = new Set(items.map(item => Number(item.price_cents)));
@@ -6822,6 +6840,9 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     }
     text = [composed.reply, siteLinkItem ? siteLinkItem.site_url : '', customerLine || ''].filter(Boolean).join('\n\n');
   } catch (error) {
+    // Pressão do provedor na redação (limite, timeout, servidor): nada foi gravado nem enviado ainda, então a fila tenta de
+    // novo com o backoff do tenant em vez de passar a cliente para a equipe. Orçamento esgotado ainda vai à revisão.
+    if (turnFailureIsTransient(salesSafeFailureDiagnostics(error, 'retail_compose'))) throw error;
     compositionError = String(error?.message || error).slice(0, 200);
     text = sessionHandoffMessage(context); composed = null; customerLine = null;
     execution.handoff.executed = true;
@@ -6837,6 +6858,7 @@ async function runRetailTurnFinalize(context, pipeline, history, event, control)
     contract: pipeline.contract, decision_contract: decision.contract, decision_provenance: decision.provenance, decision_status: decision.status,
     request_id: identity.request_id, session_id: identity.session_id, turn_token: identity.turn_token,
     reason_codes: decision.reason_codes || [], evidence_used: decision.evidence_used || [], audit, composition_error: compositionError,
+    semantic_failure: inputJson.semantic_failure || null,
     authorized: { present_item_ids: allowed.present_item_ids, media: allowed.media, site_link: allowed.site_link,
       notify: allowed.notify ? { reason: allowed.notify.reason, reasons: allowed.notify.reasons } : null, handoff: allowed.handoff } } };
   // 4. Entrega ao lead pelo ciclo existente (begin -> provedor -> confirm). Cancelada (Assumir, novo lote) = nenhum efeito extra.

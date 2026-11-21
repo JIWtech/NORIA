@@ -108,7 +108,9 @@ const region = extractRetailRegion(coreCode);
 const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const CORE_FUNCTIONS = ['runRetailTurnPrepare', 'runRetailTurnFinalize', 'retailTenantPath', 'retailLoadMediaState', 'retailLoadItems', 'retailFormatPrice',
   'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue', 'retailEvolution', 'retailPlanProductMedia', 'retailSendProductMedia',
-  'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'servicesGeminiJson', 'servicesTerminal', 'pipelineIdentity', 'salesMediaHttpsLocation', 'settingsFor'];
+  'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'servicesGeminiJson', 'servicesTerminal', 'pipelineIdentity', 'salesMediaHttpsLocation', 'settingsFor',
+  // Classificação de falha passageira (nova tentativa pela fila), usada no prepare e no finalize.
+  'turnFailureIsTransient', 'salesSafeFailureDiagnostics', 'httpSafeDiagnostic', 'httpErrorHeaders', 'httpHeaderValue', 'httpProviderBody', 'httpRetryAfterMs'];
 const coreSource = ast.statements.filter(ts.isFunctionDeclaration).filter(n => CORE_FUNCTIONS.includes(n.name.text)).map(n => n.getText(ast)).join('\n');
 const extCode = fs.readFileSync(path.join(root, 'n8n/sources/joyeria_extension.js'), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;

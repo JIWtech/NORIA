@@ -107,6 +107,25 @@ test('comparou uma blend e escolheu a peça do site: decisão pelo escolhido (li
   assert.equal(sem.d.actions.notify_specialist.required, true);
 });
 
+test('interessou-se pela blend mas escolheu a peça do site: foco, link e nada de especialista, mesmo citando o material', async () => {
+  for (const extra of [{}, { material_requested: { value: 'blend', evidence_ids: ['m1'] } }, { commercial_interest: { present: false, evidence_ids: [] } }]) {
+    const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(BLEND, 'interested'), ref(SEMIJOIA, 'selected')],
+      customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on(), ...extra } });
+    assert.equal(d.actions.notify_specialist.required, false, JSON.stringify(extra));
+    assert.equal(d.actions.send_site_link.allowed, true, JSON.stringify(extra));
+    assert.equal(d.actions.send_site_link.item_id, SEMIJOIA);
+  }
+});
+
+test('item citado de passagem tem o preço oficial liberado, sem virar foco, foto ou especialista', async () => {
+  const { d } = await run({ semantic: { primary_intent: 'price_inquiry', products: [ref(SEMIJOIA, 'selected'), ref(BLEND, 'mentioned')],
+    customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() } });
+  assert.deepEqual(d.actions.present_information.item_ids, [SEMIJOIA, BLEND]);
+  assert.equal(d.actions.notify_specialist.required, false);
+  assert.equal(d.actions.send_site_link.item_id, SEMIJOIA);
+  assert.ok(!(d.actions.send_product_media.items || []).some(entry => entry.item_id === BLEND));
+});
+
 test('cliente decidido em item sem link de compra continua indo ao especialista', async () => {
   const { d } = await run({ semantic: { primary_intent: 'purchase_intent', products: [ref(DESCONHECIDO, 'selected')],
     customer_decision: { value: 'decided', evidence_ids: ['m1'] }, commercial_interest: on() },

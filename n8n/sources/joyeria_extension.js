@@ -223,7 +223,8 @@ if (specialistEnabled && !postSale && !uncertain) {
   // muda o encaminhamento (ex.: comparou uma blend e escolheu a peça do site → recebe o link).
   const selectedItems = interestedItems.filter(item => roleOf(item.id).includes('selected'));
   const decisiveItems = selectedItems.length ? selectedItems : interestedItems;
-  const materialsInPlay = uniq([...decisiveItems.map(item => item.material_class), v.material.value]);
+  // Com escolha feita, o material citado de passagem ("vocês têm blend?") também não muda o encaminhamento do escolhido.
+  const materialsInPlay = uniq([...decisiveItems.map(item => item.material_class), ...(selectedItems.length ? [] : [v.material.value])]);
   const ownRule = materialsInPlay.filter(m => specialistMaterials.includes(m));
   const highEnd = materialsInPlay.filter(m => highEndMaterials.includes(m));
   if (interest && ownRule.length) reasons.push('material_regra_propria');
@@ -243,10 +244,15 @@ if (specialistEnabled && !postSale && !uncertain) {
 }
 
 // 3. Informação de produto: só itens do catálogo, ativos e ofertáveis (preço aprovado). O resto não vira afirmação.
-const presentable = interestedItems.filter(item => item.offerable === true && item.active === true && item.price_status === 'aprovado');
-if (presentable.length) {
-  A.present_information = { allowed: true, item_ids: presentable.slice(0, 3).map(item => item.id) };
-  for (const item of presentable.slice(0, 3)) {
+const offerable = item => item.offerable === true && item.active === true && item.price_status === 'aprovado';
+const presentable = interestedItems.filter(offerable);
+// Item só citado de passagem (ex.: preço visto num anúncio antigo) também tem o preço oficial liberado para a resposta,
+// para a IA corrigir com o valor do catálogo em vez de improvisar. Não entra no foco, nas fotos nem no especialista.
+const mentionedOnly = items.filter(item => !interestedItems.includes(item) && offerable(item) && roleOf(item.id).includes('mentioned'));
+const factItems = [...presentable, ...mentionedOnly].slice(0, 3);
+if (factItems.length) {
+  A.present_information = { allowed: true, item_ids: factItems.map(item => item.id) };
+  for (const item of factItems) {
     decision.facts.push({ item_id: item.id, name: item.name, price_cents: Number(item.price_cents), currency: item.currency,
       sale_unit: item.sale_unit, width_mm: item.width_mm === null ? null : Number(item.width_mm), material_class: item.material_class });
   }
@@ -256,7 +262,10 @@ if (interestedItems.some(item => !presentable.includes(item))) decision.reason_c
 // 4. Fotos: um único item em foco, ofertável, com imagens aprovadas; pedido explícito ou primeira apresentação do item
 //    na sessão (o CORE informa em media_sent_item_ids o que já foi enviado nesta sessão, para não repetir a cada mensagem).
 // Foco: o único item apresentável; havendo vários (comparação), o único escolhido ou de interesse explícito.
-const chosen = presentable.filter(item => roleOf(item.id).some(role => ['selected', 'interested'].includes(role)));
+// Mesmo critério da seção 2: o escolhido ("selected") tem prioridade sobre o de interesse.
+const selectedPresentable = presentable.filter(item => roleOf(item.id).includes('selected'));
+const chosen = selectedPresentable.length ? selectedPresentable
+  : presentable.filter(item => roleOf(item.id).includes('interested'));
 const focus = presentable.length === 1 ? presentable[0] : chosen.length === 1 ? chosen[0] : null;
 const alreadySent = new Set(asStrings(input.retail_context?.media_sent_item_ids));
 const firstPresentation = focus && !alreadySent.has(focus.id) && ['product_inquiry', 'price_inquiry', 'purchase_intent'].includes(v.primary_intent);
@@ -284,7 +293,8 @@ if (maxPhotos > 0 && pendingTargets.length && !A.handoff.required && !uncertain 
 else if (v.photos.on) A.send_product_media.reason = uncertain ? 'CLARIFICATION_REQUIRED' : focus ? 'PHOTOS_DISABLED_OR_HANDOFF' : 'NO_SINGLE_PRODUCT_IN_FOCUS';
 
 // 5. Link do site: cliente orientado pela IA, sem critério de especialista nem handoff, com um item em foco e link cadastrado.
-if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.required && !uncertain && v.interest.on) {
+if (siteLinkEnabled && focus && !A.notify_specialist.required && !A.handoff.required && !uncertain
+  && (v.interest.on || roleOf(focus.id).includes('selected'))) {
   if (typeof focus.site_url === 'string' && /^https:\/\/[^/\s]+\/\S*$/.test(focus.site_url)) A.send_site_link = { allowed: true, item_id: focus.id, reason: 'GUIDED_PURCHASE' };
   else A.send_site_link.reason = 'NO_SITE_URL';
 } else if (A.notify_specialist.required) A.send_site_link.reason = 'SPECIALIST_FLOW';

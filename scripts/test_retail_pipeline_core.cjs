@@ -99,7 +99,7 @@ const assetRow = n => ({ id: id(n), tenant_id: T, storage_bucket: 'product-catal
   public_url: ORIGIN + '/storage/v1/object/public/product-catalog/catalog/' + T + '/' + 'a'.repeat(63) + n + '.png', sha256: 'a'.repeat(63) + n, mime_type: 'image/png' });
 
 function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified = false, cancelled = false, replies = ['Segue o modelo, R$ 980,00 o par.'], mediaResponse = null,
-  mediaHistory = [], reservationFails = false, leaseLost = false } = {}) {
+  mediaHistory = [], reservationFails = false, leaseLost = false, composeError = null } = {}) {
   const log = { inserts: [], provider: [], delivered: null, completed: false, events: [], composeInputs: [] };
   const identity = { tenant_id: T, tenant_slug: 'loja', instance: 'loja', remote_jid: LEAD, session_id: 's1', request_id: 'm1:tok', turn_token: 'tok', last_event_id: 'm1' };
   const decision = { contract: 'dec_r', provenance: 'prov_r', noria_contract_version: '1.0', status, ...identity, reason_codes: [], evidence_used: ['m1'], actions };
@@ -114,7 +114,10 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
     sendChannelMessage: async (context, text) => { log.delivered = text; return cancelled ? { cancelled: true } : { sent: true }; },
     sessionHandoffMessage: () => 'CONTINGENCIA', servicesHasRecentBusiness: () => true, audioHistoryText: row => row.message_text || '',
     tenantBusinessHoursStatus: () => ({ configured: true, is_open: true }), cleanReplyText: text => text,
-    servicesGeminiJson: async (context, label, input, schema, rules) => { log.composeInputs.push(input); (log.composeRules ||= []).push(rules);
+    turnFailureIsTransient: diagnostic => diagnostic.category === 'rate_limit',
+    salesSafeFailureDiagnostics: error => ({ category: /RATE_LIMIT/.test(String(error?.message)) ? 'rate_limit' : 'other' }),
+    servicesGeminiJson: async (context, label, input, schema, rules) => { if (composeError) throw new Error(composeError);
+      log.composeInputs.push(input); (log.composeRules ||= []).push(rules);
       return { value: { reply: replies[Math.min(replyIndex++, replies.length - 1)] }, model: 'gemini-x', usage: {} }; },
     turnQueueState: async () => ({ token: leaseLost ? 'outro' : 'tok', lease_until: new Date(Date.now() + 60000).toISOString() }),
     env: name => ({ SUPABASE_URL: ORIGIN, EVOLUTION_API_URL_LOJA: 'https://evo.test', EVOLUTION_API_KEY_LOJA: 'k', EVOLUTION_INSTANCE_LOJA: 'loja' }[name] || ''),
@@ -331,4 +334,49 @@ test('turno que perdeu a vez não reserva o aviso ao especialista (a sessão nã
   assert.equal(h.log.inserts.filter(row => String(row.service || '').startsWith('specialist_notice')).length, 0);
   assert.equal(h.log.provider.filter(p => p.url.includes('/sendText/')).length, 0);
   assert.equal(result.retail_execution?.notice?.status ?? 'stopped_control_changed', 'stopped_control_changed');
+});
+
+test('conferência de fotos: 15 frases reais (revisão do Gemini) e casos anteriores', () => {
+  const { retailAuditReply } = loadCore(['retailAuditReply'], {}, { withRegion: false });
+  const claim = (text, opts = {}) => retailAuditReply(text, [], { photosSent: false, ...opts }).includes('PHOTO_CLAIM_WITHOUT_PHOTO');
+  // Com foto saindo neste turno, nada é barrado.
+  assert.equal(claim('Seguem as fotos logo abaixo para você ver a delicadeza do modelo.', { photosSent: true }), false);
+  assert.equal(claim('Esta foto mostra o modelo Prisma chanfrado.', { photosSent: true }), false);
+  // Sem foto: permitidos.
+  for (const text of [
+    'Temos a Classic e a Versati em 4 mm. De qual modelo você quer que eu envie a foto primeiro?',
+    'A foto desse modelo vai ser verificada pela equipe para você.',
+    'As alianças em ouro maciço são feitas sob consulta, por isso não consigo enviar fotos delas por aqui.',
+    'Para a equipe avaliar o ajuste da sua peça, você pode enviar uma foto dela por aqui mesmo.',
+    'Nessa foto que você mandou o acabamento é reto chanfrado, muito próximo da nossa linha Prisma.',
+    'Vou verificar a foto para você.',
+    'Claro, quer que eu envie a foto da Elegance?',
+  ]) assert.equal(claim(text), false, text);
+  for (const text of [
+    'As fotos da aliança Elegance de 6 mm já estão aí na conversa para você conferir o friso lateral.',
+    'Sim, nessa foto da aliança Prisma você consegue ver o brilho do chanfrado nas bordas.',
+    'As fotos da aliança Harmony de 3 mm já te foram enviadas logo acima na conversa.',
+  ]) assert.equal(claim(text, { photosAlready: true }), false, text);
+  // Sem foto: promessas que precisam ser barradas.
+  for (const text of [
+    'Vou te enviar as fotos da aliança Elegance agora mesmo, você prefere ver a de 4 mm ou a de 6 mm?',
+    'Seguem logo abaixo as imagens para você ver a presença dela na mão.',
+    'Vou te mostrar as fotos da aliança Classic de 5 mm logo abaixo para ajudar na escolha do casal.',
+    'Veja nas fotos abaixo o acabamento reto e polido da peça.',
+    'As fotos da aliança Essence de 3 mm vão agora na sequência para você comparar a largura.',
+    'Esta foto mostra a Prisma de 6 mm.',
+    'Vou enviar as fotos dos dois juntos.',
+  ]) assert.equal(claim(text), true, text);
+  assert.equal(claim('Vou enviar novamente a foto da Versati, e já seguimos para as medidas.', { photosAlready: true }), true);
+});
+
+test('redação com falha passageira volta para a fila sem gravar nem enviar; falha definitiva vira contingência', async () => {
+  const transient = finalizeHarness({ actions: present, composeError: 'GEMINI_RATE_LIMIT' });
+  await assert.rejects(transient.run(), /GEMINI_RATE_LIMIT/);
+  assert.equal(transient.log.delivered, null);
+  assert.equal(transient.log.events.length, 0);
+  const definitive = finalizeHarness({ actions: present, composeError: 'GEMINI_SCHEMA_REJECTED' });
+  await definitive.run();
+  assert.equal(definitive.log.delivered, 'CONTINGENCIA');
+  assert.equal(definitive.log.events[0].handoff, true);
 });
