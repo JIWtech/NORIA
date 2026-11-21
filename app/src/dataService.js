@@ -191,7 +191,7 @@ export async function loadAvailableTenants(fallbackTenants = []) {
 
 export function subscribeToClientEvents(onChange, activeTenantSlug, activeTenantId) {
   const supabase = getClient();
-  if (!supabase || !activeTenantSlug) return () => { };
+  if (!supabase || !activeTenantSlug || !activeTenantId) return () => { };
 
   const channel = supabase
     .channel(`tenant-events:${activeTenantSlug}`)
@@ -211,7 +211,7 @@ export function subscribeToClientEvents(onChange, activeTenantSlug, activeTenant
         event: '*',
         schema: 'public',
         table: 'appointments',
-        ...(activeTenantId ? { filter: `tenant_id=eq.${activeTenantId}` } : {}),
+        filter: `tenant_id=eq.${activeTenantId}`,
       },
       (payload) => onChange?.({ table: 'appointments', ...payload }),
     )
@@ -221,7 +221,7 @@ export function subscribeToClientEvents(onChange, activeTenantSlug, activeTenant
         event: '*',
         schema: 'public',
         table: 'broadcast_campaigns',
-        ...(activeTenantId ? { filter: `tenant_id=eq.${activeTenantId}` } : {}),
+        filter: `tenant_id=eq.${activeTenantId}`,
       },
       (payload) => onChange?.({ table: 'broadcast_campaigns', ...payload }),
     );
@@ -363,7 +363,11 @@ export async function loadTeamAgents(tenantSlug) {
 const appointmentDataService = createAppointmentDataService({ getClient, loadTenant });
 export const { loadAppointmentScheduling, loadAppointmentAvailability, loadTenantSettings } = appointmentDataService;
 const broadcastOperations = createBroadcastOperations({ getClient, loadTenant, currentUserId });
-export const { upsertBroadcastContacts, createBroadcastCampaign, updateBroadcastCampaign, updateBroadcastRecipient } = broadcastOperations;
+export const { upsertBroadcastContacts, createBroadcastCampaign } = broadcastOperations;
+export const updateBroadcastCampaign = (campaignId, patch, tenantSlug) =>
+  createBroadcastOperations({ getClient, loadTenant, currentUserId, getTenantSlug: () => tenantSlug }).updateBroadcastCampaign(campaignId, patch);
+export const updateBroadcastRecipient = (campaignId, externalConversationId, patch, tenantSlug) =>
+  createBroadcastOperations({ getClient, loadTenant, currentUserId, getTenantSlug: () => tenantSlug }).updateBroadcastRecipient(campaignId, externalConversationId, patch);
 const teamAgentManagement = createTeamAgentManagement({ getClient });
 export const { saveTeamAgent, updateTeamAgentStatus, removeTeamAgent } = teamAgentManagement;
 

@@ -1,8 +1,14 @@
 import { mergeOpenAppointmentRequests } from '../appointments/appointmentRequest.js';
 import { isGenesisSalesTenant } from '../kanban/commercialStages.js';
+import { tenantLookupCache, tenantCacheEpoch } from './tenantScopedCaches.js';
+
+export const TENANT_LOOKUP_TTL_MS = 60_000;
 
 export async function findTenantBySlug(supabase, activeTenantSlug) {
-  if (!supabase) return null;
+  if (!supabase || !activeTenantSlug) return null;
+  const epoch = tenantCacheEpoch();
+  const cached = tenantLookupCache.get(supabase)?.get(activeTenantSlug);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
   const { data, error } = await supabase
     .from('tenants')
     .select('id, slug, name')
@@ -13,7 +19,11 @@ export async function findTenantBySlug(supabase, activeTenantSlug) {
     console.warn('Tenant lookup:', error.message);
     return null;
   }
-  return data;
+  if (data && epoch === tenantCacheEpoch()) {
+    if (!tenantLookupCache.has(supabase)) tenantLookupCache.set(supabase, new Map());
+    tenantLookupCache.get(supabase).set(activeTenantSlug, { data, expiresAt: Date.now() + TENANT_LOOKUP_TTL_MS });
+  }
+  return epoch === tenantCacheEpoch() ? data : null;
 }
 
 // Status que ainda pedem ação (pedido, sinal, agendado ou aguardando desfecho). Entram por consulta

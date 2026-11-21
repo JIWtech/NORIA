@@ -68,6 +68,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   const broadcastOps = useMemo(() => {
     return createBroadcastOperations({
       getClient: getAuthClient,
+      getTenantSlug: () => tenantSlug,
       loadTenant: async (slug) => {
         const supabase = getAuthClient();
         if (!supabase) return null;
@@ -79,7 +80,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
         return session?.user?.id || null;
       },
     });
-  }, []);
+  }, [tenantSlug]);
 
   const allContacts = useMemo(() => {
     const conversationContacts = conversations

@@ -1,7 +1,6 @@
 import { asObject } from '../../utils/asObject.js';
 
-const catalogProductCache = new Map();
-const catalogRefreshRequestedAt = new Map();
+import { catalogProductCache, catalogRefreshRequestedAt, tenantCacheEpoch } from '../tenants/tenantScopedCaches.js';
 const CATALOG_PRODUCT_CACHE_TTL_MS = 2 * 60 * 1000;
 const CATALOG_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -23,6 +22,7 @@ function catalogReferralFromEvent(event = {}) {
 
 export async function enrichCatalogReferrals(events = [], tenantId, supabase, tenantSlug = '') {
   if (!tenantId || !supabase || !Array.isArray(events)) return events;
+  const epoch = tenantCacheEpoch();
   const pending = new Map();
   const unresolved = [];
   for (const event of events) {
@@ -45,6 +45,7 @@ export async function enrichCatalogReferrals(events = [], tenantId, supabase, te
       }
     } catch (_) { /* historical card remains title-only */ }
   }
+  if (epoch !== tenantCacheEpoch()) return events;
   const resolved = new Map(); const now = Date.now(); const byInstance = new Map();
   for (const [key, reference] of pending) {
     const cached = catalogProductCache.get(key);
@@ -58,12 +59,14 @@ export async function enrichCatalogReferrals(events = [], tenantId, supabase, te
         .select('product_id,title,currency,regular_price_cents,sale_price_cents,effective_price_cents,price_source,price_evidence_source,price_observed_at,image_url,image_urls,synced_at,active')
         .eq('tenant_id', tenantId).eq('instance_name', instanceName).eq('active', true).in('product_id', productIds);
       if (error) throw error;
+      if (epoch !== tenantCacheEpoch()) return;
       const rows = new Map((data || []).map((row) => [String(row.product_id), row]));
       for (const productId of productIds) {
         const key = catalogProductKey(tenantId, instanceName, productId); const value = rows.get(productId) || null;
         catalogProductCache.set(key, { checkedAt: now, value }); resolved.set(key, value);
       }
     } catch (_) {
+      if (epoch !== tenantCacheEpoch()) return;
       for (const productId of productIds) catalogProductCache.set(catalogProductKey(tenantId, instanceName, productId), { checkedAt: now, value: null });
     }
     const missing = productIds.filter((productId) => !resolved.get(catalogProductKey(tenantId, instanceName, productId)));
@@ -73,9 +76,10 @@ export async function enrichCatalogReferrals(events = [], tenantId, supabase, te
       // The authenticated command router owns Evolution credentials. This is a
       // best-effort cache refresh, deliberately detached from rendering.
       void import('../integration.js')
-        .then(({ requestCatalogProductRefresh }) => requestCatalogProductRefresh({ instance_name: instanceName, product_ids: missing.slice(0, 20) }, tenantSlug))
+        .then(({ requestCatalogProductRefresh }) => epoch === tenantCacheEpoch()
+          ? requestCatalogProductRefresh({ instance_name: instanceName, product_ids: missing.slice(0, 20) }, tenantSlug) : null)
         .then((result) => {
-          if (!result?.found) return;
+          if (!result?.found || epoch !== tenantCacheEpoch()) return;
           for (const productId of missing) catalogProductCache.delete(catalogProductKey(tenantId, instanceName, productId));
           // main.jsx already owns data reloads; this is one bounded signal after
           // a confirmed backend write, never a render-time polling loop.
@@ -84,6 +88,7 @@ export async function enrichCatalogReferrals(events = [], tenantId, supabase, te
         .catch(() => {});
     }
   }));
+  if (epoch !== tenantCacheEpoch()) return events;
   return events.map((event) => {
     const reference = catalogReferralFromEvent(event);
     const resolvedReference = reference?.instanceName

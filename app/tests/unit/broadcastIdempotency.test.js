@@ -10,8 +10,10 @@ import {
   calculateCampaignCounters,
 } from '../../src/services/broadcasts/broadcastStateMachine.js';
 
-import { createBroadcastOperations } from '../../src/services/broadcasts/broadcastOperations.js';
+import { createBroadcastOperations as createScopedBroadcastOperations } from '../../src/services/broadcasts/broadcastOperations.js';
 import { executeBroadcastCampaign } from '../../src/services/broadcasts/broadcastWorker.js';
+
+const createBroadcastOperations = (options) => createScopedBroadcastOperations({ ...options, getTenantSlug: () => 'nubia' });
 
 // In-memory mock database that faithfully reproduces Supabase queries and updates
 function createMockSupabase(initialData = {}) {
@@ -21,6 +23,9 @@ function createMockSupabase(initialData = {}) {
     broadcast_contacts: initialData.broadcast_contacts ? JSON.parse(JSON.stringify(initialData.broadcast_contacts)) : [],
     tenants: initialData.tenants || [{ id: 'tenant-1', slug: 'nubia', status: 'active' }],
   };
+  for (const table of ['broadcast_campaigns', 'broadcast_campaign_recipients']) {
+    for (const row of store[table]) row.tenant_id ??= 'tenant-1';
+  }
 
   const client = {
     from(table) {

@@ -41,7 +41,7 @@ import { noticeState } from './cancellationFlow.js';
 import { AppointmentConfirmDialog } from './AppointmentConfirmDialog.jsx';
 import { NoShowMessageDialog } from './NoShowMessageDialog.jsx';
 
-const schedulingCacheByTenant = new Map();
+import { schedulingCacheByTenant, tenantCacheEpoch } from '../../../services/tenants/tenantScopedCaches.js';
 
 export function Appointments({ appointments = [], conversations = [], tenantSlug, onChanged, initialData, ready = true, outcomeTracking = false, tenantSettings = null }) {
   const [outcomeBusyId, setOutcomeBusyId] = useState('');
@@ -72,6 +72,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
 
   useEffect(() => {
     let active = true;
+    const epoch = tenantCacheEpoch();
     setCancelling(null);
     setConfirmation(null);
     setUnitId(''); setServiceId(''); setLocalDate(''); setLocalTime('');
@@ -83,6 +84,7 @@ export function Appointments({ appointments = [], conversations = [], tenantSlug
     }
     setSchedule(null);
     loadAppointmentScheduling(tenantSlug).then(value => {
+      if (!active || epoch !== tenantCacheEpoch()) return;
       schedulingCacheByTenant.set(tenantSlug, value);
       if (active) setSchedule(value);
     })
