@@ -98,13 +98,19 @@ function rejectedBrandOf(vehicle = {}, rejectedBrands = []) {
   return brand && rejectedBrands.map(normalizeText).filter(Boolean).find(value => value === brand) || null;
 }
 
-function normalizeText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
+// >>> shared_text_variants
+function sharedGenesisText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
+function sharedCompactText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+function sharedRetailText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2').replace(/[^a-z0-9.]+/g, ' ').trim();
+}
+// <<< shared_text_variants
+function normalizeText(value) { return sharedGenesisText(value); }
 
 /**
  * 6.3 Centralized Brazilian Currency Parser

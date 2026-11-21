@@ -8,6 +8,20 @@
 // Nenhum preço, nome de serviço, duração, capacidade, percentual de sinal ou texto comercial vive aqui:
 // tudo é lido do tenant. Nenhuma regex decide significado: a intenção vem do contrato semântico do Gemini.
 
+// >>> shared_tenant_identity
+// Funções puras projetadas nos nós n8n; manter autocontidas.
+function normalizeInstanceKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel?.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel?.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+// <<< shared_tenant_identity
 const input = $json || {};
 const EXPECTED_SLUG = 'clinica_nubia_oficial';
 const CONTRACT_VERSION = '2.0';
@@ -35,7 +49,19 @@ const INACTIVE_STATES = ['cancelled', 'canceled', 'cancelado', 'cancelada', 'com
 const isObj = value => value && typeof value === 'object' && !Array.isArray(value);
 const asStrings = value => (Array.isArray(value) ? value : []).filter(item => typeof item === 'string' && item.trim()).map(item => item.trim());
 const uniq = list => [...new Set(list)];
-const normalizeText = value => String(value || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+// >>> shared_text_variants
+function sharedGenesisText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+function sharedCompactText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+function sharedRetailText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2').replace(/[^a-z0-9.]+/g, ' ').trim();
+}
+// <<< shared_text_variants
+const normalizeText = value => sharedCompactText(value);
 const truthy = value => value === true || value === 'true';
 
 const turn = isObj(input.turn) ? input.turn : {};
@@ -68,8 +94,7 @@ if (input.noria_dispatch_phase === 'bootstrap') {
   const tenantRows = await get('tenants?select=id,slug,status&id=eq.' + enc(identity.tenant_id) + '&slug=eq.' + enc(EXPECTED_SLUG) + '&limit=1');
   if (!Array.isArray(tenantRows) || tenantRows.length !== 1 || tenantRows[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');
   const channelRows = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(identity.tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-  if (!Array.isArray(channelRows) || !channelRows.some(c => [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id]
-    .filter(Boolean).includes(identity.instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+  if (!Array.isArray(channelRows) || !channelRows.some(c => channelMatchesInstance(c, identity.instance))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
   const bootRows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(identity.tenant_id) + '&limit=1');
   const bootSettings = Array.isArray(bootRows) && bootRows.length === 1 && isObj(bootRows[0].settings) ? bootRows[0].settings : null;
   if (!bootSettings || bootSettings.whatsapp_processing_mode !== 'conversation_core_v1') throw new Error('NORIA_MOTOR_INATIVO_TENANT');
@@ -104,8 +129,7 @@ try {
   tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(identity.tenant_id) + '&slug=eq.' + enc(EXPECTED_SLUG) + '&limit=1');
   if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].status !== 'active') return refuse('NORIA_TENANT_INVALIDO');
   channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(identity.tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-  if (!Array.isArray(channels) || !channels.some(c => [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id]
-    .filter(Boolean).includes(identity.instance))) return refuse('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+  if (!Array.isArray(channels) || !channels.some(c => channelMatchesInstance(c, identity.instance))) return refuse('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
   settingsRows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(identity.tenant_id) + '&limit=1');
   catalogRows = await get('tenant_service_catalog?select=external_id,name,category,active,price,metadata&tenant_id=eq.' + enc(identity.tenant_id) + '&limit=200');
   followUpRows = await get('follow_up_policies?select=enabled,steps&tenant_id=eq.' + enc(identity.tenant_id) + '&channel_type=eq.whatsapp&enabled=eq.true&limit=1');
@@ -421,7 +445,7 @@ if (!semantic.valid) {
 const v = semantic.v;
 decision.evidence_used.push(...v.evidence_ids);
 if (v.previous_service_declared) {
-  A.handoff = { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER' };
+  A.handoff = { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER', auto_assign: true };
   decision.evidence_used.push(...v.previous_service_evidence_ids);
   decision.follow_up.reason = 'BOOKING_PAYMENT_OR_HANDOFF_FLOW_OUT_OF_SCOPE';
   decision.follow_up.disposition = v.disposition;

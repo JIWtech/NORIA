@@ -15,6 +15,65 @@ const get = endpoint => this.helpers.httpRequest({ method: 'GET', url: base + '/
   headers: { apikey: key, Authorization: 'Bearer ' + key }, json: true, timeout: 7000 });
 const enc = encodeURIComponent;
 
+// >>> shared_tenant_identity
+// Funções puras projetadas nos nós n8n; manter autocontidas.
+function normalizeInstanceKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+}
+
+function channelMatchesInstance(channel, instance) {
+  const expected = normalizeInstanceKey(instance);
+  if (!expected) return false;
+  const config = channel?.config && typeof channel.config === 'object' ? channel.config : {};
+  return [channel?.external_id, config.instance_name, config.instance, config.evolution_instance, config.instance_id, config.instanceId]
+    .filter(Boolean).map(normalizeInstanceKey).includes(expected);
+}
+// <<< shared_tenant_identity
+
+// >>> shared_whatsapp_jid
+function phoneFromJid(jid, minimumLength = 10, missing = null) {
+  const match = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || ''));
+  return match && match[1].length >= minimumLength ? match[1] : missing;
+}
+
+function normalizeWhatsappHandle(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const bare = raw.replace(/:(\d+)(?=@)/, '');
+  if (/@lid$/i.test(bare)) return bare;
+  const digits = bare.replace(/@(s\.whatsapp\.net|c\.us)$/i, '').replace(/\D/g, '');
+  return digits.length >= 8 ? `${digits}@s.whatsapp.net` : bare;
+}
+// <<< shared_whatsapp_jid
+
+async function selectPipeline({ declared, capability, versions, offered, strictDeclaration }) {
+  const digits = value => String(value || '').replace(/\D/g, '');
+  // Apenas JIDs de telefone autenticados podem participar do piloto.
+  const phoneOf = jid => phoneFromJid(jid, 8, '');
+  const queue = await get('conversation_turn_queue?select=claimed&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&chat_id=eq.' + enc(remoteJid) + '&limit=1');
+  const claimed = Array.isArray(queue) && Array.isArray(queue[0]?.claimed) ? queue[0].claimed : [];
+  if (claimed.length && versions.length) {
+    const keys = claimed.map(item => String(item?.event_id || item?.id || '')).filter(Boolean)
+      .flatMap(id => versions.map(version => 'noria_pin_' + version + '_' + id));
+    const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)
+      + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];
+    if (!Array.isArray(pins)) throw new Error('pin');
+    return pins.length ? { noria_contract_version: versions[0], noria_router: capability === 'services_v1' ? 'services_v2_pinned' : 'retail_v1_pinned', noria_pipeline: capability } : null;
+  }
+  if (declared === undefined || declared === null) return null;
+  if (typeof declared !== 'object' || Array.isArray(declared)) {
+    if (strictDeclaration) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
+    return null;
+  }
+  if (declared.enabled !== true) return null;
+  const scoped = declared.rollout === 'all' || (declared.rollout === 'pilot' && Array.isArray(declared.pilot?.allowed_contacts)
+    && declared.pilot.allowed_contacts.length > 0 && declared.pilot.allowed_contacts.every(item => typeof item === 'string' && /^\d{8,15}$/.test(digits(item))));
+  if (declared.contract !== 'noria_turn_pipeline_v1' || declared.capability !== capability || !versions.includes(declared.contract_version)
+    || (offered && offered.capability !== capability) || !scoped) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
+  const allowed = declared.rollout === 'all' || (phoneOf(remoteJid) !== '' && declared.pilot.allowed_contacts.some(item => digits(item) === phoneOf(remoteJid)));
+  return allowed ? { noria_contract_version: declared.contract_version, noria_router: capability === 'services_v1' ? 'services_v2' : 'retail_v1', noria_pipeline: capability, noria_pipeline_rollout: declared.rollout } : null;
+}
+
 // A rota dedicada só é selecionada após confirmar a identidade no banco.
 if (tenant_slug === 'noria') {
   const instance = required(v.instance, 'instance');
@@ -23,7 +82,7 @@ if (tenant_slug === 'noria') {
   const tenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenant_id) + '&slug=eq.noria&limit=1');
   if (!Array.isArray(tenants) || tenants.length !== 1 || tenants[0].id !== tenant_id || tenants[0].slug !== 'noria' || tenants[0].status !== 'active') throw new Error('NORIA_TENANT_INVALIDO');
   const channels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-  if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).map(value => String(value).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')).includes(String(instance).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
+  if (!Array.isArray(channels) || !channels.some(c => c.status === 'active' && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id].filter(Boolean).map(normalizeInstanceKey).includes(normalizeInstanceKey(instance)))) throw new Error('NORIA_INSTANCIA_NAO_PERTENCE_AO_TENANT');
   return { json: { ...v, noria_extension: 'noria', noria_contract_version: '1.0', noria_router: 'noria_v1', noria_dispatch_phase: 'bootstrap' },
     ...(typeof $binary !== 'undefined' && $binary ? { binary: $binary } : {}) };
 }
@@ -36,41 +95,11 @@ if (legacyExtension) {
   // A contract line that already has its own version (Gênesis) never takes part in the services pipeline selection.
   if (contractVersionByTenant[tenant_slug]) return { json: legacy };
   if (!base || !key) throw new Error('NORIA_ROTEAMENTO_SEM_CREDENCIAIS_DB');
-  const digits = value => String(value || '').replace(/\D/g, '');
-  // Pilot identity: only a phone JID (<digits>@s.whatsapp.net) of the authenticated ingress can match. LID, group and broadcast
-  // identifiers never match a configured number, even if their digits coincide.
-  const phoneOf = jid => { const m = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || '')); return m ? m[1] : ''; };
-  const validContact = item => typeof item === 'string' && /^\d{8,15}$/.test(digits(item));
-  const PIPELINE_VERSIONS = ['2.0'];
   try {
     const rows = await get('tenant_settings?select=settings&tenant_id=eq.' + enc(tenant_id) + '&limit=1');
     if (!Array.isArray(rows) || rows.length !== 1) throw new Error('settings');
-    const declared = rows[0].settings?.noria_turn_pipeline;
-    // 1. An in-flight batch stays with the pipeline that started it (the dispatcher leaves a pin on the batch).
-    const queue = await get('conversation_turn_queue?select=claimed&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&chat_id=eq.' + enc(remoteJid) + '&limit=1');
-    const claimed = Array.isArray(queue) && Array.isArray(queue[0]?.claimed) ? queue[0].claimed : [];
-    let pinned = false;
-    if (claimed.length) {
-      const keys = claimed.map(item => String(item?.event_id || item?.id || '')).filter(Boolean)
-        .flatMap(id => PIPELINE_VERSIONS.map(version => 'noria_pin_' + version + '_' + id));
-      const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)
-        + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];
-      if (!Array.isArray(pins)) throw new Error('pin');
-      pinned = pins.length > 0;
-      if (!pinned) return { json: legacy };
-      return { json: { ...legacy, noria_contract_version: PIPELINE_VERSIONS[0], noria_router: 'services_v2_pinned', noria_pipeline: 'services_v1' } };
-    }
-    // 2. No batch in flight: an explicit, valid and enabled declaration selects the pipeline; anything else keeps 1.0.
-    if (declared === undefined || declared === null) return { json: legacy };
-    if (typeof declared !== 'object' || Array.isArray(declared)) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
-    if (declared.enabled !== true) return { json: legacy };
-    const scoped = declared.rollout === 'all' || (declared.rollout === 'pilot' && Array.isArray(declared.pilot?.allowed_contacts)
-      && declared.pilot.allowed_contacts.length > 0 && declared.pilot.allowed_contacts.every(validContact));
-    if (declared.contract !== 'noria_turn_pipeline_v1' || declared.capability !== 'services_v1' || !PIPELINE_VERSIONS.includes(declared.contract_version) || !scoped) {
-      throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
-    }
-    const allowed = declared.rollout === 'all' || (phoneOf(remoteJid) !== '' && declared.pilot.allowed_contacts.some(item => digits(item) === phoneOf(remoteJid)));
-    return { json: allowed ? { ...legacy, noria_contract_version: declared.contract_version, noria_router: 'services_v2', noria_pipeline: 'services_v1', noria_pipeline_rollout: declared.rollout } : legacy };
+    const route = await selectPipeline({ declared: rows[0].settings?.noria_turn_pipeline, capability: 'services_v1', versions: ['2.0'], strictDeclaration: true });
+    return { json: route ? { ...legacy, ...route } : legacy };
   } catch (error) {
     if (/^NORIA_ROTEAMENTO_/.test(String(error?.message))) throw error;
     // Fail closed: no silent fallback between incompatible versions. The message stays queued and the recovery loop retries.
@@ -87,11 +116,7 @@ if (!/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(tenant_id)) throw new
 const saasTenants = await get('tenants?select=id,slug,status&id=eq.' + enc(tenant_id) + '&slug=eq.' + enc(tenant_slug) + '&limit=1');
 if (!Array.isArray(saasTenants) || saasTenants.length !== 1 || saasTenants[0].id !== tenant_id || saasTenants[0].slug !== tenant_slug || saasTenants[0].status !== 'active') throw new Error('NORIA_ROTEAMENTO_TENANT_INVALIDO');
 const saasChannels = await get('channels?select=external_id,config,status&tenant_id=eq.' + enc(tenant_id) + '&type=eq.whatsapp&status=eq.active&limit=25');
-const channelKey = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
-const wantedInstance = channelKey(v.instance);
-if (!wantedInstance || !Array.isArray(saasChannels) || !saasChannels.some(c => c.status === 'active'
-  && [c.external_id, c.config?.instance_name, c.config?.instance, c.config?.evolution_instance, c.config?.instance_id, c.config?.instanceId]
-    .filter(Boolean).map(channelKey).includes(wantedInstance))) throw new Error('NORIA_ROTEAMENTO_INSTANCIA_NAO_PERTENCE');
+if (!Array.isArray(saasChannels) || !saasChannels.some(c => c.status === 'active' && channelMatchesInstance(c, v.instance))) throw new Error('NORIA_ROTEAMENTO_INSTANCIA_NAO_PERTENCE');
 
 const rows = await get('tenant_settings?select=settings&tenant_id=eq.' + encodeURIComponent(tenant_id) + '&limit=1');
 
@@ -107,27 +132,9 @@ let retailRoute = null;
 const retailPolicy = s.noria_client_policy;
 const retailOffered = retailPolicy?.modules?.turn_pipeline;
 if (retailPolicy?.profile === 'retail_consultative_v1' && retailOffered && typeof retailOffered === 'object') {
-  const declared = s.noria_turn_pipeline;
   const version = typeof retailOffered.contract_version === 'string' ? retailOffered.contract_version : '';
-  const digits = value => String(value || '').replace(/\D/g, '');
-  const phoneOf = jid => { const m = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || '')); return m ? m[1] : ''; };
   try {
-    const queue = await get('conversation_turn_queue?select=claimed&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&chat_id=eq.' + enc(remoteJid) + '&limit=1');
-    const claimed = Array.isArray(queue) && Array.isArray(queue[0]?.claimed) ? queue[0].claimed : [];
-    if (claimed.length && version) {
-      const keys = claimed.map(item => String(item?.event_id || item?.id || '')).filter(Boolean).map(id => 'noria_pin_' + version + '_' + id);
-      const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)
-        + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];
-      if (!Array.isArray(pins)) throw new Error('pin');
-      if (pins.length) retailRoute = { noria_contract_version: version, noria_router: 'retail_v1_pinned', noria_pipeline: 'retail_v1' };
-    } else if (declared && typeof declared === 'object' && !Array.isArray(declared) && declared.enabled === true) {
-      const scoped = declared.rollout === 'all' || (declared.rollout === 'pilot' && Array.isArray(declared.pilot?.allowed_contacts)
-        && declared.pilot.allowed_contacts.length > 0 && declared.pilot.allowed_contacts.every(item => typeof item === 'string' && /^\d{8,15}$/.test(digits(item))));
-      if (declared.contract !== 'noria_turn_pipeline_v1' || declared.capability !== 'retail_v1' || retailOffered.capability !== 'retail_v1'
-        || !version || declared.contract_version !== version || !scoped) throw new Error('NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA');
-      const allowed = declared.rollout === 'all' || (phoneOf(remoteJid) !== '' && declared.pilot.allowed_contacts.some(item => digits(item) === phoneOf(remoteJid)));
-      if (allowed) retailRoute = { noria_contract_version: version, noria_router: 'retail_v1', noria_pipeline: 'retail_v1', noria_pipeline_rollout: declared.rollout };
-    }
+    retailRoute = await selectPipeline({ declared: s.noria_turn_pipeline, capability: 'retail_v1', versions: version ? [version] : [], offered: retailOffered });
   } catch (error) {
     if (/^NORIA_ROTEAMENTO_/.test(String(error?.message))) throw error;
     // Falha fechada: sem confirmar o pino ou a declaração, o item fica na fila e a recuperação tenta de novo.

@@ -16,7 +16,7 @@ async function run(previous_service, text = 'Seria o bronze de amigas e pode ser
 test('cliente que declara serviço anterior é encaminhada sem agendamento automático', async () => {
   const out = await run({ declared: true, evidence_ids: ['m1'] });
   assert.equal(out.commercial_decision_status, 'ok');
-  assert.deepEqual(out.commercial_decision.actions.handoff, { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER' });
+  assert.deepEqual(out.commercial_decision.actions.handoff, { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER', auto_assign: true });
   assert.equal(out.commercial_decision.actions.create_reservation.allowed, false);
   assert.equal(out.commercial_decision.actions.check_availability.allowed, false);
   assert.ok(out.commercial_decision.evidence_used.includes('m1'));

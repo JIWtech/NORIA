@@ -8,6 +8,12 @@ function objectValue(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value;
   try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; } catch { return {}; }
 }
+// >>> shared_whatsapp_jid
+function phoneFromJid(jid, minimumLength = 10, missing = null) {
+  const match = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(String(jid || ''));
+  return match && match[1].length >= minimumLength ? match[1] : missing;
+}
+
 function normalizeWhatsappHandle(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
@@ -16,6 +22,7 @@ function normalizeWhatsappHandle(value) {
   const digits = bare.replace(/@(s\.whatsapp\.net|c\.us)$/i, '').replace(/\D/g, '');
   return digits.length >= 8 ? `${digits}@s.whatsapp.net` : bare;
 }
+// <<< shared_whatsapp_jid
 const KNOWN_TENANT_BUSINESS_PATTERNS = {
   wesley_automoveis: [
     /^(?:g[eê]nesis|wesley)\s*(?:autom[oó]veis|ve[ií]culos|multimarcas|motors|auto)\b/i,

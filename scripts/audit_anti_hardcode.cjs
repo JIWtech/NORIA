@@ -19,21 +19,12 @@ const TARGET_FILES = [
   path.join(root, 'n8n/code/command_router.js'),
 ];
 
-// Passivo conhecido: remover estas exceções na Fase 3. Cada hash representa
-// uma linha exata e só pode ser consumido uma vez por arquivo.
-// Os hashes seguem a ordem original das linhas (2026-11-21):
-// CORE: 64, 82, 4121, 4172, 4256, 4622, 5098, 5617: perfil nb_bronze_v1;
-// 6445: PREVIOUS_SERVICE_CUSTOMER; 7439 e 7795: comentários sobre Wesley;
-// 10541 e 13802: nome Wesley em regex de pedido humano.
-// Salon: 68, 83, 3751, 3802, 3886, 4252, 4728, 4802: nb_bronze_v1;
-// 6012 e 6368: comentários sobre Wesley; 9114 e 12373: Wesley em regex.
-// Router: 746, condição explícita tenantSlug ic_salon para agenda.
-// Fase 3 deve substituir sinais específicos por contratos genéricos e retirar a baseline.
+// Fase 3: nenhum hardcode legado permanece autorizado nestes arquivos.
 const LEGACY_BASELINE = {
   'n8n/sources/noria_retail.js': [],
-  'n8n/sources/noria_core.js': ['d763b8db36af54e7', '88c4a18e176bc6d2', '8abc8fba8ad27dfc', '52c9868f8d73e1eb', '2dcfee820cd1129d', 'ff6f87b5676e4e7d', '985cc01109ab2628', '0396ea79100e0984', 'a0f49e90c121ce55', 'e6cefedadbea6ec4', 'f76f2490349f1d71', '8741d3451dcae7c1', 'aa836f6323778bbe'],
-  'clients/ic_saloon/salon_engine.js': ['9807bf44acb92900', '88c4a18e176bc6d2', '8abc8fba8ad27dfc', '52c9868f8d73e1eb', '2dcfee820cd1129d', 'ff6f87b5676e4e7d', '985cc01109ab2628', '0396ea79100e0984', 'e6cefedadbea6ec4', 'f76f2490349f1d71', '8741d3451dcae7c1', 'aa836f6323778bbe'],
-  'n8n/code/command_router.js': ['02ad44a8f25ea607'],
+  'n8n/sources/noria_core.js': [],
+  'clients/ic_saloon/salon_engine.js': [],
+  'n8n/code/command_router.js': [],
 };
 
 function auditLegacyTenantHardcodes(content, file) {
@@ -161,7 +152,7 @@ if (require.main === module) {
     console.error(JSON.stringify(findings, null, 2));
     process.exit(1);
   } else {
-    console.log('✅ ANTI-HARDCODE AUDIT PASSED: No new forbidden patterns outside the documented legacy baseline.');
+    console.log('✅ ANTI-HARDCODE AUDIT PASSED: No forbidden patterns found.');
     process.exit(0);
   }
 } else {

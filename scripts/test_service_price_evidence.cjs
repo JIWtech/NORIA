@@ -148,7 +148,7 @@ test('catálogo sem preços não dispensa auditoria de valor inventado e omitido
 
 test('bloco oficial literal válido dispensa auditoria extra; snapshot obsoleto continua bloqueado', async () => {
   const text = 'O Comfort custa R$ 179,99.';
-  const policy = {profile:'nb_bronze_v1',modules:{approved_service_texts:true}};
+  const policy = {profile:'nb_bronze_v1',modules:{approved_service_texts:true,messages:{}}};
   for (const price of [179.99,99.99]) {
     const configured = {...context,settings:{settings:{...context.settings.settings,approved_messages:{
       enabled:true,revision:'nb-texts-v1',catalog_prices:{comfort:price},blocks:{comfort:{text,service_ids:['comfort']}}

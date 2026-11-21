@@ -62,6 +62,25 @@ test('lote em andamento: com pino fica no retail; sem pino segue o caminho padr�
   assert.equal(unpinned.value.noria_pipeline, undefined);
 });
 
+test('retail preserva diferenças de declaração e versão durante lote', async () => {
+  for (const invalid of ['ligado', [], 123]) {
+    assert.equal((await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: invalid } })).value.noria_pipeline, undefined);
+  }
+  const queue = [{ claimed: [{ event_id: 'e1' }] }];
+  const invalid = { ...declared, capability: 'services_v1' };
+  assert.equal((await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: invalid }, queue })).value.noria_pipeline, undefined);
+  const noVersion = { ...retailPolicy, modules: { turn_pipeline: { ...offered, contract_version: '' } } };
+  await assert.rejects(route({ settings: { noria_client_policy: noVersion, noria_turn_pipeline: declared }, queue }), /NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA/);
+  const arbitraryVersion = { ...retailPolicy, modules: { turn_pipeline: { ...offered, contract_version: '3.0' } } };
+  assert.equal((await route({ settings: { noria_client_policy: arbitraryVersion, noria_turn_pipeline: { ...declared, contract_version: '3.0' } } })).value.noria_contract_version, '3.0');
+  await assert.rejects(route({ settings: { noria_client_policy: retailPolicy }, queue, pins: null }), /NORIA_ROTEAMENTO_PIPELINE_INDISPONIVEL/);
+  const pilot = { ...declared, rollout: 'pilot', pilot: { allowed_contacts: ['5522999990000'] } };
+  for (const remoteJid of ['5522999990000@g.us', '5522999990000@s.whatsapp.net.evil', '5522999990000']) {
+    assert.equal((await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: pilot }, remoteJid })).value.noria_pipeline, undefined);
+  }
+  assert.equal((await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: pilot }, remoteJid: '5522999990000:12@s.whatsapp.net' })).value.noria_pipeline, 'retail_v1');
+});
+
 test('tenant SaaS de outro perfil não muda: mesma saída de antes, sem consultar a fila', async () => {
   const policy = { contract: 'noria_policy_v2', profile: 'services_booking_v2', capability: 'standard', modules: {} };
   const { value, requests } = await route({ settings: { noria_client_policy: policy, noria_turn_pipeline: declared } });
