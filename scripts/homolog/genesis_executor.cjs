@@ -262,6 +262,21 @@ const RPC = {
   magia_turn_lifecycle_status: () => ({ ready: true, contract: 'noria_turn_lifecycle_v1' }),
   magia_turn_suppression_status: () => ({ contract: 'noria_turn_lifecycle_v1', evidence: {} }),
   magia_contact_exclusion_status: () => ({ blocked: false }),
+  // Simulação da nova fronteira; bloqueio transacional e origem são exercitados no teste SQL.
+  magia_record_engine_assignment: (world, p) => {
+    const q = queueFor(world, p), e = p.p_event;
+    if (!q || !p.p_token || q.token !== p.p_token || !['processing', 'sending'].includes(q.phase)
+      || !leaseLive(q) || !q.retry_batch_id || e?.tenant_id !== p.p_tenant
+      || e?.external_conversation_id !== p.p_chat || e?.service !== 'conversation_assigned') {
+      throw rpcError('ENGINE_ASSIGNMENT_TURN_INVALID');
+    }
+    const existing = world.tables.channel_events.find(row => row.tenant_id === p.p_tenant
+      && row.external_conversation_id === p.p_chat && row.external_message_id === e.external_message_id);
+    if (existing) return [existing];
+    const row = { id: 'sim-channel_events-' + (++world.seq), created_at: new Date().toISOString(), ...e };
+    world.tables.channel_events.push(row);
+    return [row];
+  },
   // The five lifecycle RPCs mirror the definitions published in Supabase (compared read-only on 2026-10-20): arguments
   // (p_tenant, p_chat, p_token), phase guards and outcomes. NOT reproduced: row locking, the terminal-receipt table, the
   // review-ticket trigger and magia_turn_terminal_evidence (the simulator has no suppression authority, so a finish

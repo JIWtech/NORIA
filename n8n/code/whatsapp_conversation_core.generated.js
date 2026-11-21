@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21',
-  built_at: '2026-11-21T21:53:49.202Z',
-  core_sha256: '1cbb68ad018630d60e98e368e9e193bfd88b20b01262037459b1716788fd6dd8',
+  built_at: '2026-11-21T23:38:32.997Z',
+  core_sha256: '5eba12739a34920a4986d91f6f74614a153e24575b19b2ac0b84fc0c0dfec074',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -10751,7 +10751,22 @@ async function salesAssignConversation(context, assignee, lead, assignedBy = 'IA
       }
     }
   };
-  return await supabasePost('/rest/v1/channel_events', event);
+  // Atribuição e origem do controle na mesma transação (magia_record_engine_assignment): a próxima mensagem do
+  // cliente é suprimida com evidência, sem TURN_CONTROL_ORIGIN_REQUIRED. O encaminhamento nunca pode falhar por
+  // causa da prova: se a RPC recusar ou não existir, grava como antes e marca a origem como não comprovada.
+  try {
+    return await supabasePost('/rest/v1/rpc/magia_record_engine_assignment', {
+      p_tenant: context.tenant.id, p_chat: chatId, p_token: turn?.token || null, p_event: event,
+    });
+  } catch (originError) {
+    const fallback = { ...event, raw_payload: { ...event.raw_payload, control_origin: 'unproven_fallback',
+      control_origin_error: String(originError?.message || originError).slice(0, 160) } };
+    try {
+      return await supabasePost('/rest/v1/channel_events', fallback);
+    } catch {
+      throw originError;
+    }
+  }
 }
 
 function salesAttendantLanguage(text = '') {
