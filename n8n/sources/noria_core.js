@@ -87,8 +87,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_21',
-  built_at: '2026-11-21T03:00:31.608Z',
-  core_sha256: '80aee5d4cc2bc05b4bd1bd1a57a632359afba3d7c2e0ecbfc51f06b459fb328c',
+  built_at: '2026-11-21T12:55:19.727Z',
+  core_sha256: '5ffc7bd5f779f1eb38e952368060ce24a0fbc0046167c8c2765946c7d9826ef1',
   ext_sha256: '4331ac5c0374fcff64a413436031454252547c00f0a0fcd7c64e17ffe6d820bb',
 };
 const coreRevision = coreBuildMetadata.revision;

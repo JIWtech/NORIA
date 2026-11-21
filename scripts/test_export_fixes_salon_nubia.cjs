@@ -93,7 +93,10 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.match(code, salonRewritten(label, code)
       ? /const systemText = `\$\{basePrompt\}\$\{adContextInstruction\}/
       : /const systemText = `\$\{basePrompt\}\$\{fullCatalogInstruction\}\$\{adContextInstruction\}/);
-    assert.match(slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema('), /ad_context: turnAdContext\(/);
+    // O anúncio chega ao interpretador, direto ou pela variável calculada no prepare a partir das mensagens da cliente.
+    const intentInput = slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema(');
+    if (/ad_context: adContext\b/.test(intentInput)) assert.match(code, /const adContext = turnAdContext\(\[\.\.\.history\.filter\(row => row\.direction === 'inbound' && row\.sender_type === 'contact'\), \.\.\.turn\.messages\]\)/);
+    else assert.match(intentInput, /ad_context: turnAdContext\(/);
   });
 
   test(`[${label}] envio rejeitado pela Evolution (4xx) é sinalizado à fila como não entregue`, () => {
