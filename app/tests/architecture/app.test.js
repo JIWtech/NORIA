@@ -51,15 +51,16 @@ test('REGRESSAO: App.jsx possui AST limpa com zero variaveis livres e exporta Ap
 });
 
 test('REGRESSAO: App.jsx preserva os 19 estados, 7 refs e 10 efeitos auditados', () => {
-  const filePath = path.join(__dirname, '../../src/app/App.jsx');
-  const code = fs.readFileSync(filePath, 'utf8');
-  const ast = parser.parse(code, { sourceType: 'module', plugins: ['jsx'] });
+  // Os hooks extraídos na Fase 5 (src/app/hooks) fazem parte do mesmo orquestrador: a soma total é preservada.
+  const files = [path.join(__dirname, '../../src/app/App.jsx'),
+    ...fs.readdirSync(path.join(__dirname, '../../src/app/hooks')).map((name) => path.join(__dirname, '../../src/app/hooks', name))];
+  const asts = files.map((file) => parser.parse(fs.readFileSync(file, 'utf8'), { sourceType: 'module', plugins: ['jsx'] }));
 
   let statesCount = 0;
   let refsCount = 0;
   let effectsCount = 0;
 
-  traverse(ast, {
+  for (const ast of asts) traverse(ast, {
     CallExpression(p) {
       if (p.node.callee.name === 'useState') statesCount++;
       if (p.node.callee.name === 'useRef') refsCount++;

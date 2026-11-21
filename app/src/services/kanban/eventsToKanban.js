@@ -44,14 +44,7 @@ export function eventsToKanban(
   salesLeads = [],
   teamAgents = [],
 ) {
-  let activeAgents = Array.isArray(teamAgents) && teamAgents.length ? teamAgents : null;
-  if (!activeAgents && typeof window !== 'undefined' && window.localStorage && tenantSlug) {
-    try {
-      const cached = window.localStorage.getItem(`magia:team-agents:${tenantSlug}`);
-      if (cached) activeAgents = JSON.parse(cached);
-    } catch (_) {}
-  }
-  const resolvedActiveAgents = Array.isArray(activeAgents) ? activeAgents : [];
+  const resolvedActiveAgents = Array.isArray(teamAgents) ? teamAgents : [];
 
   const columns = buildKanbanColumns(kanbanConfig, tenantSlug);
   const salesLeadsByConversation = buildSalesLeadIndexWithHelpers(

@@ -24,34 +24,26 @@ import {
   signOut,
   subscribeToAuthState,
 } from '../services/auth/authService.js';
-import { getIntegrationStatus, sendN8nCommand } from '../services/integration.js';
+import { getIntegrationStatus } from '../services/integration.js';
 import {
   applyContactUpdateToConversations,
   applyConversationReadState,
   applyIncomingEventToConversations,
   applyIncomingEventToKanban,
   canonicalConversationKey,
-  conversationReadKey,
   createDebouncedRealtimeRefresh,
   enrichSingleMediaEvent,
   getInitialTenantSlug,
-  getLatestReadableEvent,
-  getStageLabel,
   hasStoredMediaNeedingUrl,
   hasSupabaseConfig,
-  isGenesisSalesTenant,
   loadAvailableTenants,
   loadClientData,
   loadTeamAgents,
   loadTenantSettings,
-  markConversationRead,
-  moveKanbanCard,
   persistTenantSlug,
   removeTeamAgent,
   saveTeamAgent,
-  shouldAdvanceConversationRead,
   shouldRefreshConversationState,
-  sortKanbanCardsByConversationActivity,
   subscribeToClientEvents,
   subscribeToContacts,
   subscribeToConversationReads,
@@ -74,8 +66,7 @@ import { Broadcasts } from '../features/broadcasts/components/Broadcasts';
 import { Appointments } from '../features/appointments/components/Appointments';
 import { isOutcomeTrackingEnabled } from '../services/appointments/appointmentOutcome.js';
 import { clearTenantScopedCaches, tenantCacheEpoch } from '../services/tenants/tenantScopedCaches.js';
-import { placeKanbanCard, reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
-import { requirePersistedAssignment } from '../services/conversations/conversationLifecycle.js';
+import { reconcilePendingKanbanMoves } from '../services/kanban/pendingKanbanMoves.js';
 import { SettingsPage } from '../features/settings/components/SettingsPage';
 import { AuthShell } from '../features/auth/components/AuthShell';
 import { LoginPage } from '../features/auth/components/LoginPage';
@@ -104,6 +95,9 @@ import {
 } from './appScope';
 import { AppNavigation } from './AppNavigation';
 import { AppTopbar } from './AppTopbar';
+import { useKanbanMutations } from './hooks/useKanbanMutations';
+import { useAgentAssignment } from './hooks/useAgentAssignment';
+import { useConversationReadTracker } from './hooks/useConversationReadTracker';
 
 const menu = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -205,9 +199,6 @@ function App() {
   const scopeKey = buildScopeKey(session?.user?.id, activeTenantSlug);
   const currentScope = useRef(scopeKey);
   const fullyLoadedScope = useRef('');
-  const kanbanMoveInFlightRef = useRef(new Set());
-  const conversationViewRef = useRef({ canonicalKey: '', visible: false });
-  const conversationReadTimersRef = useRef(new Map());
   currentScope.current = hasTenantAccess ? scopeKey : '';
   const emptyScopedData = useMemo(() => createEmptyAppData(), []);
   const { data: scopedData, ready: scopedReady } = selectScopedAppData(appData, appDataReady, scopeKey, emptyScopedData);
@@ -224,22 +215,51 @@ function App() {
   const isCacheSnapshot = scopedReady && scopedData.source === 'cache';
   const pageResourceErrors = resourceErrorsForPage(scopedData.resourceErrors, active);
 
-  const clearKanbanMovesInFlight = useCallback(() => {
-    const ref = kanbanMoveInFlightRef.current;
-    if (!ref) return;
-    ref.clear();
-    ref.pendingMoves?.clear();
-    ref.confirmedMoves?.clear();
-  }, []);
+  const {
+    kanbanMoveInFlightRef,
+    clearKanbanMovesInFlight,
+    handleMoveKanbanCard,
+    handleKanbanOrderApplied,
+    handleFinishConversationFromKanban,
+  } = useKanbanMutations({
+    activeTenantSlug,
+    currentScope,
+    appDataRef,
+    scopedKanbanColumns: scopedData.kanbanColumns,
+    scopedTenantSettings,
+    setAppData,
+    refreshData,
+  });
+
+  const {
+    conversationViewRef,
+    handleConversationViewStateChange,
+    resetConversationReadTracker,
+  } = useConversationReadTracker({
+    activeTenantSlug,
+    sessionUserId: session?.user?.id || null,
+    currentScope,
+    appDataRef,
+    setAppData,
+    refreshData,
+  });
+
+  const { handleAssignAgent } = useAgentAssignment({
+    activeTenantSlug,
+    currentScope,
+    appDataRef,
+    scopedTenantSettings,
+    setAppData,
+    setAgentsList,
+    refreshData,
+  });
 
   const handleTenantChange = useCallback((nextSlug) => {
     if (!nextSlug || nextSlug === activeTenantSlug) return;
     persistTenantSlug(nextSlug);
     fullyLoadedScope.current = '';
     clearKanbanMovesInFlight();
-    conversationViewRef.current = { canonicalKey: '', visible: false };
-    for (const timer of conversationReadTimersRef.current.values()) window.clearTimeout(timer);
-    conversationReadTimersRef.current.clear();
+    resetConversationReadTracker();
     setAppDataReady(false);
     setInitialConversationId(null);
     setNotificationCard(null);
@@ -249,96 +269,7 @@ function App() {
     setAgentsList([]);
     setTenantSettings(null);
     setTenantSlug(nextSlug);
-  }, [activeTenantSlug, clearKanbanMovesInFlight]);
-
-  const scheduleConversationRead = useCallback((conversation) => {
-    const userId = session?.user?.id || null;
-    const requestedScope = currentScope.current;
-    const currentAppData = appDataRef.current;
-    const tenantId = currentAppData?.scopeKey === requestedScope ? currentAppData?.tenantId : null;
-    const latestEvent = getLatestReadableEvent(conversation);
-    if (!requestedScope || !tenantId || !userId || !conversation || !latestEvent?.eventId || !latestEvent?.createdAt) return;
-
-    const channelType = conversation.channelType || conversation.channel;
-    const externalConversationId = conversation.externalConversationId || conversation.normalizedExternalId;
-    const key = conversationReadKey(tenantId, userId, channelType, externalConversationId);
-    const knownMarker = (currentAppData?.conversationReads || []).find((marker) => conversationReadKey(
-      marker.tenant_id,
-      marker.user_id,
-      marker.channel_type,
-      marker.external_conversation_id,
-    ) === key);
-    if (!shouldAdvanceConversationRead(knownMarker, latestEvent)) return;
-
-    const optimisticMarker = {
-      tenant_id: tenantId,
-      user_id: userId,
-      channel_type: channelType,
-      external_conversation_id: externalConversationId,
-      last_read_event_id: latestEvent.eventId,
-      last_read_at: latestEvent.createdAt,
-    };
-    setAppData((previous) => {
-      if (!previous || previous.scopeKey !== requestedScope || previous.tenantId !== tenantId) return previous;
-      const previousMarker = (previous.conversationReads || []).find((marker) => conversationReadKey(
-        marker.tenant_id,
-        marker.user_id,
-        marker.channel_type,
-        marker.external_conversation_id,
-      ) === key);
-      if (!shouldAdvanceConversationRead(previousMarker, latestEvent)) return previous;
-      const conversationReads = upsertConversationReadMarker(previous.conversationReads || [], optimisticMarker);
-      return {
-        ...previous,
-        conversationReads,
-        conversations: applyConversationReadState(previous.conversations, conversationReads, tenantId, userId),
-      };
-    });
-
-    const existingTimer = conversationReadTimersRef.current.get(key);
-    if (existingTimer) window.clearTimeout(existingTimer);
-    const timer = window.setTimeout(async () => {
-      conversationReadTimersRef.current.delete(key);
-      if (!isSameScope(currentScope.current, requestedScope)) return;
-      try {
-        const persistedMarker = await markConversationRead({
-          tenantId,
-          channelType,
-          externalConversationId,
-          lastReadEventId: latestEvent.eventId,
-        });
-        if (!persistedMarker || !isSameScope(currentScope.current, requestedScope)) return;
-        setAppData((previous) => {
-          if (!previous || previous.scopeKey !== requestedScope || previous.tenantId !== tenantId) return previous;
-          const conversationReads = upsertConversationReadMarker(previous.conversationReads || [], persistedMarker);
-          return {
-            ...previous,
-            conversationReads,
-            conversations: applyConversationReadState(previous.conversations, conversationReads, tenantId, userId),
-          };
-        });
-      } catch (error) {
-        console.warn('Não foi possível salvar a leitura da conversa:', error.message || error);
-        if (isSameScope(currentScope.current, requestedScope)) {
-          refreshData({ showLoading: false });
-        }
-      }
-    }, 180);
-    conversationReadTimersRef.current.set(key, timer);
-  }, [session?.user?.id]);
-
-  const handleConversationViewStateChange = useCallback(({ conversation, visible } = {}) => {
-    conversationViewRef.current = {
-      canonicalKey: conversation?.canonicalKey || '',
-      visible: Boolean(visible && conversation?.canonicalKey),
-    };
-    if (conversationViewRef.current.visible) scheduleConversationRead(conversation);
-  }, [scheduleConversationRead]);
-
-  useEffect(() => () => {
-    for (const timer of conversationReadTimersRef.current.values()) window.clearTimeout(timer);
-    conversationReadTimersRef.current.clear();
-  }, [activeTenantSlug, session?.user?.id]);
+  }, [activeTenantSlug, clearKanbanMovesInFlight, resetConversationReadTracker]);
 
   useEffect(() => {
     function handleGlobalKeyDown(e) {
@@ -356,7 +287,7 @@ function App() {
     clearTenantScopedCaches();
     clearKanbanMovesInFlight();
     fullyLoadedScope.current = '';
-    conversationViewRef.current = { canonicalKey: '', visible: false };
+    resetConversationReadTracker();
     setAvailableTenants([]);
     setTenantAccess({ userId: null, loaded: false, error: '' });
     setDataScope('');
@@ -403,223 +334,6 @@ function App() {
     startTransition(() => setActive('kanban'));
   }, [scopeKey]);
 
-  const handleMoveKanbanCard = async (card, targetColumnKey, targetColObj = null) => {
-    const requestedScope = currentScope.current;
-    if (!requestedScope) return;
-    const currentColumn = String(card.targetColumnId || card.stage || '');
-    if (currentColumn === targetColumnKey || (targetColObj && currentColumn === targetColObj.id)) return;
-
-    const moveKey = [
-      activeTenantSlug,
-      card.channelType || card.channel || 'unknown',
-      card.externalConversationId || card.conversationId || card.id,
-    ].join(':');
-    if (kanbanMoveInFlightRef.current.has(moveKey)) return;
-    kanbanMoveInFlightRef.current.add(moveKey);
-    const targetStageLabel = targetColObj?.title || getStageLabel(targetColumnKey, {
-      kanbanColumns: (appDataRef.current?.scopeKey === requestedScope ? appDataRef.current?.kanbanColumns : null) || scopedData.kanbanColumns,
-      tenantSettings: scopedTenantSettings,
-      tenantSlug: activeTenantSlug,
-    });
-    if (!kanbanMoveInFlightRef.current.pendingMoves) {
-      kanbanMoveInFlightRef.current.pendingMoves = new Map();
-    }
-    const moveSeq = (kanbanMoveInFlightRef.current.moveSeq = (kanbanMoveInFlightRef.current.moveSeq || 0) + 1);
-    kanbanMoveInFlightRef.current.pendingMoves.set(card.id, {
-      targetColumnKey,
-      targetColObj,
-      targetStageLabel,
-      card,
-      moveSeq,
-      inFlight: true,
-      timestamp: Date.now(),
-    });
-
-    // Atualização otimista no estado local
-    setAppData((prev) => {
-      if (!prev?.kanbanColumns || prev.scopeKey !== requestedScope) return prev;
-      const targetStageLabel = targetColObj?.title || getStageLabel(targetColumnKey, {
-        kanbanColumns: prev.kanbanColumns,
-        tenantSettings: scopedTenantSettings,
-        tenantSlug: activeTenantSlug,
-      });
-      const isClosedTarget = targetColumnKey === 'finalizadas'
-        || targetColumnKey === 'conversation_closed'
-        || targetColObj?.automationKey === 'finalizadas'
-        || targetColObj?.automationKey === 'conversation_closed'
-        || targetStageLabel === 'Finalizada'
-        || targetStageLabel === 'Finalizado';
-      const isHumanTarget = targetColumnKey === 'sales_human'
-        || targetColumnKey === 'com_humano'
-        || targetColumnKey === 'conversas_humanos'
-        || targetColumnKey === 'aguardando_humano'
-        || targetStageLabel.toLowerCase().includes('humano');
-
-      const nextColumns = prev.kanbanColumns.map((col) => {
-        const filteredCards = (col.cards || []).filter((c) => c.id !== card.id);
-        const colKey = col.automationKey || col.id;
-        const matchesTarget =
-          colKey === targetColumnKey ||
-          col.id === targetColumnKey ||
-          (targetColObj && (
-            col.id === targetColObj.id ||
-            col.automationKey === targetColObj.automationKey ||
-            col.title === targetColObj.title
-          ));
-        if (matchesTarget) {
-          return {
-            ...col,
-            cards: sortKanbanCardsByConversationActivity([
-              placeKanbanCard(card, col.automationKey || targetColumnKey, targetStageLabel), ...filteredCards,
-            ]),
-          };
-        }
-        return { ...col, cards: filteredCards };
-      });
-
-      const nextConversations = (prev.conversations || []).map((conv) => {
-        const matches = conv.id === card.id
-          || conv.id === card.conversationId
-          || conv.id === `conv-${card.canonicalKey}`
-          || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
-          || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
-          || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
-
-        if (!matches) return conv;
-
-        if (isClosedTarget) {
-          return {
-            ...conv,
-            status: 'finalizado',
-            stage: 'Finalizado',
-            owner: null,
-            ownerId: null,
-            ownerKind: null,
-            handoff: false,
-          };
-        }
-
-        return {
-          ...conv,
-          stage: targetStageLabel,
-          salesStageKey: targetColumnKey.startsWith('sales_') ? targetColumnKey : conv.salesStageKey,
-          status: isHumanTarget ? 'atendimento_humano' : conv.status === 'finalizado' ? 'ia_ativa' : conv.status,
-        };
-      });
-
-      return {
-        ...prev,
-        kanbanColumns: nextColumns,
-        conversations: nextConversations,
-      };
-    });
-
-    try {
-      const [persistedMove] = await moveKanbanCard(activeTenantSlug, card, targetColumnKey, null, targetColObj);
-      if (!isSameScope(currentScope.current, requestedScope)) return;
-      const currentPending = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
-      if (currentPending && currentPending.moveSeq === moveSeq) {
-        currentPending.inFlight = false;
-        currentPending.completedAt = Date.now();
-      }
-      if (!kanbanMoveInFlightRef.current.confirmedMoves) {
-        kanbanMoveInFlightRef.current.confirmedMoves = new Map();
-      }
-      kanbanMoveInFlightRef.current.confirmedMoves.set(card.id, {
-        targetColumnKey,
-        targetColObj,
-        targetStageLabel,
-        card,
-        salesRevision: persistedMove?.salesRevision,
-        confirmedAt: Date.now(),
-      });
-      if (persistedMove?.salesLeadId) {
-        setAppData((prev) => {
-          if (!prev || prev.scopeKey !== requestedScope) return prev;
-          return {
-            ...prev,
-            kanbanColumns: (prev?.kanbanColumns || []).map((column) => ({
-              ...column,
-              cards: (column.cards || []).map((currentCard) => currentCard.id === card.id
-                ? {
-                  ...currentCard,
-                  salesLeadId: persistedMove.salesLeadId,
-                  salesStageKey: persistedMove.salesStageKey,
-                  salesRevision: persistedMove.salesRevision,
-                  salesAiLocked: persistedMove.salesAiLocked,
-                }
-                : currentCard),
-            })),
-            conversations: (prev?.conversations || []).map((conv) => {
-              const matches = conv.id === card.id
-                || conv.id === card.conversationId
-                || conv.id === `conv-${card.canonicalKey}`
-                || (conv.canonicalKey && card.canonicalKey && conv.canonicalKey === card.canonicalKey)
-                || (conv.normalizedExternalId && card.normalizedExternalId && conv.normalizedExternalId === card.normalizedExternalId)
-                || (conv.externalConversationId && card.externalConversationId && conv.externalConversationId === card.externalConversationId);
-              if (!matches) return conv;
-              return {
-                ...conv,
-                salesStageKey: persistedMove.salesStageKey || conv.salesStageKey,
-                salesAiLocked: typeof persistedMove.salesAiLocked === 'boolean' ? persistedMove.salesAiLocked : conv.salesAiLocked,
-              };
-            }),
-          };
-        });
-      }
-    } catch (err) {
-      console.warn('Falha ao salvar movimentação de card no banco:', err);
-      if (!isSameScope(currentScope.current, requestedScope)) return;
-      const current = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
-      if (current && current.moveSeq === moveSeq) {
-        kanbanMoveInFlightRef.current.pendingMoves.delete(card.id);
-      }
-      if (kanbanMoveInFlightRef.current.confirmedMoves?.has(card.id)) {
-        kanbanMoveInFlightRef.current.confirmedMoves.delete(card.id);
-      }
-      refreshData({ showLoading: false });
-    } finally {
-      kanbanMoveInFlightRef.current.delete(moveKey);
-      window.setTimeout(() => {
-        if (!isSameScope(currentScope.current, requestedScope)) return;
-        const current = kanbanMoveInFlightRef.current.pendingMoves?.get(card.id);
-        if (current && current.moveSeq === moveSeq) {
-          kanbanMoveInFlightRef.current.pendingMoves.delete(card.id);
-        }
-      }, 2000);
-    }
-  };
-
-  const handleKanbanOrderApplied = (orderedAutomationKeys) => {
-    const requestedScope = currentScope.current;
-    const positions = new Map(orderedAutomationKeys.map((key, index) => [key, index]));
-    setAppData((prev) => {
-      if (!prev || prev.scopeKey !== requestedScope) return prev;
-      return {
-        ...prev,
-        kanbanColumns: [...(prev?.kanbanColumns || [])]
-          .map((column) => ({ ...column, position: positions.get(column.automationKey || column.id) }))
-          .sort((left, right) => left.position - right.position),
-      };
-    });
-  };
-
-  const handleFinishConversationFromKanban = async (card) => {
-    const requestedScope = currentScope.current;
-    if (!requestedScope) return;
-    if (isGenesisSalesTenant(activeTenantSlug)) {
-      try {
-        await moveKanbanCard(activeTenantSlug, card, 'conversation_closed');
-        if (!isSameScope(currentScope.current, requestedScope)) return;
-        refreshData({ showLoading: false });
-      } catch (err) {
-        console.warn('Falha ao encerrar conversa do Kanban:', err);
-      }
-      return;
-    }
-    handleMoveKanbanCard(card, 'finalizadas');
-  };
-
   useEffect(() => {
     document.title = 'NORIA';
     try {
@@ -638,6 +352,7 @@ function App() {
       .then((list) => {
         if (active && isSameScope(currentScope.current, requestedScope)) {
           setAgentsList(list);
+          setAppData((prev) => (prev && prev.scopeKey === requestedScope ? { ...prev, teamAgents: list } : prev));
           setAgentsReady(true);
         }
       })
@@ -664,6 +379,9 @@ function App() {
     const saved = await saveTeamAgent(activeTenantSlug, newAgent);
     if (!isSameScope(currentScope.current, requestedScope)) return;
     setAgentsList((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)]);
+    setAppData((prev) => (prev && prev.scopeKey === requestedScope
+      ? { ...prev, teamAgents: [saved, ...(prev.teamAgents || []).filter((a) => a.id !== saved.id)] }
+      : prev));
   }
 
   async function handleToggleAgentStatus(agentId) {
@@ -671,6 +389,9 @@ function App() {
     const agent = agentsList.find((ag) => ag.id === agentId);
     const newStatus = agent?.status === 'online' ? 'standby' : 'online';
     setAgentsList((prev) => prev.map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag));
+    setAppData((prev) => (prev && prev.scopeKey === requestedScope
+      ? { ...prev, teamAgents: (prev.teamAgents || []).map((ag) => ag.id === agentId ? { ...ag, status: newStatus } : ag) }
+      : prev));
     await updateTeamAgentStatus(agentId, newStatus, activeTenantSlug);
     if (!isSameScope(currentScope.current, requestedScope)) return;
   }
@@ -678,109 +399,11 @@ function App() {
   async function handleDeleteAgent(agentId) {
     const requestedScope = currentScope.current;
     setAgentsList((prev) => prev.filter((ag) => ag.id !== agentId));
+    setAppData((prev) => (prev && prev.scopeKey === requestedScope
+      ? { ...prev, teamAgents: (prev.teamAgents || []).filter((ag) => ag.id !== agentId) }
+      : prev));
     await removeTeamAgent(agentId, activeTenantSlug);
     if (!isSameScope(currentScope.current, requestedScope)) return;
-  }
-
-  async function handleAssignAgent(conversationOrId, agent) {
-    const requestedScope = currentScope.current;
-    if (!requestedScope) return;
-    const scopedRefData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
-    const selectedConversation = typeof conversationOrId === 'object'
-      ? conversationOrId
-      : (scopedRefData?.conversations || []).find((conv) => conv.id === conversationOrId);
-    const conversationId = selectedConversation?.id || conversationOrId;
-    const request = scopedTenantSettings?.tenantId === scopedRefData?.tenantId ? scopedTenantSettings?.settings?.appointment_request : null;
-    const reviewOnly = (selectedConversation?.channelType || selectedConversation?.channel?.toLowerCase()) === 'whatsapp'
-      && request?.mode === 'operator_confirmation' && request.team_review_control === 'manual_reply';
-
-    if (!selectedConversation) throw new Error('Conversa não encontrada para atribuição.');
-    if (isGenesisSalesTenant(activeTenantSlug)) {
-      try {
-        await moveKanbanCard(activeTenantSlug, selectedConversation, 'sales_human', agent.name);
-      } catch (e) {
-        console.warn('Falha ao sincronizar etapa Genesis com sales_human:', e.message || e);
-      }
-      if (!isSameScope(currentScope.current, requestedScope)) return;
-    }
-    // A tela só mostra o responsável depois que o roteador confirma o evento que pausa a IA.
-    // Sem confirmação, o erro sobe para quem clicou: "assumido" na tela com a IA ativa é o pior caso.
-    const result = await sendN8nCommand('assign_conversation', {
-      channel_type: selectedConversation.channelType || selectedConversation.channel?.toLowerCase(),
-      external_conversation_id: selectedConversation.externalConversationId || selectedConversation.id.replace(/^conv-/, ''),
-      contact_name: selectedConversation.contact,
-      message_text: `Conversa atribuída a ${agent.name}`,
-      sent_by_user: agent.name,
-      assignee: {
-        id: agent.id,
-        name: agent.name,
-        role: agent.role,
-      },
-    }, activeTenantSlug);
-    requirePersistedAssignment(result, { reviewOnly });
-    if (!isSameScope(currentScope.current, requestedScope)) return;
-
-    setAppData((prev) => {
-      if (reviewOnly || !prev || prev.scopeKey !== requestedScope) return prev;
-      const nextConversations = prev.conversations.map((conv) => {
-        if (conv.id === conversationId) {
-          const newMessages = [
-            ...(conv.messages || []),
-            {
-              from: 'system',
-              text: `Conversa atribuída a ${agent.name}`,
-              at: 'Agora',
-            },
-          ];
-          return {
-            ...conv,
-            owner: agent.name,
-            ownerId: agent.id,
-            ownerKind: 'agent',
-            status: 'atendimento_humano',
-            messages: newMessages,
-          };
-        }
-        return conv;
-      });
-      const nextKanbanColumns = (prev.kanbanColumns || []).map((col) => ({
-        ...col,
-        cards: (col.cards || []).map((card) => {
-          if (
-            card.canonicalKey === selectedConversation?.canonicalKey
-            || (selectedConversation?.normalizedExternalId && card.normalizedExternalId === selectedConversation.normalizedExternalId)
-            || (selectedConversation?.externalConversationId && card.externalConversationId === selectedConversation.externalConversationId)
-            || card.id === selectedConversation?.id
-          ) {
-            return {
-              ...card,
-              owner: agent.name,
-              ownerId: agent.id,
-              ownerKind: 'agent',
-            };
-          }
-          return card;
-        }),
-      }));
-      return {
-        ...prev,
-        conversations: nextConversations,
-        kanbanColumns: nextKanbanColumns,
-      };
-    });
-
-    if (!reviewOnly && isSameScope(currentScope.current, requestedScope)) {
-      setAgentsList((prev) => prev.map((ag) => ag.id === agent.id ? { ...ag, load: (ag.load || 0) + 1 } : ag));
-    }
-
-    // A atribuição já está gravada; falha só no recarregamento não desfaz nem esconde a confirmação.
-    try {
-      if (isSameScope(currentScope.current, requestedScope)) {
-        await refreshData();
-      }
-    } catch (error) {
-      console.warn('Atribuição confirmada, mas o recarregamento falhou:', error.message || error);
-    }
   }
 
   useEffect(() => {
@@ -809,7 +432,7 @@ function App() {
         clearTenantScopedCaches();
         clearKanbanMovesInFlight();
         fullyLoadedScope.current = '';
-        conversationViewRef.current = { canonicalKey: '', visible: false };
+        resetConversationReadTracker();
         setAvailableTenants([]);
         setTenantAccess({ userId: null, loaded: false, error: '' });
         setDataScope('');
@@ -836,7 +459,7 @@ function App() {
         clearTenantScopedCaches();
         clearKanbanMovesInFlight();
         fullyLoadedScope.current = '';
-        conversationViewRef.current = { canonicalKey: '', visible: false };
+        resetConversationReadTracker();
         setDataScope('');
         setTenantAccess({ userId: nextUserId, loaded: false, error: '' });
         setAppData(createEmptyAppData());
@@ -886,6 +509,9 @@ function App() {
         const currentData = appDataRef.current?.scopeKey === requestedScope ? appDataRef.current : null;
         const partialResources = selectPartialRefresh(requestedResources, currentData, fullyLoadedScope.current, requestedScope);
         const expectedTenantId = currentData?.tenantId;
+        const currentTeamAgents = Array.isArray(currentData?.teamAgents) && currentData.teamAgents.length
+          ? currentData.teamAgents
+          : agentsList;
         const data = await loadClientData({
           conversations: currentData?.conversations || [],
           kanbanColumns: currentData?.kanbanColumns || [],
@@ -894,9 +520,11 @@ function App() {
           broadcastContacts: currentData?.broadcastContacts || [],
           broadcastCampaigns: currentData?.broadcastCampaigns || [],
           conversationReads: currentData?.conversationReads || [],
+          teamAgents: currentTeamAgents,
           tenantId: currentData?.tenantId || null,
         }, activeTenantSlug, session?.user?.id || null, {
           ...(partialResources ? { resources: partialResources } : {}),
+          teamAgents: currentTeamAgents,
           // Conversas sem atividade há mais de 30 dias só entram quando a pessoa pede (desempenho em tenants grandes).
           includeOlderConversations: includeOlderConversationsRef.current,
         });
@@ -1092,6 +720,7 @@ function App() {
         && conversationViewRef.current.canonicalKey === incomingConversationKey;
       setAppData((prev) => {
         if (!prev || prev.scopeKey !== requestedScope) return prev;
+        const resolvedTeamAgents = Array.isArray(prev.teamAgents) ? prev.teamAgents : [];
         const nextConversations = applyIncomingEventToConversations(
           prev.conversations,
           incomingEvent,
@@ -1100,14 +729,14 @@ function App() {
             markIncomingAsRead,
             kanbanColumns: prev.kanbanColumns,
             tenantSettings: scopedTenantSettings,
-            teamAgents: prev.teamAgents,
+            teamAgents: resolvedTeamAgents,
           },
         );
         const nextKanbanColumns = applyIncomingEventToKanban(
           prev.kanbanColumns,
           incomingEvent,
           activeTenantSlug,
-          prev.teamAgents,
+          resolvedTeamAgents,
         );
         return {
           ...prev,

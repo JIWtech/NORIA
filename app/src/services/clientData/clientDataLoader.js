@@ -32,6 +32,7 @@ export async function loadClientDataWithClient(supabase, fallback, activeTenantS
       ...fallback,
       tenantId: fallback?.tenantId || null,
       conversationReads: fallback?.conversationReads || [],
+      teamAgents: Array.isArray(options.teamAgents) ? options.teamAgents : (fallback?.teamAgents || []),
       source: 'mock',
       status: buildStatus({ source: 'mock', events: [], tenantSlug: activeTenantSlug }),
       appointments: [],
