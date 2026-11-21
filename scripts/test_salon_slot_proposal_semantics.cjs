@@ -1,14 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const vm = require('node:vm');
-const ts = require('../app/node_modules/typescript');
-const source = fs.readFileSync('clients/ic_saloon/salon_engine.js', 'utf8');
-const ast = ts.createSourceFile('salon.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const { readSource, declarations } = require('./lib/core_test_harness.cjs');
+const source = readSource('clients/ic_saloon/salon_engine.js');
 function fn(name) {
-  const node = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === name);
-  assert.ok(node, `função ${name} ausente`);
-  return node.getText(ast);
+  return declarations(source, [name]);
 }
 test('decisão deve apontar proposta enviada e mensagem atual posterior', () => {
   const ctx = {}; vm.runInNewContext(fn('salonValidateSlotProposalDecision'), ctx);

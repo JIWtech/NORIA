@@ -1,14 +1,10 @@
 // IA-21: detectActions precisa reconhecer as tags [AÇÃO: ...] acentuadas e sem acento (CORE e I&C Salon).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
+const { readSource, loadFunctions } = require('./lib/core_test_harness.cjs');
 
 function load(file) {
-  const source = fs.readFileSync(file, 'utf8');
-  const start = source.indexOf('function detectActions(');
-  const end = source.indexOf('\nfunction ', start + 10);
-  assert.ok(start >= 0 && end > start, `detectActions ausente em ${file}`);
-  return new Function(`${source.slice(start, end)}; return detectActions;`)();
+  return loadFunctions(readSource(file), ['detectActions']).detectActions;
 }
 
 for (const file of ['n8n/sources/noria_core.js', 'clients/ic_saloon/salon_engine.js']) {

@@ -14,6 +14,7 @@ import { EmptyState } from '../../../components/ui/EmptyState';
 import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import { getInitials } from '../../../components/ui/ContactAvatar';
 import { NoriaSelect } from '../../../components/NoriaSelect';
+import { resolveUnits, resolveEnabledChannels } from '../utils/units';
 import {
   parseBusinessHours,
   formatBusinessHoursSummary,
@@ -41,40 +42,7 @@ export function SettingsPage({
   const rawUnits = tenantSettings?.settings?.appointment_scheduling?.units;
   const rawLocations = tenantSettings?.settings?.business_facts?.locations;
 
-  const locationsList = useMemo(() => {
-    if (Array.isArray(rawLocations)) return rawLocations;
-    if (rawLocations && typeof rawLocations === 'object') {
-      return Object.entries(rawLocations).map(([k, v]) => ({ id: v?.id || k, ...v }));
-    }
-    return [];
-  }, [rawLocations]);
-
-  const unitsList = useMemo(() => {
-    if (!rawUnits) return [];
-    let list = [];
-    if (Array.isArray(rawUnits)) {
-      list = rawUnits.map((u) => ({ id: u.id || u.slug || u.name, name: u.name || u.label || u.id, ...u }));
-    } else if (typeof rawUnits === 'object') {
-      list = Object.entries(rawUnits).map(([key, val]) => ({
-        id: val?.id || val?.slug || key,
-        name: val?.name || val?.label || key,
-        ...val,
-      }));
-    }
-
-    return list.map((unit) => {
-      const matchedLoc = locationsList.find((loc) =>
-        String(loc?.id || '').toLowerCase() === String(unit?.id || '').toLowerCase()
-      );
-      const address = matchedLoc?.address || unit?.address || null;
-      const displayName = matchedLoc?.name || unit?.name || unit?.id;
-      return {
-        ...unit,
-        displayName,
-        address,
-      };
-    });
-  }, [rawUnits, locationsList]);
+  const unitsList = useMemo(() => resolveUnits(rawUnits, rawLocations), [rawUnits, rawLocations]);
 
   // KPIs dinâmicos derivados do tenant atual
   const activeCount = agents.filter((ag) => {
@@ -85,8 +53,7 @@ export function SettingsPage({
 
   // Canais habilitados: SOMENTE os configurados em enabled_channels (sem fallback)
   const rawEnabledChannels = tenantSettings?.settings?.enabled_channels;
-  const hasChannelsConfigured = Array.isArray(rawEnabledChannels);
-  const enabledChannelsList = hasChannelsConfigured ? rawEnabledChannels : [];
+  const enabledChannelsList = resolveEnabledChannels(rawEnabledChannels);
 
   // Horários de atendimento condicional (se não existir/estiver vazio, card é omitido)
   const rawBusinessHours = tenantSettings?.business_hours || tenantSettings?.businessHours;

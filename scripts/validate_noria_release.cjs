@@ -9,8 +9,16 @@ const names = ['turn_transient_failures', 'genesis_service_authority', 'catalog_
   'nubia_extension_v2', 'noria_services_pipeline', 'booking_authorization', 'noria_primary_dialogue',
   'core_commercial_boundary', 'primary_response_boundary', 'core_unavailable_media', 'noria_document_identity',
   'sales_followup_database_policy', 'core_ext_contract_guards', 'semantic_courtesy', 'ad_vehicle_and_repeated_question', 'audio_batch_limit', 'media_notice', 'ad_inventory_candidates', 'observability_diagnostics', 'genesis_sale_mileage', 'follow_up_closure', 'ingress_landline_commercial', 'technical_hold_handoff', 'pending_conversation_fixes', 'semantic_contact_ignore_rpc', 'post_release_incidents', 'select_core_burst', 'ad_referral_multiline', 'ad_vehicle_presumed', 'stale_message_guard', 'ingress_rejection_log', 'appointment_request_core', 'appointment_request_commands', 'manual_reply_sender'];
-const result = spawnSync(process.execPath, ['--test', '--test-concurrency=3', ...names.map(name => 'scripts/test_' + name + '.cjs')], {
+const additional = ['scripts/test_noria_retail.cjs', 'scripts/test_retail_pipeline_core.cjs',
+  'scripts/test_retail_routing.cjs', 'scripts/test_retail_region.cjs', 'scripts/test_joyeria_extension.cjs',
+  'scripts/audit_anti_hardcode.cjs', 'scripts/test_audit_anti_hardcode.cjs',
+  'scripts/test_build_noria_workflows.cjs', 'scripts/test_noria_handoff_announcement.cjs',
+  'scripts/test_noria_photo_promise.cjs',
+  'clients/ic_saloon/conversation_adapter.test.cjs', 'clients/ic_saloon/conversation_route.test.cjs',
+  'clients/ic_saloon/price_relay.test.cjs', 'clients/ic_saloon/price_relay_queue.test.cjs'];
+const result = spawnSync(process.execPath, ['--test', '--test-concurrency=3', ...names.map(name => 'scripts/test_' + name + '.cjs'), ...additional], {
   cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: 60000, maxBuffer: 4e6,
+  env: { ...process.env, MAGIA_TEST_MODULES: process.env.MAGIA_TEST_MODULES || path.resolve(__dirname, '../app/node_modules') },
 });
 const output = (result.stdout || '') + (result.stderr || '');
 console.log(output.split('\n').filter(line => /^(?:ℹ |# )(?:tests|pass|fail|skipped|duration_ms)|^✖ /.test(line)).join('\n'));

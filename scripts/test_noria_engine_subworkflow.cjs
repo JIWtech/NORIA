@@ -27,7 +27,7 @@ const phases = {
 const find = name => parent.nodes.find(node => node.name === name);
 const links = name => (parent.connections[name]?.main || []).map(branch => branch.map(connection => connection.node));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const stripMetadata = code => code.replace(/const coreBuildMetadata = \{[\s\S]*?\};/, '');
+const stripMetadata = code => code.replace(/\r\n/g, '\n').replace(/const coreBuildMetadata = \{[\s\S]*?\};/, '');
 const engineCode = engine.nodes.find(node => node.name === 'CORE | Motor conversacional').parameters.jsCode;
 const salonCode = salon.nodes.find(node => node.name === 'CORE | Motor conversacional').parameters.jsCode;
 const resolveRoute = json => {
@@ -121,7 +121,7 @@ test('a EXT NORIA é chamada só no ramo NORIA e converge no marcador da fase ú
   assert.equal(trigger.type, 'n8n-nodes-base.executeWorkflowTrigger');
   assert.equal(trigger.parameters.inputSource, 'passthrough');
   assert.deepEqual(ext.connections[trigger.name].main, [[{ node: policy.name, type: 'main', index: 0 }]]);
-  assert.equal(policy.parameters.jsCode, read('n8n/sources/noria_extension.js'));
+  assert.equal(policy.parameters.jsCode.replace(/\r\n/g, '\n'), read('n8n/sources/noria_extension.js').replace(/\r\n/g, '\n'));
   assert.equal(ext.settings.executionOrder, 'v1');
   assert.equal(ext.settings.saveDataSuccessExecution, undefined, 'export publicado usa o padrão do n8n para salvar execuções');
 });

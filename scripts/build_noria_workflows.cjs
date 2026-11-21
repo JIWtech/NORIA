@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-// Diretório de saída opcional (NORIA_BUILD_OUT_DIR): tudo o que o build escreve (workflows, metadados do CORE, n8n/code,
+// Diretório de saída opcional (NORIA_BUILD_OUT_DIR): tudo o que o build escreve (workflows, n8n/code,
 // manifesto) vai para lá, espelhando a estrutura do repositório. Os exports já presentes no diretório de saída são lidos
 // de lá (cópia de trabalho); os demais vêm de n8n/workflows do repositório. Sem a variável, escreve no próprio repositório.
 const outRoot = process.env.NORIA_BUILD_OUT_DIR ? path.resolve(process.env.NORIA_BUILD_OUT_DIR) : root;
@@ -42,20 +42,22 @@ const { configuredSalonId, isWorkflowId, applySalonRoute } = require('../clients
 const coreSourcePath = path.join(root, 'n8n/sources/noria_core.js');
 const extSourcePath = path.join(root, 'n8n/sources/genesis_extension.js');
 const genesisIdentitySourcePath = path.join(root, 'n8n/sources/genesis_tenant_identity.js');
-let coreCode = fs.readFileSync(coreSourcePath, 'utf8');
+// Fontes lidas sempre em LF: no Windows o checkout com core.autocrlf=true traz CRLF, que iria literal para o jsCode do n8n.
+const readSource = file => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+let coreCode = readSource(coreSourcePath);
 // Capability retail_v1: as funções puras vivem em n8n/sources/noria_retail.js (fonte canônica, testada isoladamente) e são
 // projetadas numa região marcada do motor, para que noria_core.js continue autocontido. Ver docs/operations/retail_pipeline_v1.md.
 const { syncRetailRegion } = require('./lib/retail_region.cjs');
-coreCode = syncRetailRegion(coreCode, fs.readFileSync(path.join(root, 'n8n/sources/noria_retail.js'), 'utf8'));
+coreCode = syncRetailRegion(coreCode, readSource(path.join(root, 'n8n/sources/noria_retail.js')));
 // O I&C Salon tem motor próprio (decisão de 2026-11-12): evolui separado do compartilhado.
 const salonEngineSourcePath = path.join(root, 'clients/ic_saloon/salon_engine.js');
-const salonEngineSource = fs.readFileSync(salonEngineSourcePath, 'utf8');
-const extCode = fs.readFileSync(extSourcePath, 'utf8');
-const genesisIdentityCode = fs.readFileSync(genesisIdentitySourcePath, 'utf8');
-const intakeNormalizerCode = fs.readFileSync(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js'), 'utf8').trimEnd();
+const salonEngineSource = readSource(salonEngineSourcePath);
+const extCode = readSource(extSourcePath);
+const genesisIdentityCode = readSource(genesisIdentitySourcePath);
+const intakeNormalizerCode = readSource(path.join(root, 'n8n/sources/whatsapp_normalize_entry.js')).trimEnd();
 // The Núbia v2 EXT remains an isolated, inactive workflow for future work; it is no longer embedded in the CORE.
-const nubiaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/nubia_extension.js'), 'utf8');
-const noriaExtCode = fs.readFileSync(path.join(root, 'n8n/sources/noria_extension.js'), 'utf8');
+const nubiaExtCode = readSource(path.join(root, 'n8n/sources/nubia_extension.js'));
+const noriaExtCode = readSource(path.join(root, 'n8n/sources/noria_extension.js'));
 // Router of the CORE: selects the services pipeline (Núbia v2) only from a validated, enabled declaration in
 // tenant_settings.noria_turn_pipeline; without it every tenant routes exactly as before. Gênesis and the SaaS tenants never
 // read the declaration. The services chain below is reachable only through this selection.
@@ -131,8 +133,17 @@ const coreSha256 = crypto.createHash('sha256').update(normalizedForHash).digest(
 // clock moved. Keep the original timestamp/revision only for the same CORE+EXT.
 // Other artifacts keep their own source hashes in the manifest below.
 const previousMetadata = /const coreBuildMetadata = \{[\s\S]*?\};/.exec(coreCode)?.[0] || '';
-const previousFields = Object.fromEntries([...previousMetadata.matchAll(/(revision|built_at|core_sha256|ext_sha256):\s*['"]([^'"]*)['"]/g)]
+let previousFields = Object.fromEntries([...previousMetadata.matchAll(/(revision|built_at|core_sha256|ext_sha256):\s*['"]([^'"]*)['"]/g)]
   .map(match => [match[1], match[2]]));
+// O manifesto guarda os metadados anteriores sem modificar a fonte canônica.
+const priorManifestPath = fs.existsSync(outPath('n8n/build_manifest.json'))
+  ? outPath('n8n/build_manifest.json') : path.join(root, 'n8n/build_manifest.json');
+if (fs.existsSync(priorManifestPath)) {
+  const prior = JSON.parse(fs.readFileSync(priorManifestPath, 'utf8'));
+  if (prior.core_sha256 === coreSha256 && prior.ext_sha256 === extSha256) {
+    previousFields = { ...prior, revision: prior.core_revision };
+  }
+}
 const revisionPrefix = 'conversation_core_v2_1_34_core_ext_decision_identity_';
 const previousDate = Number.isFinite(Date.parse(previousFields.built_at)) ? new Date(previousFields.built_at).toISOString() : null;
 const reuseMetadata = previousFields.core_sha256 === coreSha256 && previousFields.ext_sha256 === extSha256
@@ -148,7 +159,6 @@ const updatedMetadataBlock = `const coreBuildMetadata = {
 };`;
 
 coreCode = coreCode.replace(/const coreBuildMetadata = \{[\s\S]*?\};/, updatedMetadataBlock);
-writeOut('n8n/sources/noria_core.js', coreCode);
 
 // 3. Validate syntax of both sources
 new AsyncFunction('$json', '$env', '$vars', '$getWorkflowStaticData', coreCode);
@@ -730,6 +740,19 @@ const sales = ast.statements
 writeOut('n8n/code/whatsapp_sales.js', '// NORIA sales source projection; canonical source: n8n/sources/noria_core.js\n' + sales + '\n');
 
 const rawDiskSha256 = crypto.createHash('sha256').update(coreCode).digest('hex');
+// Hashes de bytes das fontes canônicas e módulos locais que participam do build.
+const sourceFiles = [
+  'n8n/sources/noria_core.js', 'n8n/sources/noria_retail.js', 'n8n/sources/noria_router.js',
+  'n8n/sources/noria_turn_dispatch.js', 'n8n/sources/genesis_extension.js', 'n8n/sources/genesis_tenant_identity.js',
+  'n8n/sources/whatsapp_normalize_entry.js', 'n8n/sources/nubia_extension.js', 'n8n/sources/noria_extension.js',
+  'n8n/sources/joyeria_extension.js', 'clients/ic_saloon/salon_engine.js', 'clients/ic_saloon/conversation_adapter.cjs',
+  'clients/ic_saloon/conversation_route.cjs', 'scripts/lib/retail_region.cjs', 'scripts/turn_queue_operational_bridge.cjs',
+  'n8n/code/whatsapp_recover_core.js', 'n8n/code/whatsapp_follow_up_dispatch.js', 'n8n/code/command_router.js',
+  'n8n/code/whatsapp_sync_contact.js', 'n8n/code/broadcast_campaign_worker.js', 'n8n/code/whatsapp_capture_manual_reply.js',
+  'n8n/code/whatsapp_prepare_context.js', 'n8n/code/whatsapp_avatar_refresh.js',
+];
+const sourceSha256 = Object.fromEntries(sourceFiles.map(file => [file,
+  crypto.createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')]));
 const manifest = {
   deployment: {
     contract: 'noria_turn_lifecycle_v1',
@@ -742,7 +765,8 @@ const manifest = {
   built_at: builtAt,
   core_sha256: coreSha256,
   raw_disk_sha256: rawDiskSha256,
-  hash_explanation: 'core_sha256 is the deterministic normalized hash embedded into the runtime code block; raw_disk_sha256 is the direct sha256 of the generated source file on disk after metadata embedding.',
+  hash_explanation: 'core_sha256 is the deterministic normalized hash embedded into the runtime code block; raw_disk_sha256 is the sha256 of the composed CORE code after metadata embedding; source_sha256 contains raw canonical source hashes.',
+  source_sha256: sourceSha256,
   ext_sha256: extSha256,
   // The EXT identity node filters runtime flags before the policy executes.
   // Its changes must be distinguishable from an unchanged commercial policy.
@@ -764,7 +788,8 @@ const manifest = {
     'n8n/sources/whatsapp_normalize_entry.js',
     'n8n/sources/nubia_extension.js',
     'n8n/sources/noria_extension.js',
-    'n8n/sources/noria_router_core.js',
+    'n8n/sources/noria_router.js',
+    'n8n/sources/noria_turn_dispatch.js',
     'n8n/sources/noria_retail.js',
     'n8n/sources/joyeria_extension.js',
     WORKFLOWS_DIR + RETAIL_EXT_WORKFLOW_FILE,

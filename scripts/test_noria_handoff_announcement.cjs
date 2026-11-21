@@ -4,18 +4,8 @@
 // executado. O modelo declarou handoff_announced=false; o texto anunciava mesmo assim.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
-
-const root = path.resolve(__dirname, '..');
-const source = fs.readFileSync(root + '/n8n/sources/noria_core.js', 'utf8');
-const ts = require(root + '/app/node_modules/typescript');
-const ast = ts.createSourceFile('core.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-const ctx = { normalizeText: s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() };
-const fn = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name.text === 'salesAnnouncesHandoff');
-assert.ok(fn, 'salesAnnouncesHandoff precisa existir no CORE');
-vm.runInNewContext(fn.getText(ast), ctx);
+const { readSource, loadFunctions, loadCoreEngine } = require('./lib/core_test_harness.cjs');
+const ctx = loadFunctions(readSource(), ['salesAnnouncesHandoff'], { normalizeText: s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() });
 
 test('anúncio de encaminhamento é detectado', () => {
   for (const reply of [
@@ -38,6 +28,10 @@ test('oferta, pergunta e outros "passar" não são anúncio', () => {
   ]) assert.equal(ctx.salesAnnouncesHandoff(reply), false, reply);
 });
 
-test('o validador trata o anúncio no texto como anúncio não executado', () => {
-  assert.match(source, /\(contract\.handoff_announced === true \|\| salesAnnouncesHandoff\(reply\)\) && execution\.handoff_dispatched !== true/);
+test('o validador trata o anúncio no texto como anúncio não executado', async () => {
+  const { salesValidatePrimaryDialogue } = await loadCoreEngine(['salesValidatePrimaryDialogue']);
+  const generated = { primary_reply: 'Vou passar seu atendimento para a nossa equipe.', state: {}, response_contract: { fact_evidence_mode: 'standard', answers: [], requested_fields: [], facts: [], handoff_announced: false } };
+  const plan = { requests: [], next_requirement: 'none' };
+  assert.ok(salesValidatePrimaryDialogue(generated, plan, {}, {}).issues.includes('UNEXECUTED_HANDOFF_ANNOUNCEMENT'));
+  assert.ok(!salesValidatePrimaryDialogue(generated, plan, {}, { handoff_dispatched: true }).issues.includes('UNEXECUTED_HANDOFF_ANNOUNCEMENT'));
 });
