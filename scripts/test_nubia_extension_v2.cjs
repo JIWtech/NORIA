@@ -28,12 +28,12 @@ const catalog = () => [
   { external_id: 'svc_sun', name: 'S', category: 'c', active: true, price: '30', metadata: {} },
   { external_id: 'svc_off', name: 'O', category: 'c', active: false, price: '40', metadata: {} },
 ];
-async function run({ settings = baseSettings(), semantic, extra = {}, tenantSlug = 'clinica_nubia_oficial' } = {}) {
+async function run({ settings = baseSettings(), semantic, extra = {}, tenantSlug = 'clinica_nubia_oficial', catalogRows = catalog() } = {}) {
   const httpRequest = async ({ url }) => {
     if (url.includes('/tenants?')) return [{ id: TENANT, slug: 'clinica_nubia_oficial', status: 'active' }];
     if (url.includes('/channels?')) return [{ external_id: 'inst', status: 'active' }];
     if (url.includes('/tenant_settings?')) return [{ settings }];
-    if (url.includes('/tenant_service_catalog?')) return catalog();
+    if (url.includes('/tenant_service_catalog?')) return catalogRows;
     if (url.includes('/follow_up_policies?')) return [{ enabled: true, steps: [{ key: 's1' }] }];
     throw new Error('unexpected request ' + url);
   };
@@ -52,6 +52,45 @@ const slots = { unit_id: 'u1', date: '2030-01-15', time: '10:00', customer_name:
 const availability = { source: 'magia_appointment_availability', tenant_id: TENANT, remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN,
   unit_id: 'u1', service_id: 'svc_a', date: '2030-01-15', time: '10:00', available_starts: ['10:00'] };
 const bookingProof = { contract: 'current_booking_authorization_v1', identity: { tenant_id: TENANT, instance: 'inst', remote_jid: '5500@s.whatsapp.net', session_id: 'initial', request_id: 'm1:' + TOKEN, turn_token: TOKEN }, proposal: { service_id: 'svc_a', unit_id: 'u1', date: slots.date, time: slots.time, customer_name: slots.customer_name }, status: 'accepted', evidence_ids: ['m1'] };
+
+test('ambiguidade preserva bloco comum, fatos independentes e segurança', async () => {
+  const settings = baseSettings();
+  settings.approved_messages.blocks.common = { text: 'A R$ 10,00 e B R$ 20,00', service_ids: ['svc_a', 'svc_b'] };
+  settings.business_facts.locations = [{ id: 'u1', verified: true, address: 'Rua 1' }];
+  const request = topic => ({ topic, service_ids: [], evidence_ids: ['m1'] });
+  const ambiguity = { kind: 'service', candidate_service_ids: ['svc_a', 'svc_b', 'svc_off'] };
+  let d = (await run({ settings, semantic: { primary_intent: 'ambiguous', ambiguities: [ambiguity], info_requests: [request('price'), request('health_or_safety')] } })).commercial_decision;
+  assert.deepEqual(d.ambiguous_references[0].candidates.map(c => c.service_id), ['svc_a', 'svc_b']);
+  assert.ok(d.actions.present_information.block_keys.includes('common'));
+  assert.equal(d.actions.handoff.required, true, JSON.stringify(d));
+  delete settings.approved_messages.blocks.common;
+  d = (await run({ settings, semantic: { primary_intent: 'ambiguous', ambiguities: [ambiguity], info_requests: [request('presentation')] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, []);
+  d = (await run({ settings, semantic: { primary_intent: 'ambiguous', ambiguities: [{ kind: 'unit', candidate_service_ids: [] }], info_requests: [request('location'), request('payment_terms')] } })).commercial_decision;
+  assert.ok(d.facts.some(f => f.fact_id === 'location.u1.address'));
+  assert.ok(d.facts.some(f => f.fact_id === 'payment.deposit_percentage'));
+});
+
+test('ambiguidade de serviço permite somente bloco comum de preço', async () => {
+  const settings = baseSettings();
+  settings.approved_messages.blocks.common = { text: 'A R$ 10,00 e B R$ 20,00', service_ids: ['svc_a', 'svc_b'] };
+  const semantic = { primary_intent: 'ambiguous', ambiguities: [{ kind: 'service', candidate_service_ids: ['svc_a', 'svc_b'] }], info_requests: [{ topic: 'price', service_ids: [], evidence_ids: ['m1'] }] };
+  const d = (await run({ settings, semantic })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, ['common']);
+});
+
+test('ambiguidade não serviço preserva localização e pagamento', async () => {
+  const settings = baseSettings(); settings.business_facts.locations = [{ id: 'u1', verified: true, address: 'Rua 1' }];
+  const d = (await run({ settings, semantic: { primary_intent: 'ambiguous', conversation: { topic_change: false, requires_clarification: true }, info_requests: ['location', 'payment_terms'].map(topic => ({ topic, service_ids: [], evidence_ids: ['m1'] })) } })).commercial_decision;
+  assert.ok(d.facts.some(f => f.fact_id === 'location.u1.address'));
+  assert.ok(d.facts.some(f => f.fact_id === 'payment.deposit_percentage'));
+});
+
+test('saúde de baixa confiança exige handoff', async () => {
+  const d = (await run({ semantic: { primary_intent: 'ambiguous', confidence: 'low', ambiguities: [{ kind: 'service', candidate_service_ids: ['svc_a', 'svc_b'] }], info_requests: [{ topic: 'health_or_safety', service_ids: [], evidence_ids: ['m1'] }] } })).commercial_decision;
+  assert.equal(d.actions.handoff.required, true, JSON.stringify(d));
+  assert.ok(d.reason_codes.includes('NO_AUTHORIZED_SOURCE_FOR_TOPIC'));
+});
 
 test('consulta informativa não gera disponibilidade nem reserva e aponta bloco aprovado', async () => {
   const d = (await run({ semantic: { primary_intent: 'info_inquiry', services: [ref('svc_a', 'asked_about')], info_requests: [{ topic: 'presentation', service_ids: ['svc_a'], evidence_ids: ['m1'] }] } })).commercial_decision;
@@ -297,4 +336,63 @@ test('público: os fatos audience.* só saem quando o turno trata de elegibilida
   const name = (await run({ settings, semantic: booking, extra: { availability, booking_authorization: { ...bookingProof, status: 'blocked_real_name' } } })).commercial_decision;
   assert.ok(name.facts.some(f => f.fact_id === 'booking.block_message' && f.value === 'Informe nome real'));
   assert.equal(audienceFacts(name).length, 0);
+});
+test('informações genéricas e múltiplos serviços usam somente blocos aprovados suficientes', async () => {
+  const settings = baseSettings();
+  settings.approved_messages.catalog_prices.svc_sun = 30;
+  settings.approved_messages.blocks.menu = { text: 'A R$ 10,00 B R$ 20,00 S R$ 30,00', service_ids: ['svc_a', 'svc_b', 'svc_sun'] };
+  settings.approved_messages.blocks.blk_b = { text: 'B R$ 20,00', service_ids: ['svc_b'] };
+  const request = (topic, service_ids) => ({ topic, service_ids, evidence_ids: ['m1'] });
+  let d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', info_requests: [request('price', [])] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, ['menu']);
+  d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', info_requests: [request('general_info', [])] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, ['menu']);
+  delete settings.approved_messages.blocks.menu;
+  d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', info_requests: [request('price', ['svc_a', 'svc_b'])] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys.sort(), ['blk_a', 'blk_b']);
+});
+
+test('ambiguidade de serviço preserva informação independente e nomes reais das opções', async () => {
+  const settings = baseSettings();
+  settings.business_facts.locations = [{ id: 'u1', verified: true, name: 'Unidade Centro', city: 'Cidade', address: 'Rua 1' }, { id: 'u2', verified: false, city: 'Outra' }];
+  const d = (await run({ settings, semantic: { primary_intent: 'ambiguous', ambiguities: [{ kind: 'service', candidate_service_ids: ['svc_a', 'svc_b'] }], conversation: { topic_change: false, requires_clarification: true }, info_requests: [{ topic: 'location', service_ids: [], evidence_ids: ['m1'] }, { topic: 'payment_terms', service_ids: [], evidence_ids: ['m1'] }] } })).commercial_decision;
+  assert.deepEqual(d.ambiguous_references[0].candidates, [{ service_id: 'svc_a', name: 'A' }, { service_id: 'svc_b', name: 'B' }]);
+  assert.ok(d.facts.some(f => f.fact_id === 'service.svc_b.name' && f.value === 'B' && f.source === 'tenant_service_catalog'));
+  for (const id of ['location.u1.name', 'location.u1.city', 'location.u1.address', 'payment.deposit_percentage']) assert.ok(d.facts.some(f => f.fact_id === id), id);
+  assert.ok(!d.facts.some(f => f.fact_id.startsWith('location.u2.')));
+  delete settings.business_facts.locations[0].city;
+  const missing = (await run({ settings, semantic: { primary_intent: 'info_inquiry', info_requests: [{ topic: 'location', service_ids: [], evidence_ids: ['m1'] }] } })).commercial_decision;
+  assert.ok(!missing.facts.some(f => f.fact_id === 'location.u1.city'));
+});
+
+test('blocos ausentes, empate e limite de composição não autorizam escolha parcial', async () => {
+  const settings = baseSettings();
+  const request = ids => ({ primary_intent: 'info_inquiry', info_requests: [{ topic: 'price', service_ids: ids, evidence_ids: ['m1'] }] });
+  let d = (await run({ settings, semantic: request(['svc_a', 'svc_b']) })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, []);
+  settings.approved_messages.blocks.blk_b = { text: 'B R$ 20,00', service_ids: ['svc_b'] };
+  settings.approved_messages.blocks.blk_a2 = { text: 'A R$ 10,00', service_ids: ['svc_a'] };
+  d = (await run({ settings, semantic: request(['svc_a', 'svc_b']) })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, []);
+  assert.ok(d.actions.present_information.notes.includes('AMBIGUOUS_APPROVED_BLOCK'));
+  delete settings.approved_messages.blocks.blk_a2;
+  settings.approved_messages.catalog_prices.svc_sun = 30;
+  settings.approved_messages.catalog_prices.svc_d = 40;
+  settings.approved_messages.blocks.blk_s = { text: 'S R$ 30,00', service_ids: ['svc_sun'] };
+  settings.approved_messages.blocks.blk_d = { text: 'D R$ 40,00', service_ids: ['svc_d'] };
+  const catalogRows = [...catalog(), { external_id: 'svc_d', name: 'D', active: true, price: '40', metadata: {} }];
+  d = (await run({ settings, catalogRows, semantic: request(['svc_a', 'svc_b', 'svc_sun', 'svc_d']) })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, []);
+  for (const key of ['blk_a', 'blk_b', 'blk_s', 'blk_d']) delete settings.approved_messages.blocks[key];
+  settings.approved_messages.blocks.pair1 = { text: 'A R$ 10,00 B R$ 20,00', service_ids: ['svc_a', 'svc_b'] };
+  settings.approved_messages.blocks.pair2 = { text: 'S R$ 30,00 D R$ 40,00', service_ids: ['svc_sun', 'svc_d'] };
+  d = (await run({ settings, catalogRows, semantic: request(['svc_a', 'svc_b', 'svc_sun', 'svc_d']) })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys.sort(), ['pair1', 'pair2']);
+});
+
+test('baixa confiança global não libera localização ou pagamento', async () => {
+  const settings = baseSettings(); settings.business_facts.locations = [{ id: 'u1', verified: true, address: 'Rua 1' }];
+  const d = (await run({ settings, semantic: { primary_intent: 'ambiguous', confidence: 'low', ambiguities: [{ kind: 'service', candidate_service_ids: ['svc_a', 'svc_b'] }], conversation: { topic_change: false, requires_clarification: true }, info_requests: ['location', 'payment_terms'].map(topic => ({ topic, service_ids: [], evidence_ids: ['m1'] })) } })).commercial_decision;
+  assert.ok(!d.facts.some(f => f.fact_id.startsWith('location.')));
+  assert.deepEqual(d.actions.present_information.topics, []);
 });
