@@ -29,6 +29,11 @@ function salonRewritten(label, code) {
   return ['salon', 'fonte salon'].includes(label) && !code.includes('\nfunction removeMidConversationGreeting(');
 }
 
+// Na poda Fase 4.1, clients/ic_saloon/salon_engine.js removeu blocos mortos de services_v1 (fase 'single' apenas no Salon).
+function salonPruned(label, code, symbol) {
+  return ['salon', 'fonte salon'].includes(label) && !code.includes(symbol);
+}
+
 function slice(code, start, end) {
   const i = code.indexOf(start);
   assert.ok(i >= 0, 'trecho ausente: ' + start);
@@ -46,7 +51,9 @@ function topFunction(code, name) {
 for (const [label, file] of Object.entries(ENGINES)) {
   const code = engineCode(file);
 
-  test(`[${label}] auditoria semântica: horário negado vale só se a prova não o lista como livre`, () => {
+  test(`[${label}] auditoria semântica: horário negado vale só se a prova não o lista como livre`, {
+    skip: salonPruned(label, code, 'servicesSemanticAudit') && 'services_v1 removido de salon_engine.js na poda Fase 4.1 (Salon usa fase single)',
+  }, () => {
     const verify = new Function(slice(code, 'const SERVICES_ASSERTION_CATEGORIES', 'async function servicesSemanticAudit')
       + ';return servicesVerifySemanticReport')();
     const ctx = { decision: { facts: [], approved_blocks: [] }, execution: {}, blocks: [],
@@ -94,9 +101,11 @@ for (const [label, file] of Object.entries(ENGINES)) {
       ? /const systemText = `\$\{basePrompt\}\$\{adContextInstruction\}/
       : /const systemText = `\$\{basePrompt\}\$\{fullCatalogInstruction\}\$\{adContextInstruction\}/);
     // O anúncio chega ao interpretador, direto ou pela variável calculada no prepare a partir das mensagens da cliente.
-    const intentInput = slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema(');
-    if (/ad_context: adContext\b/.test(intentInput)) assert.match(code, /const adContext = turnAdContext\(\[\.\.\.history\.filter\(row => row\.direction === 'inbound' && row\.sender_type === 'contact'\), \.\.\.turn\.messages\]\)/);
-    else assert.match(intentInput, /ad_context: turnAdContext\(/);
+    if (code.includes('servicesSemanticSchema(')) {
+      const intentInput = slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema(');
+      if (/ad_context: adContext\b/.test(intentInput)) assert.match(code, /const adContext = turnAdContext\(\[\.\.\.history\.filter\(row => row\.direction === 'inbound' && row\.sender_type === 'contact'\), \.\.\.turn\.messages\]\)/);
+      else assert.match(intentInput, /ad_context: turnAdContext\(/);
+    }
   });
 
   test(`[${label}] envio rejeitado pela Evolution (4xx) é sinalizado à fila como não entregue`, () => {
@@ -120,7 +129,9 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.match(code, /result\.reason !== 'provider_rejected_delivery'/);
   });
 
-  test(`[${label}] services_v1 informa a data local de cada mensagem do cliente`, () => {
+  test(`[${label}] services_v1 informa a data local de cada mensagem do cliente`, {
+    skip: salonPruned(label, code, 'servicesMessageLocalDate') && 'services_v1 removido de salon_engine.js na poda Fase 4.1 (Salon usa fase single)',
+  }, () => {
     const localDate = new Function('tenantTimeZone', topFunction(code, 'servicesMessageLocalDate') + ';return servicesMessageLocalDate')(() => 'America/Sao_Paulo');
     assert.equal(localDate('2026-11-12T02:30:00Z', {}), '2026-11-11', '23:30 em São Paulo ainda é o dia anterior');
     assert.equal(localDate('2026-11-12T13:00:00Z', {}), '2026-11-12');
@@ -132,7 +143,9 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.match(slice(code, 'const SERVICES_SEMANTIC_RULES', '];'), /received_local_date/);
   });
 
-  test(`[${label}] auditoria semântica: disponibilidade exige horário presente na prova`, () => {
+  test(`[${label}] auditoria semântica: disponibilidade exige horário presente na prova`, {
+    skip: salonPruned(label, code, 'servicesSemanticAudit') && 'services_v1 removido de salon_engine.js na poda Fase 4.1 (Salon usa fase single)',
+  }, () => {
     const verify = new Function(slice(code, 'const SERVICES_ASSERTION_CATEGORIES', 'async function servicesSemanticAudit')
       + ';return servicesVerifySemanticReport')();
     const ctx = {
@@ -155,7 +168,9 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.equal(report([]).status, 'rejected');
   });
 
-  test(`[${label}] auditoria semântica: contrato anterior preservado (casos de test_noria_services_pipeline)`, () => {
+  test(`[${label}] auditoria semântica: contrato anterior preservado (casos de test_noria_services_pipeline)`, {
+    skip: salonPruned(label, code, 'servicesSemanticAudit') && 'services_v1 removido de salon_engine.js na poda Fase 4.1 (Salon usa fase single)',
+  }, () => {
     const verify = new Function(slice(code, 'const SERVICES_ASSERTION_CATEGORIES', 'async function servicesSemanticAudit')
       + ';return servicesVerifySemanticReport')();
     const base = { decision: { facts: [{ fact_id: 'f1', value: '10.00' }], approved_blocks: [{ key: 'b1' }] }, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },

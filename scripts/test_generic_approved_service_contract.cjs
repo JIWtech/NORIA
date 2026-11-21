@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-for (const file of ['n8n/sources/noria_core.js', 'clients/ic_saloon/salon_engine.js']) {
+// Poda Fase 4.1 (ic_salon): groundingApprovedMessageMap e groundingApprovedReplyText pertencem ao fluxo canonical_v2 (Nubia),
+// removido de clients/ic_saloon/salon_engine.js por ser inalcancavel no Salon. validateTenantPolicyContract segue coberto em ambos via noria_core e suite do Salon.
+for (const file of ['n8n/sources/noria_core.js']) {
   test(`${file}: textos declarados validam catálogo e falham fechados`, async () => {
     const code = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     const hook = /try \{\r?\n\s*const turnResult = await runTurn\(\);/.exec(code);
