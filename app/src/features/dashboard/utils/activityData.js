@@ -2,23 +2,72 @@ export const DASHBOARD_HOURS = Array.from({ length: 24 }, (_, index) => String(i
 
 const PERIOD_DAYS = { today: 1, '7d': 7, '30d': 30 };
 
-function toValidDate(value) {
+function toValidDate(value, referenceDate = new Date()) {
   if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    // Parse explícito de datas pt-BR (ex: "06/10, 13:51" ou "21/11/2026, 19:45") antes de new Date(),
+    // pois o parser nativo interpreta "06/10" como MM/DD do ano 2001.
+    const ptBrMatch = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?(?:\s*,?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(trimmed);
+    if (ptBrMatch) {
+      const day = Number(ptBrMatch[1]);
+      const month = Number(ptBrMatch[2]);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      const ref = referenceDate instanceof Date && Number.isFinite(referenceDate.getTime())
+        ? referenceDate
+        : new Date();
+      const year = ptBrMatch[3]
+        ? (ptBrMatch[3].length === 2 ? 2000 + Number(ptBrMatch[3]) : Number(ptBrMatch[3]))
+        : ref.getFullYear();
+      const hour = ptBrMatch[4] !== undefined ? Number(ptBrMatch[4]) : 0;
+      const minute = ptBrMatch[5] !== undefined ? Number(ptBrMatch[5]) : 0;
+      const second = ptBrMatch[6] !== undefined ? Number(ptBrMatch[6]) : 0;
+      if (hour > 23 || minute > 59 || second > 59) return null;
+      let parsed = new Date(year, month - 1, day, hour, minute, second, 0);
+      if (
+        parsed.getFullYear() !== year
+        || parsed.getMonth() !== month - 1
+        || parsed.getDate() !== day
+      ) {
+        return null;
+      }
+      if (!ptBrMatch[3] && parsed.getTime() > ref.getTime() + 86400000) {
+        const prevYearParsed = new Date(year - 1, month - 1, day, hour, minute, second, 0);
+        if (
+          prevYearParsed.getFullYear() === year - 1
+          && prevYearParsed.getMonth() === month - 1
+          && prevYearParsed.getDate() === day
+        ) {
+          parsed = prevYearParsed;
+        }
+      }
+      return parsed;
+    }
+  }
+  const date = new Date(value);
   return Number.isFinite(date.getTime()) ? date : null;
 }
 
-export function getConversationStartedAt(conversation = {}) {
+export function getConversationStartedAt(conversation = {}, now = new Date()) {
+  const reference = toValidDate(now) || new Date();
   const messageDates = (conversation.messages || [])
-    .map((message) => toValidDate(message.createdAt || message.created_at || message.at))
+    .map((message) => toValidDate(message.createdAt || message.created_at || message.at, reference))
     .filter(Boolean)
     .sort((left, right) => left - right);
 
   return messageDates[0]
-    || toValidDate(conversation.createdAt || conversation.created_at)
-    || toValidDate(conversation.latestCustomerInboundAt)
-    || toValidDate(conversation.lastActivityAt || conversation.last_activity_at)
-    || toValidDate(conversation.updatedAt || conversation.updated_at);
+    || toValidDate(conversation.createdAt || conversation.created_at, reference)
+    || toValidDate(conversation.latestCustomerInboundAt, reference)
+    || toValidDate(conversation.lastActivityAt || conversation.last_activity_at, reference)
+    || toValidDate(conversation.updatedAt || conversation.updated_at, reference);
 }
 
 function getPeriodStart(period, now) {
@@ -35,7 +84,7 @@ export function getConversationsForPeriod(conversations = [], period = 'today', 
   end.setHours(23, 59, 59, 999);
 
   return (Array.isArray(conversations) ? conversations : []).filter((conversation) => {
-    const startedAt = getConversationStartedAt(conversation);
+    const startedAt = getConversationStartedAt(conversation, reference);
     return startedAt && startedAt >= start && startedAt <= end;
   });
 }
@@ -60,9 +109,12 @@ export function isQualifiedConversation(conversation) {
   return /(qualificad|proposta|negocia|agendad|cliente.fechado|finalizad)/.test(stage);
 }
 
-function getFirstResponseSeconds(conversation) {
+function getFirstResponseSeconds(conversation, reference = new Date()) {
   const orderedMessages = (conversation.messages || [])
-    .map((message) => ({ ...message, parsedAt: toValidDate(message.createdAt || message.at || message.created_at) }))
+    .map((message) => ({
+      ...message,
+      parsedAt: toValidDate(message.createdAt || message.created_at || message.at, reference),
+    }))
     .filter((message) => message.parsedAt)
     .sort((left, right) => left.parsedAt - right.parsedAt);
   const inboundIndex = orderedMessages.findIndex((message) => message.from === 'contact');
@@ -74,18 +126,42 @@ function getFirstResponseSeconds(conversation) {
   return Math.max(0, Math.round((response.parsedAt - inbound.parsedAt) / 1000));
 }
 
-function getHourIndex(conversation) {
-  const startedAt = getConversationStartedAt(conversation);
+function getHourIndex(conversation, reference = new Date()) {
+  const startedAt = getConversationStartedAt(conversation, reference);
   if (!startedAt) return -1;
   const hour = startedAt.getHours();
   return DASHBOARD_HOURS.indexOf(String(hour).padStart(2, '0'));
 }
 
+export function getWhoAttendsData(conversations = [], circleRadius = 36) {
+  const list = Array.isArray(conversations) ? conversations : [];
+  const total = list.length;
+  const iaCount = list.filter(isAiConversation).length;
+  const humanCount = Math.max(0, total - iaCount);
+  const iaPct = total > 0 ? Math.round((iaCount / total) * 100) : 0;
+  const humanPct = total > 0 ? Math.max(0, 100 - iaPct) : 0;
+  const circumference = 2 * Math.PI * circleRadius;
+  const iaStrokeDash = total > 0 ? (iaPct / 100) * circumference : 0;
+  const humanStrokeDash = total > 0 ? Math.max(0, circumference - iaStrokeDash) : 0;
+
+  return {
+    total,
+    iaCount,
+    humanCount,
+    iaPct,
+    humanPct,
+    circumference,
+    iaStrokeDash,
+    humanStrokeDash,
+  };
+}
+
 export function getPeakActivityData(conversations = [], period = '7d', now = new Date()) {
-  const periodConversations = getConversationsForPeriod(conversations, period, now);
+  const reference = toValidDate(now) || new Date();
+  const periodConversations = getConversationsForPeriod(conversations, period, reference);
   const counts = Array(DASHBOARD_HOURS.length).fill(0);
   periodConversations.forEach((conversation) => {
-    const hourIndex = getHourIndex(conversation);
+    const hourIndex = getHourIndex(conversation, reference);
     if (hourIndex >= 0) counts[hourIndex] += 1;
   });
 
@@ -100,11 +176,16 @@ export function getPeakActivityData(conversations = [], period = '7d', now = new
   const ranked = [...points].sort((left, right) => right.value - left.value || left.hour.localeCompare(right.hour));
   const primaryPeak = ranked[0] || { hour: '—', value: 0 };
   const secondaryPeak = ranked.find((point) => point.hour !== primaryPeak.hour && point.value > 0) || null;
+  const periodDays = PERIOD_DAYS[period] || PERIOD_DAYS['7d'];
+  const totalHours = periodDays * DASHBOARD_HOURS.length;
+  const averageHourly = periodConversations.length > 0
+    ? Math.round((periodConversations.length / totalHours) * 10) / 10
+    : 0;
 
   return {
     period,
     total: periodConversations.length,
-    averageHourly: periodConversations.length > 0 ? Math.round(periodConversations.length / DASHBOARD_HOURS.length) : 0,
+    averageHourly,
     maxValue,
     primaryPeak,
     secondaryPeak,
@@ -113,7 +194,8 @@ export function getPeakActivityData(conversations = [], period = '7d', now = new
 }
 
 export function getDashboardMetricsData(conversations = [], now = new Date()) {
-  const todayConversations = getConversationsForPeriod(conversations, 'today', now);
+  const reference = toValidDate(now) || new Date();
+  const todayConversations = getConversationsForPeriod(conversations, 'today', reference);
   const hourlyConversationCounts = Array(DASHBOARD_HOURS.length).fill(0);
   const hourlyAiCounts = Array(DASHBOARD_HOURS.length).fill(0);
   const hourlyQualifiedCounts = Array(DASHBOARD_HOURS.length).fill(0);
@@ -122,8 +204,8 @@ export function getDashboardMetricsData(conversations = [], now = new Date()) {
   const responseSeconds = [];
 
   todayConversations.forEach((conversation) => {
-    const hourIndex = getHourIndex(conversation);
-    const response = getFirstResponseSeconds(conversation);
+    const hourIndex = getHourIndex(conversation, reference);
+    const response = getFirstResponseSeconds(conversation, reference);
     if (hourIndex >= 0) {
       hourlyConversationCounts[hourIndex] += 1;
       if (isAiConversation(conversation)) hourlyAiCounts[hourIndex] += 1;
@@ -150,7 +232,7 @@ export function getDashboardMetricsData(conversations = [], now = new Date()) {
   const averageFirstResponseSeconds = responseSeconds.length > 0
     ? Math.round(responseSeconds.reduce((sum, value) => sum + value, 0) / responseSeconds.length)
     : null;
-  const currentHourIndex = Math.max(0, Math.min(DASHBOARD_HOURS.length - 1, now.getHours()));
+  const currentHourIndex = Math.max(0, Math.min(DASHBOARD_HOURS.length - 1, reference.getHours()));
   const visibleLength = currentHourIndex + 1;
   let cumulativeConversations = 0;
   let cumulativeAi = 0;
@@ -256,8 +338,9 @@ export function buildSparklinePaths(values = [], width = 88, height = 28) {
 }
 
 export function getMetricTrendSeries(conversations = [], metrics = null, now = new Date()) {
+  const reference = toValidDate(now) || new Date();
   const safeConversations = Array.isArray(conversations) ? conversations : [];
-  const baseMetrics = metrics || getDashboardMetricsData(safeConversations, now);
+  const baseMetrics = metrics || getDashboardMetricsData(safeConversations, reference);
 
   if (baseMetrics.conversationsToday > 0 && baseMetrics.trendSeries?.conversations?.length >= 3) {
     return baseMetrics.trendSeries;
@@ -273,12 +356,12 @@ export function getMetricTrendSeries(conversations = [], metrics = null, now = n
   const sevenDayResponseTotals = Array(7).fill(0);
   const sevenDayResponseSamples = Array(7).fill(0);
 
-  const endOfYesterday = new Date(now);
+  const endOfYesterday = new Date(reference);
   endOfYesterday.setDate(endOfYesterday.getDate() - 1);
   endOfYesterday.setHours(23, 59, 59, 999);
 
   safeConversations.forEach((conv) => {
-    const startedAt = getConversationStartedAt(conv);
+    const startedAt = getConversationStartedAt(conv, reference);
     if (!startedAt) return;
     const diffMs = endOfYesterday.getTime() - startedAt.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -287,7 +370,7 @@ export function getMetricTrendSeries(conversations = [], metrics = null, now = n
       sevenDayCounts[dayIndex] += 1;
       if (isAiConversation(conv)) sevenDayAi[dayIndex] += 1;
       if (isQualifiedConversation(conv)) sevenDayQualified[dayIndex] += 1;
-      const resp = getFirstResponseSeconds(conv);
+      const resp = getFirstResponseSeconds(conv, reference);
       if (resp !== null) {
         sevenDayResponseTotals[dayIndex] += resp;
         sevenDayResponseSamples[dayIndex] += 1;

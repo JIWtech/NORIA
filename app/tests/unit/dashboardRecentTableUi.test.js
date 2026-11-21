@@ -6,8 +6,9 @@ const componentSource = readFileSync(new URL('../../src/features/dashboard/compo
 const dashboardCss = readFileSync(new URL('../../src/styles/pages/dashboard.css', import.meta.url), 'utf8');
 
 test('recent dashboard table uses short semantic labels without status decorations', () => {
-  assert.match(componentSource, /isHuman \? 'Humano' : 'IA ativa'/);
-  assert.match(componentSource, /ownerIsPerson \? item\.owner : 'Assistente'/);
+  // Rótulos de status/responsável calculados em utils/recentConversations.js (Humano, IA ativa, Finalizada,
+  // Assistente), cobertos por tests/features/recentConversationsP4B.test.js.
+  assert.match(componentSource, /resolveRecentConversationRow\(/);
   assert.doesNotMatch(componentSource, /recent-compact-pill/);
   assert.doesNotMatch(componentSource, /status-line-dot/);
   assert.match(componentSource, /className={`recent-status-text tone-/);
