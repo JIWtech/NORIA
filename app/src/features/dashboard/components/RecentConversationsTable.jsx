@@ -7,8 +7,9 @@ import {
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { ContactAvatar } from '../../../components/ui/ContactAvatar';
 import { SkeletonLine, SkeletonBlock } from '../../../components/ui/Skeletons';
-import { sortConversationsByRecentActivity, getStageLabel } from '../../../dataService';
+import { sortConversationsByRecentActivity } from '../../../dataService';
 import { formatConversationPreview } from '../../../utils/audioUtils';
+import { resolveRecentConversationRow } from '../utils/recentConversations';
 
 export function RecentConversationsTable({
   conversations = [],
@@ -109,29 +110,14 @@ export function RecentConversationsTable({
               ))
             ) : displayedConversations.length > 0 ? (
               displayedConversations.map((item) => {
-                const stageLabel = getStageLabel(item.stage || item.salesStageKey, { kanbanColumns, tenantSettings, tenantSlug });
-                const isHuman = item.status === 'atendimento_humano'
-                  || String(stageLabel || '').toLowerCase().includes('humano')
-                  || (item.owner && item.owner !== 'Assistente IA' && item.ownerKind === 'agent');
-
-                const ownerIsPerson = Boolean(item.owner && item.owner !== 'Assistente IA' && !item.owner.toLowerCase().includes('sem responsável'));
-                const ownerName = ownerIsPerson ? item.owner : 'Assistente';
-
-                // Determinar remetente da última mensagem
-                const senderType = String(item.lastMessageSenderType || '').toLowerCase();
-                const senderName = String(item.lastMessageSender || '').toLowerCase();
-                const isClient = senderType === 'contact' || senderName.includes('cliente') || senderName.includes('contato');
-                const isAgent = senderType === 'agent' || senderName.includes('atendente') || (!isClient && senderType !== 'ai' && !senderName.includes('ia'));
-
-                let originLabel = 'IA';
-                let originTone = 'ia';
-                if (isClient) {
-                  originLabel = 'Cliente';
-                  originTone = 'cliente';
-                } else if (isAgent) {
-                  originLabel = 'Equipe';
-                  originTone = 'atendente';
-                }
+                const {
+                  statusLabel,
+                  statusTone,
+                  statusTitle,
+                  ownerName,
+                  originLabel,
+                  originTone,
+                } = resolveRecentConversationRow(item, { kanbanColumns, tenantSettings, tenantSlug });
 
                 const formattedPreview = formatConversationPreview(item.lastMessage);
                 const messageText = formattedPreview || (item.lastMessage && typeof item.lastMessage === 'string' ? item.lastMessage : 'Mensagem');
@@ -143,7 +129,7 @@ export function RecentConversationsTable({
                     onClick={() => onOpenConversation?.(item.id || item.externalConversationId)}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Conversa com ${item.contact}, ${isHuman ? 'Humano' : 'IA ativa'}`}
+                    aria-label={`Conversa com ${item.contact}, ${statusLabel}`}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         if (e.key === ' ') e.preventDefault();
@@ -164,8 +150,12 @@ export function RecentConversationsTable({
 
                     {/* 2. STATUS */}
                     <div className="recent-cell td-status">
-                      <span className={`recent-status-text tone-${isHuman ? 'human' : 'ia'}`} title={stageLabel || (isHuman ? 'Atendimento humano' : 'Atendimento por IA')}>
-                        {isHuman ? 'Humano' : 'IA ativa'}
+                      <span
+                        className={`recent-status-text tone-${statusTone}`}
+                        style={statusTone === 'closed' || statusTone === 'neutral' ? { color: '#94a3b8' } : undefined}
+                        title={statusTitle}
+                      >
+                        {statusLabel}
                       </span>
                     </div>
 
@@ -176,7 +166,12 @@ export function RecentConversationsTable({
 
                     {/* 4. ÚLTIMA MENSAGEM */}
                     <div className="recent-cell td-message">
-                      <span className={`recent-message-origin origin-${originTone}`}>{originLabel}</span>
+                      <span
+                        className={`recent-message-origin origin-${originTone}`}
+                        style={originTone === 'sistema' ? { color: '#94a3b8' } : undefined}
+                      >
+                        {originLabel}
+                      </span>
                       <span className="recent-message-separator" aria-hidden="true">·</span>
                       <span className="recent-message-snippet" title={messageText}>
                         {messageText}

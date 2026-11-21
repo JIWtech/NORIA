@@ -3,6 +3,7 @@ import { SkeletonBlock, SkeletonLine } from '../../../components/ui/Skeletons';
 import {
   getConversationsForPeriod,
   getPeakActivityData,
+  getWhoAttendsData,
   isAiConversation,
   isQualifiedConversation,
 } from '../utils/activityData';
@@ -17,21 +18,13 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
   const [period, setPeriod] = useState('7d');
   const activity = useMemo(() => getPeakActivityData(conversations, period), [conversations, period]);
   const totalConversations = useMemo(() => (Array.isArray(conversations) ? conversations : []), [conversations]);
+  const circleRadius = 36;
 
   // Estatísticas calculadas com base no total de conversas da empresa
-  const stats = useMemo(() => {
-    const total = totalConversations.length;
-    const iaCount = totalConversations.filter(isAiConversation).length;
-    const humanCount = Math.max(0, total - iaCount);
-    const iaPct = total > 0 ? Math.round((iaCount / total) * 100) : 0;
-
-    return {
-      total,
-      iaCount,
-      humanCount,
-      iaPct,
-    };
-  }, [totalConversations]);
+  const stats = useMemo(
+    () => getWhoAttendsData(totalConversations, circleRadius),
+    [totalConversations],
+  );
 
   // Funil de etapas com base no volume total de conversas
   const funnel = useMemo(() => {
@@ -48,12 +41,7 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
     ];
   }, [stats.total, totalConversations]);
 
-  // Donut chart calculations
-  // Circumference of radius 36 = 2 * PI * 36 ≈ 226.2
-  const circleRadius = 36;
-  const circumference = 2 * Math.PI * circleRadius;
-  const iaStrokeDash = (stats.iaPct / 100) * circumference;
-  const humanStrokeDash = circumference - iaStrokeDash;
+  // Donut chart calculations come from getWhoAttendsData (safe when total === 0)
 
   return (
     <div className="dashboard-right-stack" role="region" aria-label="Painel Operacional">
@@ -168,7 +156,7 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
               ) : (
                 <>
                   <strong className="summary-box-hour">
-                    {activity.averageHourly}
+                    {Number(activity.averageHourly || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
                   </strong>
                   <span className="summary-box-pill pill-average">
                     {activity.averageHourly === 1 ? 'conversa / hora' : 'conversas / hora'}
@@ -256,28 +244,32 @@ export function PeakActivitySection({ conversations = [], ready = true, kanbanCo
                   r={circleRadius}
                   className="donut-bg-ring"
                 />
-                {ready && (
+                {ready && stats.total > 0 && (
                   <>
                     {/* Arc IA (azul/índigo) */}
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r={circleRadius}
-                      className="donut-arc-ia"
-                      stroke="url(#iaArcGradient)"
-                      strokeDasharray={`${iaStrokeDash} ${circumference}`}
-                      strokeDashoffset="0"
-                    />
+                    {stats.iaStrokeDash > 0 && (
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r={circleRadius}
+                        className="donut-arc-ia"
+                        stroke="url(#iaArcGradient)"
+                        strokeDasharray={`${stats.iaStrokeDash} ${stats.circumference}`}
+                        strokeDashoffset="0"
+                      />
+                    )}
                     {/* Arc Humano (cyan) */}
-                    <circle
-                      cx="50"
-                      cy="50"
-                      r={circleRadius}
-                      className="donut-arc-human"
-                      stroke="url(#humanArcGradient)"
-                      strokeDasharray={`${humanStrokeDash} ${circumference}`}
-                      strokeDashoffset={`-${iaStrokeDash}`}
-                    />
+                    {stats.humanStrokeDash > 0 && (
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r={circleRadius}
+                        className="donut-arc-human"
+                        stroke="url(#humanArcGradient)"
+                        strokeDasharray={`${stats.humanStrokeDash} ${stats.circumference}`}
+                        strokeDashoffset={`-${stats.iaStrokeDash}`}
+                      />
+                    )}
                   </>
                 )}
               </svg>

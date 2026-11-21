@@ -44,9 +44,24 @@ import {
   displayContactName,
   displayContactPhone,
 } from '../utils/broadcastImport';
+import {
+  buildBroadcastCampaignPayload,
+  filterContactsForChannel,
+  getBroadcastChannelOptions,
+  getDefaultBroadcastChannel,
+  resolveActiveBroadcastChannel,
+} from '../utils/broadcastChannel';
+
+// Limites de texto por mensagem documentados pelas APIs de cada canal.
+const MESSAGE_LIMIT_BY_CHANNEL = { whatsapp: 4096, telegram: 4096, instagram: 1000 };
 
 export function Broadcasts({ conversations = [], contacts = [], campaigns = [], tenantSlug, onChanged, ready = true, allowedChannels = CHANNEL_OPTIONS.map(c => c.id) }) {
-  const defaultChannel = allowedChannels.includes('telegram') ? 'telegram' : allowedChannels[0] || 'whatsapp';
+  const hasChannel = allowedChannels.length > 0;
+  const defaultChannel = getDefaultBroadcastChannel(allowedChannels);
+  const [selectedChannel, setSelectedChannel] = useState(defaultChannel);
+  const activeChannel = resolveActiveBroadcastChannel(selectedChannel, allowedChannels);
+  const channelLabel = CHANNEL_OPTIONS.find((option) => option.id === activeChannel)?.label || activeChannel;
+  const messageLimit = MESSAGE_LIMIT_BY_CHANNEL[activeChannel] || 4096;
   const [draftContacts, setDraftContacts] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [messageText, setMessageText] = useState('');
@@ -82,13 +97,36 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     });
   }, [tenantSlug]);
 
+  const channelSelectOptions = useMemo(
+    () => getBroadcastChannelOptions(allowedChannels).map((option) => ({
+      value: option.id,
+      label: option.label,
+      icon: (
+        <span className={`noria-select-item-icon bc-tone-${channelTone(option.id)}`} aria-hidden="true">
+          <ChannelIcon channel={option.id} size={14} />
+        </span>
+      ),
+    })),
+    [allowedChannels],
+  );
+
+  function handleChannelChange(nextChannel) {
+    if (!nextChannel || nextChannel === activeChannel) return;
+    setSelectedChannel(nextChannel);
+    setSelected(new Set());
+    setContactLimit(BROADCAST_CONTACTS_PAGE);
+  }
+
   const allContacts = useMemo(() => {
     const conversationContacts = conversations
       .map(conversationToBroadcastContact)
       .filter((contact) => contact.externalConversationId && allowedChannels.includes(contact.channelType));
-    return mergeBroadcastContacts(contacts, conversationContacts, draftContacts)
-      .filter((contact) => allowedChannels.includes(contact.channelType || contact.channel_type || defaultChannel));
-  }, [allowedChannels, contacts, conversations, defaultChannel, draftContacts]);
+    return filterContactsForChannel(
+      mergeBroadcastContacts(contacts, conversationContacts, draftContacts),
+      allowedChannels,
+      activeChannel,
+    );
+  }, [allowedChannels, activeChannel, contacts, conversations, draftContacts]);
   const stages = useMemo(() => Array.from(new Set(conversations.map((item) => item.stage).filter(Boolean))), [conversations]);
   const selectedContacts = allContacts.filter((contact) => selected.has(contact.key));
   const visibleContacts = useMemo(() => {
@@ -111,8 +149,12 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     const existing = new Set(allContacts.map((contact) => contact.key || contactKey(contact)));
     try {
       const parsed = await parseContactFile(file);
-      const normalized = parsed.map((row) => normalizeImportedContact(row, defaultChannel));
-      const valid = normalized.filter((row) => row.externalConversationId && allowedChannels.includes(row.channelType));
+      const normalized = parsed.map((row) => normalizeImportedContact(row, activeChannel));
+      const valid = normalized.filter((row) => (
+        row.externalConversationId
+        && allowedChannels.includes(row.channelType)
+        && (!hasChannel || row.channelType === activeChannel)
+      ));
       const unique = new Map();
       valid.forEach((row) => unique.set(row.key, row));
       const fresh = Array.from(unique.values()).filter((row) => !existing.has(row.key));
@@ -130,10 +172,18 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
         duplicates: valid.length - unique.size,
         ignored: normalized.length - valid.length,
       });
-      if (!allowedChannels.length) {
+      if (!hasChannel) {
         setStatus('Nenhum canal de envio está habilitado para esta empresa. Ative um canal em Configurações para importar contatos.', 'error');
       } else if (!unique.size) {
-        setStatus(`Nenhum contato válido em ${file.name}. Confira se há uma coluna de telefone.`, 'error');
+        const hasOtherAllowedChannel = normalized.some(
+          (row) => row.externalConversationId && allowedChannels.includes(row.channelType) && row.channelType !== activeChannel,
+        );
+        setStatus(
+          hasOtherAllowedChannel
+            ? `Nenhum contato de ${channelLabel} em ${file.name}. Selecione o canal correspondente ou ajuste a coluna "canal".`
+            : `Nenhum contato válido em ${file.name}. Confira se há uma coluna de telefone.`,
+          'error',
+        );
       } else {
         setStatus(`${unique.size} contatos importados de ${file.name}.`, 'success');
       }
@@ -172,14 +222,16 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
   }
 
   function addRecentContacts() {
-    const recent = conversations.map(conversationToBroadcastContact).filter((item) => item.externalConversationId);
+    const recent = conversations
+      .map(conversationToBroadcastContact)
+      .filter((item) => item.externalConversationId && (!hasChannel || item.channelType === activeChannel));
     setDraftContacts((prev) => mergeBroadcastContacts(prev, recent));
     setSelected((prev) => {
       const next = new Set(prev);
       recent.forEach((contact) => next.add(contactKey(contact)));
       return next;
     });
-    if (!recent.length) setStatus('Nenhuma conversa recente tem telefone para adicionar.', 'info');
+    if (!recent.length) setStatus(`Nenhuma conversa recente em ${channelLabel} tem contato para adicionar.`, 'info');
     else setStatus(`${recent.length} contatos recentes adicionados.`, 'success');
   }
 
@@ -188,14 +240,14 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     const stageContacts = conversations
       .filter((conversation) => conversation.stage === stageFilter)
       .map(conversationToBroadcastContact)
-      .filter((item) => item.externalConversationId);
+      .filter((item) => item.externalConversationId && (!hasChannel || item.channelType === activeChannel));
     setDraftContacts((prev) => mergeBroadcastContacts(prev, stageContacts));
     setSelected((prev) => {
       const next = new Set(prev);
       stageContacts.forEach((contact) => next.add(contactKey(contact)));
       return next;
     });
-    if (!stageContacts.length) setStatus('Nenhum contato com telefone nesta etapa do quadro.', 'info');
+    if (!stageContacts.length) setStatus(`Nenhum contato de ${channelLabel} nesta etapa do quadro.`, 'info');
     else setStatus(`${stageContacts.length} contatos do quadro adicionados.`, 'success');
   }
 
@@ -315,14 +367,16 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
       const savedContacts = await upsertBroadcastContacts(tenantSlug, selectedContacts);
       const recipients = mergeBroadcastContacts(savedContacts, selectedContacts);
 
-      campaign = await createBroadcastCampaign(tenantSlug, {
-        name: campaignName.trim() || `Disparo ${new Date().toLocaleDateString('pt-BR')}`,
-        message_template: text,
-        messageText: text,
-        channelType: defaultChannel,
-        total_recipients: recipients.length,
-        status: 'draft',
-      }, recipients);
+      campaign = await createBroadcastCampaign(
+        tenantSlug,
+        buildBroadcastCampaignPayload({
+          campaignName,
+          messageText: text,
+          activeChannel,
+          recipients,
+        }),
+        recipients,
+      );
 
       // O servidor envia uma mensagem por vez, com o intervalo de proteção do número (acima de 40 minutos).
       await broadcastOps.enqueueBroadcastCampaign(campaign.id, { consentConfirmed: true });
@@ -345,10 +399,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
     }
   }
 
-  const channelLabel = CHANNEL_OPTIONS.find((option) => option.id === defaultChannel)?.label || defaultChannel;
-  const messageLimit = MESSAGE_LIMIT_BY_CHANNEL[defaultChannel] || 4096;
   const messageTooLong = messageText.length > messageLimit;
-  const hasChannel = allowedChannels.length > 0;
   const canSend = hasChannel && !busy && Boolean(messageText.trim()) && selectedContacts.length > 0 && !messageTooLong;
   const recoverableHasUnknown = (recoverableCampaign?.unknown_count || 0) > 0;
 
@@ -477,7 +528,7 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
                 const key = contact.key || contactKey(contact);
                 const name = displayContactName(contact);
                 const phone = displayContactPhone(contact);
-                const channel = contact.channel_type || contact.channelType || defaultChannel;
+                const channel = contact.channel_type || contact.channelType || activeChannel;
                 const isOn = selected.has(key);
                 return <li key={key}><label className={`bc-row ${isOn ? 'is-selected' : ''}`}>
                   <input type="checkbox" checked={isOn} onChange={() => toggleContact(key)} />
@@ -508,7 +559,20 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
           <section className="bc-card bc-compose" aria-labelledby="bc-compose-title">
           <header className="bc-head">
             <h2 id="bc-compose-title">Mensagem</h2>
-            {hasChannel && <span className={`bc-channel-tag bc-tone-${channelTone(defaultChannel)}`}><ChannelIcon channel={defaultChannel} size={14} />{channelLabel}</span>}
+            {hasChannel && (
+              allowedChannels.length > 1 ? (
+                <NoriaSelect
+                  className="bc-select"
+                  value={activeChannel}
+                  onValueChange={handleChannelChange}
+                  options={channelSelectOptions}
+                  ariaLabel="Canal da campanha"
+                  disabled={busy}
+                />
+              ) : (
+                <span className={`bc-channel-tag bc-tone-${channelTone(activeChannel)}`}><ChannelIcon channel={activeChannel} size={14} />{channelLabel}</span>
+              )
+            )}
           </header>
 
           <div className={`bc-message-box ${messageTooLong ? 'is-invalid' : ''}`}>
@@ -598,9 +662,6 @@ export function Broadcasts({ conversations = [], contacts = [], campaigns = [], 
 function channelTone(channel) {
   return getChannelClass(channel).replace('channel-', '') || 'webchat';
 }
-
-// Limites de texto por mensagem documentados pelas APIs de cada canal.
-const MESSAGE_LIMIT_BY_CHANNEL = { whatsapp: 4096, telegram: 4096, instagram: 1000 };
 
 const CAMPAIGN_STATUS_PRESENTATION = {
   sent: { label: 'Concluída', tone: 'success' },
