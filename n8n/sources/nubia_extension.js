@@ -332,12 +332,17 @@ function resolveBlocks(topic, serviceIds) {
     else picked.push({ key: block.key, purpose, service_ids: block.service_ids, applies_to_service_ids: uniq(appliesTo), literal: true });
   };
   if (!approvedUsable) return { picked, notes: ['APPROVED_MESSAGES_UNAVAILABLE'] };
-  if (topic === 'presentation' || topic === 'price') {
-    if (!serviceIds.length) return { picked, notes: ['SERVICE_REQUIRED'] };
-    const candidates = minimalBlocks(serviceIds);
+  if (topic === 'presentation' || topic === 'price' || (topic === 'general_info' && !serviceIds.length)) {
+    const wanted = serviceIds.length ? serviceIds : [...services.values()].filter(s => s.active && s.price !== null).map(s => s.id);
+    const candidates = wanted.length ? minimalBlocks(wanted) : [];
     if (candidates.length === 1) add(candidates[0], topic, serviceIds);
     else if (candidates.length > 1) notes.push('AMBIGUOUS_APPROVED_BLOCK');
-    else notes.push('NO_APPROVED_BLOCK_FOR_SERVICES');
+    else if (serviceIds.length > 1) {
+      const individual = serviceIds.map(id => minimalBlocks([id]));
+      const uniqueKeys = uniq(individual.filter(blocks => blocks.length === 1).map(blocks => blocks[0].key));
+      if (individual.every(blocks => blocks.length === 1) && uniqueKeys.length <= 3) individual.forEach((blocks, index) => add(blocks[0], topic, [serviceIds[index]]));
+      else notes.push(individual.some(blocks => blocks.length > 1) ? 'AMBIGUOUS_APPROVED_BLOCK' : 'NO_APPROVED_BLOCK_FOR_SERVICES');
+    } else notes.push(serviceIds.length ? 'NO_APPROVED_BLOCK_FOR_SERVICES' : 'SERVICE_REQUIRED');
   } else if (topic === 'catalog') {
     const offerable = [...services.values()].filter(s => s.active && s.price !== null).map(s => s.id);
     const candidates = minimalBlocks(offerable);
@@ -473,11 +478,16 @@ for (const id of refIds) {
   addGuidanceHomeService(id);
   addFact('service.' + id + '.schedulable_by', policy.schedulable_by, 'settings.appointment_scheduling+business_facts.service_guidance');
 }
-for (const item of v.ambiguities) decision.ambiguous_references.push(item);
+for (const item of v.ambiguities) {
+  const candidates = item.candidate_service_ids.filter(id => services.get(id)?.active).map(id => ({ service_id: id, name: services.get(id).name }));
+  for (const candidate of candidates) addFact('service.' + candidate.service_id + '.name', candidate.name, 'tenant_service_catalog');
+  decision.ambiguous_references.push({ ...item, candidates });
+}
 
 // Informação: autorizada por tópico + serviço + bloco aprovado associado; nunca por palavra-chave.
 const informational = v.intents.some(i => ['info_inquiry', 'comparison'].includes(i)) || v.info_requests.length > 0;
-if (informational && !lowConfidence) {
+if (informational) {
+  const serviceAmbiguityOnly = v.confidence !== 'low' && v.ambiguities.length > 0 && v.ambiguities.every(item => item.kind === 'service');
   for (const request of v.info_requests) {
     if (request.topic === 'health_or_safety') {
       // No tenant source authorises statements about health, contraindications or safety: nothing is presented and a human answers.
@@ -485,6 +495,19 @@ if (informational && !lowConfidence) {
       A.present_information.notes.push('NO_AUTHORIZED_SOURCE_FOR_TOPIC');
       A.handoff = { required: true, reason: 'NO_AUTHORIZED_SOURCE_FOR_TOPIC' };
       decision.evidence_used.push(...request.evidence_ids);
+      continue;
+    }
+    const ambiguousPrice = serviceAmbiguityOnly && ['price', 'presentation'].includes(request.topic);
+    if (lowConfidence && !(v.confidence !== 'low' && ['location', 'payment_terms'].includes(request.topic)) && !ambiguousPrice) continue;
+    if (ambiguousPrice) {
+      const candidateIds = uniq(v.ambiguities.flatMap(item => item.candidate_service_ids)).filter(id => services.get(id)?.active);
+      const candidates = candidateIds.length && approvedUsable ? minimalBlocks(candidateIds) : [];
+      if (candidates.length === 1) {
+        const block = candidates[0];
+        if (!decision.approved_blocks.some(b => b.key === block.key)) decision.approved_blocks.push({ key: block.key, purpose: request.topic, service_ids: block.service_ids, applies_to_service_ids: candidateIds, literal: true });
+        A.present_information.topics.push(request.topic);
+        decision.evidence_used.push(...request.evidence_ids);
+      }
       continue;
     }
     const ids = request.service_ids.length ? request.service_ids : v.services.filter(r => ['asked_about', 'compared', 'mentioned', 'interested', 'selected'].includes(r.role)).map(r => r.service_id);
@@ -496,7 +519,7 @@ if (informational && !lowConfidence) {
       // Elegibilidade/público só entra como fato quando a cliente trata disso no turno (sinal semântico do Gemini); nunca por padrão.
       addAudienceFacts();
     } else if (request.topic === 'location') {
-      for (const row of Array.isArray(facts.locations) ? facts.locations : []) if (row?.verified === true && row.address) addFact('location.' + row.id + '.address', row.address, 'business_facts.locations');
+      for (const row of Array.isArray(facts.locations) ? facts.locations : []) if (row?.verified === true && row.id) for (const field of ['address', 'name', 'city']) if (typeof row[field] === 'string' && row[field].trim()) addFact('location.' + row.id + '.' + field, row[field].trim(), 'business_facts.locations');
     } else if (request.topic === 'payment_terms') {
       if (paymentEnabled && depositPercentage !== null) addFact('payment.deposit_percentage', depositPercentage, 'settings.payment');
       if (paymentEnabled && payment.pix_key && payment.pix_holder) {
