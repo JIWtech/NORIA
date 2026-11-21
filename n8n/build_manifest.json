@@ -34,7 +34,7 @@
     "n8n/code/whatsapp_follow_up_dispatch.js": "047819fe459d48ee8e61ccccbfb9c8fd1351ced86861c558245cd2ecee738719",
     "n8n/code/command_router.js": "00af97e8f35b79af72ce37773eee680472b5c4fbb092d232b66a1dbbb04f468d",
     "n8n/code/whatsapp_sync_contact.js": "1a07c299560404f6f394b3ca5acb63a72e2aa9f979b883ce460cca7627d4ae8a",
-    "n8n/code/broadcast_campaign_worker.js": "bd62e45bbdefd661d69edc1d3ef14580e920afe054a0a22d78db2aa2b11558fa",
+    "n8n/code/broadcast_campaign_worker.js": "79324a136a45a6f8ef90088b920bce5dc7e89c41d230367359cc1a811e9b1d65",
     "n8n/code/whatsapp_capture_manual_reply.js": "800a4c5b458fefd652776a6ca673555a85c2cb293af1137ccc73f5af0a2d0f1e",
     "n8n/code/whatsapp_prepare_context.js": "8f415a20ac1c9ec53bce931e20bc69c2a19c570cbec69e9aa499649f1d7ea305",
     "n8n/code/whatsapp_avatar_refresh.js": "5f1511efaf64706d48262ac222f89d3a76b8198157ce1127276f0e1700cf0ce3"

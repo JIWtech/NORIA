@@ -1,5 +1,6 @@
--- PROPOSTA: coordenar a cadência entre campanhas do mesmo tenant e canal.
--- Implantação conjunta com o worker atualizado; interromper e aguardar todos os envios em voo antes da migração.
+-- Cadência entre campanhas do mesmo tenant e canal. Aplicada em produção em 2026-11-21 com autorização do
+-- responsável (versão 20261121214308), sem disparos em andamento. Compatível com o worker anterior; o worker
+-- novo (RPCs *_paced) só depois desta migração. Rollback: migrations_pending_review/20261121214308_broadcast_pacing_v1.rollback.sql
 begin;
 create table public.broadcast_channel_pacing (
   tenant_id uuid not null references public.tenants(id),

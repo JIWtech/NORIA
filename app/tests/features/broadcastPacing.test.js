@@ -28,7 +28,7 @@ test('duas campanhas do mesmo canal respeitam a reserva após interrupção', as
     await db.exec(definition('../../../supabase/migrations/20261109192425_broadcast_opt_out.sql', 'broadcast_begin_send'));
     await db.exec(definition('../../../supabase/migrations/20261109192353_broadcast_number_protection.sql', 'broadcast_requeue_recipient'));
     await db.exec("update broadcast_campaigns set next_send_at=clock_timestamp()+interval '50 minutes' where id='00000000-0000-0000-0000-000000000012'");
-    if (process.env.BROADCAST_BASELINE !== '1') await db.exec(fs.readFileSync(new URL('../../../supabase/migrations_pending_review/broadcast_pacing_v1.PROPOSAL.sql', import.meta.url), 'utf8'));
+    if (process.env.BROADCAST_BASELINE !== '1') await db.exec(fs.readFileSync(new URL('../../../supabase/migrations/20261121214308_broadcast_pacing_v1.sql', import.meta.url), 'utf8'));
     if (process.env.BROADCAST_BASELINE !== '1') {
       const seeded = await db.query("select p.next_send_at = c.next_send_at as preserved from broadcast_channel_pacing p join broadcast_campaigns c on c.id='00000000-0000-0000-0000-000000000012'");
       assert.equal(seeded.rows[0]?.preserved, true, 'cadência existente deve ser preservada');
@@ -64,7 +64,7 @@ test('duas campanhas do mesmo canal respeitam a reserva após interrupção', as
     assert.equal(requeued.rows[0].status, 'queued');
     assert.equal(requeued.rows[0].pending_recipient_id, null);
     assert.equal(requeued.rows[0].cooling, true);
-    await db.exec(fs.readFileSync(new URL('../../../supabase/migrations_pending_review/broadcast_pacing_v1_rollback.PROPOSAL.sql', import.meta.url), 'utf8'));
+    await db.exec(fs.readFileSync(new URL('../../../supabase/migrations_pending_review/20261121214308_broadcast_pacing_v1.rollback.sql', import.meta.url), 'utf8'));
     const rollback = await db.query("select to_regclass('public.broadcast_channel_pacing') as pacing");
     assert.equal(rollback.rows[0].pacing, null);
   } finally { await db.close(); }

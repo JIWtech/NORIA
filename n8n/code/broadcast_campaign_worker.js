@@ -2,9 +2,9 @@
 // Roda no schedule de 1 minuto do workflow de Entrada (nó "Processar Disparos"), projetado pelo
 // scripts/build_noria_workflows.cjs. O painel só cria e enfileira a campanha.
 //
-// ATENÇÃO (2026-11-21): esta versão chama broadcast_begin_send_paced e broadcast_requeue_recipient_paced,
-// criadas pela proposta supabase/migrations_pending_review/broadcast_pacing_v1.PROPOSAL.sql. NÃO publique o
-// Roteador com este worker antes de aplicar essa migração: sem as RPCs, os disparos param.
+// Usa broadcast_begin_send_paced e broadcast_requeue_recipient_paced, criadas pela migração
+// supabase/migrations/20261121214308_broadcast_pacing_v1.sql (aplicada em produção em 2026-11-21).
+// Ambientes sem essa migração não podem receber este worker: sem as RPCs, os disparos param.
 //
 // Garantias:
 // - Campanha reivindicada com lease no banco (broadcast_claim_due_campaigns): uma por tenant por vez.
