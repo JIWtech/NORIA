@@ -58,7 +58,8 @@ async function selectPipeline({ declared, capability, versions, offered, strictD
     const pins = keys.length ? await get('channel_events?select=external_message_id&tenant_id=eq.' + enc(tenant_id) + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + enc(remoteJid)
       + '&external_message_id=in.(' + keys.map(enc).join(',') + ')&limit=1') : [];
     if (!Array.isArray(pins)) throw new Error('pin');
-    return pins.length ? { noria_contract_version: versions[0], noria_router: capability === 'services_v1' ? 'services_v2_pinned' : 'retail_v1_pinned', noria_pipeline: capability } : null;
+    if (pins.length) return { noria_contract_version: versions[0], noria_router: capability === 'services_v1' ? 'services_v2_pinned' : 'retail_v1_pinned', noria_pipeline: capability };
+    // Sem pino, o claim pode ter sido interrompido antes da gravação. Avalie a declaração vigente.
   }
   if (declared === undefined || declared === null) return null;
   if (typeof declared !== 'object' || Array.isArray(declared)) {

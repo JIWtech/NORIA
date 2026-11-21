@@ -53,13 +53,25 @@ test('declaração desligada ou ausente não roteia; inválida falha fechada', a
   }
 });
 
-test('lote em andamento: com pino fica no retail; sem pino segue o caminho padrão', async () => {
+test('lote em andamento: pino prevalece; sem pino vale a declaração', async () => {
   const queue = [{ claimed: [{ event_id: 'e1' }] }];
   const pinned = await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: declared }, queue, pins: [{ external_message_id: 'noria_pin_1.0_e1' }] });
   assert.equal(pinned.value.noria_pipeline, 'retail_v1');
   assert.equal(pinned.value.noria_router, 'retail_v1_pinned');
   const unpinned = await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: declared }, queue, pins: [] });
-  assert.equal(unpinned.value.noria_pipeline, undefined);
+  assert.equal(unpinned.value.noria_pipeline, 'retail_v1');
+});
+
+test('interrupção após claim e antes do pino mantém declaração retail válida', async () => {
+  const queue = [{ claimed: [{ event_id: 'e1' }] }];
+  const { value } = await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: declared }, queue });
+  assert.equal(value.noria_pipeline, 'retail_v1');
+  for (const config of [undefined, { ...declared, enabled: false }, { ...declared, rollout: 'pilot', pilot: { allowed_contacts: ['5511888880000'] } }]) {
+    const legacy = await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: config }, queue });
+    assert.equal(legacy.value.noria_pipeline, undefined);
+  }
+  const pinned = await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: { ...declared, enabled: false } }, queue, pins: [{ external_message_id: 'noria_pin_1.0_e1' }] });
+  assert.equal(pinned.value.noria_router, 'retail_v1_pinned');
 });
 
 test('retail preserva diferenças de declaração e versão durante lote', async () => {
@@ -68,7 +80,7 @@ test('retail preserva diferenças de declaração e versão durante lote', async
   }
   const queue = [{ claimed: [{ event_id: 'e1' }] }];
   const invalid = { ...declared, capability: 'services_v1' };
-  assert.equal((await route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: invalid }, queue })).value.noria_pipeline, undefined);
+  await assert.rejects(route({ settings: { noria_client_policy: retailPolicy, noria_turn_pipeline: invalid }, queue }), /NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA/);
   const noVersion = { ...retailPolicy, modules: { turn_pipeline: { ...offered, contract_version: '' } } };
   await assert.rejects(route({ settings: { noria_client_policy: noVersion, noria_turn_pipeline: declared }, queue }), /NORIA_ROTEAMENTO_PIPELINE_CONFIG_INVALIDA/);
   const arbitraryVersion = { ...retailPolicy, modules: { turn_pipeline: { ...offered, contract_version: '3.0' } } };

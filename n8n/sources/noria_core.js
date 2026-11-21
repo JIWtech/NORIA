@@ -449,12 +449,15 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
 
   // Feriado cadastrado (business_hours.holiday_dates): vale o horário de feriado (business_hours.holiday) no lugar do dia da semana.
   const localDate = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(referenceDate);
-  const holidayHours = rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
-    && rawBh.holiday_dates.map(String).includes(localDate)
-    ? (rawBh.holiday.closed === true ? { closed: true }
-      : rawBh.holiday.start && rawBh.holiday.end ? { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() } : null)
-    : null;
-  const todayHours = holidayHours || resolveTenantDayHours(rawBh, dayKey);
+  const hoursForDate = (date, day) => {
+    if (rawBh.holiday && typeof rawBh.holiday === 'object' && Array.isArray(rawBh.holiday_dates)
+        && rawBh.holiday_dates.map(String).includes(date)) {
+      if (rawBh.holiday.closed === true) return { closed: true };
+      if (rawBh.holiday.start && rawBh.holiday.end) return { closed: false, start: String(rawBh.holiday.start).trim(), end: String(rawBh.holiday.end).trim() };
+    }
+    return resolveTenantDayHours(rawBh, day);
+  };
+  const todayHours = hoursForDate(localDate, dayKey);
   let isOpen = false;
   if (todayHours?.is_24h) {
     isOpen = true;
@@ -481,27 +484,38 @@ function tenantBusinessHoursStatus(context = {}, referenceDate = new Date()) {
     };
     const currentDayIdx = daysOrder.indexOf(dayKey);
 
-    if (todayHours && !todayHours.closed && todayHours.start && currentTime < todayHours.start) {
+    const nextOpenTime = (hours, from) => {
+      if (!hours || hours.closed || !hours.start || !hours.end) return null;
+      let candidate = from && from > hours.start ? from : hours.start;
+      if (!hours.is_24h && rawBh.lunch_start && rawBh.lunch_end
+          && candidate >= rawBh.lunch_start && candidate < rawBh.lunch_end) candidate = rawBh.lunch_end;
+      return candidate < hours.end ? candidate : null;
+    };
+    const todayOpening = nextOpenTime(todayHours, currentTime);
+    if (todayOpening) {
       nextOpening = {
         offset_days: 0,
         day_key: dayKey,
         day_label: 'hoje',
-        time: todayHours.start,
-        formatted: 'hoje às ' + todayHours.start
+        time: todayOpening,
+        formatted: 'hoje às ' + todayOpening
       };
     } else {
       for (let offset = 1; offset <= 7; offset++) {
         const nextIdx = (currentDayIdx + offset) % 7;
         const nextDayKey = daysOrder[nextIdx];
-        const nextDayH = resolveTenantDayHours(rawBh, nextDayKey);
-        if (nextDayH && !nextDayH.closed && nextDayH.start) {
+        const calendarDate = new Date(localDate + 'T00:00:00Z');
+        calendarDate.setUTCDate(calendarDate.getUTCDate() + offset);
+        const nextDayH = hoursForDate(calendarDate.toISOString().slice(0, 10), nextDayKey);
+        const nextTime = nextOpenTime(nextDayH);
+        if (nextTime) {
           const label = offset === 1 ? 'amanhã' : dayLabels[nextDayKey];
           nextOpening = {
             offset_days: offset,
             day_key: nextDayKey,
             day_label: label,
-            time: nextDayH.start,
-            formatted: (offset === 1 ? 'amanhã às ' : label + ' às ') + nextDayH.start
+            time: nextTime,
+            formatted: (offset === 1 ? 'amanhã às ' : label + ' às ') + nextTime
           };
           break;
         }
