@@ -7,6 +7,8 @@
 | Quando usar | Referência |
 | --- | --- |
 | Motor conversacional, política comercial, prompts ou fallbacks | [Regras CORE × EXT](rules/anti-hardcode-core-ext.md) |
+| Arquitetura, workflows, banco e tenants (retrato de 2026-11-21) | [Estrutura atual](context/estrutura-atual-2026-11-21.md) |
+| Redação, auditoria, recomposição e contratos CORE × EXT | [Lições de auditoria dos pipelines](rules/licoes-pipeline-auditoria.md) |
 | Corte CORE/EXT, correções do Salon e piloto da Núbia v2 | [Contexto para continuidade](context/noria-core-ext-salon-nubia-handoff.md) |
 | Homepage e páginas comerciais | [Diretrizes da landing page](context/landing-page.md) |
 | Design System, tokens e arquitetura CSS do frontend | [Design System NORIA](../docs/architecture/design_system_modern_css_uiverse.md) |
