@@ -51,7 +51,8 @@
     },
     "semantic_guidance": [
       "Modelos de aliança: abaulada, reta, reta com friso lateral e reta italiana chanfrada; a medida é a largura em mm. Diferencie abaulada de reta.",
-      "material_requested: ouro maciço é ouro_macico. Peça banhada, folheada, revestida ou encapada nunca é ouro maciço; aliança blend é blend.",
+      "material_requested: ouro maciço é ouro_macico; aliança blend é blend; peça banhada, folheada, revestida ou encapada é banhado_revestido (nunca ouro_macico). Marque apenas o material que a pessoa procura para si; não marque blend se ela apenas contrastar ou perguntar se há outros produtos além de blend.",
+      "Quando a pessoa perguntar por uma categoria ou tipo de peça presente em catalog (ex.: anel solitário, pingente, brinco), associe até 3 itens correspondentes em products com role asked_about (ou interested se quiser comprar).",
       "Perguntar se a foto enviada é de outra largura (as larguras de uma linha podem compartilhar a mesma foto) não é pedido de nova foto."
     ],
     "max_photos_per_turn": 4,
