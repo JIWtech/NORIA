@@ -10,7 +10,7 @@ Ocorrências: Núbia às 19:55 UTC (turno ainda em revisão) e NORIA às 03:14 U
 
 ## Correção
 
-- **Migração proposta (não aplicada):** `supabase/migrations_pending_review/turn_control_engine_origin_PROPOSAL.sql`, com rollback em `turn_control_engine_origin_rollback_PROPOSAL.sql`. Ela cria a `magia_record_engine_assignment`, que grava o evento de atribuição e a origem `engine_assignment` na mesma transação. Só aceita a gravação se:
+- **Migração APLICADA em produção em 2026-11-22 (versão 20261122001226), com autorização e após ensaio numa transação desfeita:** `supabase/migrations/20261122001226_turn_control_engine_origin.sql`, com rollback em `supabase/migrations_pending_review/20261122001226_turn_control_engine_origin.rollback.sql`. Ela cria a `magia_record_engine_assignment`, que grava o evento de atribuição e a origem `engine_assignment` na mesma transação. Só aceita a gravação se:
   - o turno estiver ativo (token, fase `processing`/`sending`, lease válido, lote com `retry_batch_id`);
   - os itens do lote forem mensagens recebidas daquela conversa;
   - o evento tiver exatamente o formato que o motor gera.

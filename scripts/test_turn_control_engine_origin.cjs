@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { PGlite } = require(path.join(process.env.MAGIA_TEST_MODULES || path.join(__dirname, '../app/node_modules'), '@electric-sql/pglite'));
-const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations_pending_review/turn_control_engine_origin_PROPOSAL.sql'), 'utf8');
+const sql = fs.readFileSync(path.join(__dirname, '../supabase/migrations/20261122001226_turn_control_engine_origin.sql'), 'utf8');
 const t='11111111-1111-4111-8111-111111111111', token='22222222-2222-4222-8222-222222222222', inbound='33333333-3333-4333-8333-333333333333', chat='5511@s.whatsapp.net';
 const event={tenant_id:t,tenant_slug:'loja',channel_type:'whatsapp',external_conversation_id:chat,external_message_id:'assign-1',direction:'outbound',sender_type:'system',service:'conversation_assigned',handoff:true,ai_provider:'human_lock',command_id:'assign-1',raw_payload:{command:'assign_conversation',assigned_by:'IA',assignee:{name:'Atendente'}}};
 const schema=`create role anon; create role authenticated; create role service_role;

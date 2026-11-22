@@ -1,5 +1,5 @@
--- PROPOSTA: atribuição do motor e origem comprovada na mesma transação.
--- Aplicar somente após revisão e autorização explícita.
+-- Atribuição do motor e origem comprovada na mesma transação. Aplicada em produção em 2026-11-22
+-- (versão 20261122001226) com autorização do responsável. O Motor publicado depois disso usa a RPC.
 alter table public.conversation_turn_control_origins alter column actor_id drop not null;
 alter table public.conversation_turn_control_origins add constraint engine_origin_actor_check
   check ((source_kind = 'engine_assignment' and actor_id is null) or (source_kind <> 'engine_assignment' and actor_id is not null));
