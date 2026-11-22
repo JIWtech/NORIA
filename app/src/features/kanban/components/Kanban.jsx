@@ -6,6 +6,7 @@ import {
   CalendarCheck,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   Clock3,
   Copy,
@@ -14,6 +15,7 @@ import {
   MessageCircle,
   RefreshCcw,
   Search,
+  SlidersHorizontal,
   Sparkles,
   UserRound,
 } from 'lucide-react';
@@ -121,6 +123,8 @@ export function Kanban({
   const [flowProposal, setFlowProposal] = useState(null);
   const [flowToast, setFlowToast] = useState('');
   const [flowStatus, setFlowStatus] = useState('idle');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const toolbarRef = useRef(null);
   const boardRef = useRef(null);
   const columnRefs = useRef(new Map());
   const draggedCardRef = useRef(null);
@@ -153,6 +157,29 @@ export function Kanban({
     const timeout = window.setTimeout(() => setFlowToast(''), 4000);
     return () => window.clearTimeout(timeout);
   }, [flowToast]);
+
+  useEffect(() => {
+    if (!filtersOpen) return undefined;
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (toolbarRef.current?.contains(target)) return;
+      if (target?.closest?.('.noria-select-content, [data-radix-popper-content-wrapper]')) return;
+      setFiltersOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setFiltersOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [filtersOpen]);
+
+  const activeFiltersCount = (channelFilter !== 'todos' ? 1 : 0)
+    + (agentFilter !== KANBAN_OWNER_FILTERS.ALL ? 1 : 0)
+    + (olderConversations?.shown ? 1 : 0);
 
   const handleKanbanChannelChange = (nextChannel) => {
     if (pendingChannelFilterRef.current === nextChannel) return;
@@ -449,86 +476,108 @@ export function Kanban({
 
   return (
     <section className="kanban-page">
-      <div className="kanban-toolbar-wrap">
+      <div className="kanban-toolbar-wrap" ref={toolbarRef}>
         <div className="kanban-toolbar">
-          <div className="kanban-toolbar-search-group">
-            <div className="search-box">
-              <Search size={16} />
-              <input
-                placeholder="Buscar por contato, serviço ou mensagem..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+          <div className="kanban-toolbar-top">
+            <div className="kanban-toolbar-search-group">
+              <div className="search-box">
+                <Search size={15} />
+                <input
+                  placeholder="Buscar contato..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`secondary-button kanban-filters-toggle ${filtersOpen ? 'is-open' : ''}`}
+              aria-expanded={filtersOpen}
+              aria-controls="kanban-filters-panel"
+              onClick={() => setFiltersOpen((open) => !open)}
+            >
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              <span>Filtros</span>
+              {activeFiltersCount > 0 && <strong className="kanban-filters-badge">{activeFiltersCount}</strong>}
+              <ChevronDown size={14} className="kanban-filters-chevron" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div
+            id="kanban-filters-panel"
+            className="kanban-toolbar-controls"
+            data-open={filtersOpen ? 'true' : 'false'}
+          >
+            <div className="kanban-toolbar-filter-group kanban-toolbar-channel-group">
+              <span className="filter-label">Canais</span>
+              <div className="chips">
+                <button
+                  type="button"
+                  className={`chip kanban-filter-control channel-all ${channelFilter === 'todos' ? 'active' : ''}`}
+                  onClick={() => handleKanbanChannelChange('todos')}
+                >
+                  Todos os canais
+                </button>
+                {allowedChannels.includes('whatsapp') && <button
+                  type="button"
+                  className={`chip kanban-filter-control channel-whatsapp ${channelFilter === 'whatsapp' ? 'active' : ''}`}
+                  onClick={() => handleKanbanChannelChange(channelFilter === 'whatsapp' ? 'todos' : 'whatsapp')}
+                >
+                  <SiWhatsapp className="kanban-brand-icon kanban-brand-icon--whatsapp" size={14} aria-hidden="true" /> WhatsApp
+                </button>}
+                {allowedChannels.includes('telegram') && <button
+                  type="button"
+                  className={`chip kanban-filter-control channel-telegram ${channelFilter === 'telegram' ? 'active' : ''}`}
+                  onClick={() => handleKanbanChannelChange(channelFilter === 'telegram' ? 'todos' : 'telegram')}
+                >
+                  <SiTelegram className="kanban-brand-icon kanban-brand-icon--telegram" size={14} aria-hidden="true" /> Telegram
+                </button>}
+                {allowedChannels.includes('instagram') && <button
+                  type="button"
+                  className={`chip kanban-filter-control channel-instagram ${channelFilter === 'instagram' ? 'active' : ''}`}
+                  onClick={() => handleKanbanChannelChange(channelFilter === 'instagram' ? 'todos' : 'instagram')}
+                >
+                  <SiInstagram className="kanban-brand-icon kanban-brand-icon--instagram" size={14} aria-hidden="true" /> Instagram
+                </button>}
+              </div>
+            </div>
+
+            <div className="kanban-toolbar-filter-group kanban-toolbar-agents-row">
+              <span className="filter-label">Responsável</span>
+              <NoriaSelect
+                value={agentFilter}
+                onValueChange={setAgentFilter}
+                options={[
+                  { value: KANBAN_OWNER_FILTERS.ALL, label: 'Todos' },
+                  { value: KANBAN_OWNER_FILTERS.AI, label: 'Assistente IA' },
+                  ...agentsList
+                    .filter((agent) => agent?.id && agent?.name)
+                    .map((agent) => ({ value: kanbanAgentFilterValue(agent.id), label: agent.name })),
+                ]}
+                ariaLabel="Filtrar por responsável"
+                icon={UserRound}
+                className="kanban-owner-select"
+                contentClassName="kanban-owner-select-content"
               />
             </div>
-          </div>
-
-          <div className="kanban-toolbar-filter-group kanban-toolbar-channel-group">
-            <span className="filter-label">Canais</span>
-            <div className="chips">
+            <div className="kanban-toolbar-actions">
               <button
                 type="button"
-                className={`chip kanban-filter-control channel-all ${channelFilter === 'todos' ? 'active' : ''}`}
-                onClick={() => handleKanbanChannelChange('todos')}
+                className="secondary-button kanban-ai-flow-button"
+                onClick={() => { setFiltersOpen(false); handleSuggestKanbanFlow(); }}
+                disabled={flowStatus === 'loading' || flowStatus === 'applying' || !orderedColumns[0]?.boardId}
               >
-                Todos os canais
+                {flowStatus === 'loading' ? <><RefreshCcw className="kanban-ai-flow-icon spin" size={15} /> Analisando fluxo...</> : <><Sparkles className="kanban-ai-flow-icon" size={15} /> Organizar fluxo com IA</>}
               </button>
-              {allowedChannels.includes('whatsapp') && <button
-                type="button"
-                className={`chip kanban-filter-control channel-whatsapp ${channelFilter === 'whatsapp' ? 'active' : ''}`}
-                onClick={() => handleKanbanChannelChange(channelFilter === 'whatsapp' ? 'todos' : 'whatsapp')}
-              >
-                <SiWhatsapp className="kanban-brand-icon kanban-brand-icon--whatsapp" size={14} aria-hidden="true" /> WhatsApp
-              </button>}
-              {allowedChannels.includes('telegram') && <button
-                type="button"
-                className={`chip kanban-filter-control channel-telegram ${channelFilter === 'telegram' ? 'active' : ''}`}
-                onClick={() => handleKanbanChannelChange(channelFilter === 'telegram' ? 'todos' : 'telegram')}
-              >
-                <SiTelegram className="kanban-brand-icon kanban-brand-icon--telegram" size={14} aria-hidden="true" /> Telegram
-              </button>}
-              {allowedChannels.includes('instagram') && <button
-                type="button"
-                className={`chip kanban-filter-control channel-instagram ${channelFilter === 'instagram' ? 'active' : ''}`}
-                onClick={() => handleKanbanChannelChange(channelFilter === 'instagram' ? 'todos' : 'instagram')}
-              >
-                <SiInstagram className="kanban-brand-icon kanban-brand-icon--instagram" size={14} aria-hidden="true" /> Instagram
-              </button>}
+              {olderConversations && (
+                <button type="button" className="secondary-button kanban-older-toggle" aria-pressed={olderConversations.shown}
+                  title="Conversas sem atividade há mais de 30 dias"
+                  onClick={() => olderConversations.toggle()}>
+                  {olderConversations.shown ? 'Ocultar conversas antigas' : 'Mostrar conversas antigas'}
+                </button>
+              )}
             </div>
           </div>
-
-          <div className="kanban-toolbar-filter-group kanban-toolbar-agents-row">
-            <span className="filter-label">Responsável</span>
-            <NoriaSelect
-              value={agentFilter}
-              onValueChange={setAgentFilter}
-              options={[
-                { value: KANBAN_OWNER_FILTERS.ALL, label: 'Todos' },
-                { value: KANBAN_OWNER_FILTERS.AI, label: 'Assistente IA' },
-                ...agentsList
-                  .filter((agent) => agent?.id && agent?.name)
-                  .map((agent) => ({ value: kanbanAgentFilterValue(agent.id), label: agent.name })),
-              ]}
-              ariaLabel="Filtrar por responsável"
-              icon={UserRound}
-              className="kanban-owner-select"
-              contentClassName="kanban-owner-select-content"
-            />
-          </div>
-          <button
-            type="button"
-            className="secondary-button kanban-ai-flow-button"
-            onClick={handleSuggestKanbanFlow}
-            disabled={flowStatus === 'loading' || flowStatus === 'applying' || !orderedColumns[0]?.boardId}
-          >
-            {flowStatus === 'loading' ? <><RefreshCcw className="kanban-ai-flow-icon spin" size={16} /> Analisando fluxo...</> : <><Sparkles className="kanban-ai-flow-icon" size={16} /> Organizar fluxo com IA</>}
-          </button>
-          {olderConversations && (
-            <button type="button" className="secondary-button kanban-older-toggle" aria-pressed={olderConversations.shown}
-              title="Conversas sem atividade há mais de 30 dias"
-              onClick={() => olderConversations.toggle()}>
-              {olderConversations.shown ? 'Ocultar conversas antigas' : 'Mostrar conversas antigas'}
-            </button>
-          )}
           {kanbanActionStatus && <small className="kanban-action-status">{kanbanActionStatus}</small>}
         </div>
       </div>

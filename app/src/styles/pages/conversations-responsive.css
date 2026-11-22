@@ -484,31 +484,55 @@
 }
 
 .kanban-toolbar {
-  background: linear-gradient(135deg, var(--stage-tint) 0%, rgba(15, 24, 43, 0) 70%), var(--surface);
+  background: var(--surface);
+  background-image: linear-gradient(135deg, rgba(0, 224, 255, 0.06) 0%, rgba(15, 24, 43, 0) 70%);
   border: 1px solid var(--line);
   border-radius: 10px;
   width: fit-content;
   max-width: 100%;
   margin-inline: auto;
-  padding: 12px 14px;
+  padding: 9px 11px;
+  box-sizing: border-box;
   display: flex;
-  align-items: end;
-  justify-content: flex-start;
-  gap: 12px;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .kanban-toolbar-wrap {
   width: 100%;
-  max-width: 1380px;
-  margin-inline: auto;
+  max-width: none;
+  margin-inline: 0;
+  position: relative;
+  z-index: 40;
+  flex-shrink: 0;
+}
+
+.kanban-toolbar-top,
+.kanban-toolbar-controls {
+  display: contents;
+}
+
+.kanban-filters-toggle {
+  display: none;
+}
+
+.kanban-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex-shrink: 0;
 }
 
 .kanban-toolbar .chip {
-  min-height: 36px;
-  height: 36px;
-  padding: 0 11px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
+  gap: 5px;
+  white-space: nowrap;
   border-radius: 8px;
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
 }
@@ -525,11 +549,11 @@
 
 /* Reaproveita a métrica dos controles da toolbar sem competir visualmente com as colunas do Kanban */
 .kanban-toolbar .kanban-ai-flow-button {
-  min-height: 36px;
-  height: 36px;
-  padding: 0 14px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 10px;
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   background: linear-gradient(135deg, rgba(0, 224, 255, 0.14), rgba(120, 97, 255, 0.16));
@@ -539,7 +563,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
 }
@@ -630,49 +656,59 @@
 }
 
 .kanban-toolbar-search-group {
-  width: clamp(420px, 34vw, 480px);
-  min-width: 0;
+  flex: 1 1 175px;
+  min-width: 155px;
+  max-width: 260px;
 }
 
 .kanban-toolbar-search-group .search-box {
   width: 100%;
+  height: 34px;
+  padding: 0 10px;
+}
+
+.kanban-toolbar-search-group .search-box input {
+  font-size: 12.5px;
 }
 
 .kanban-toolbar-filter-group {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
+  flex: 0 0 auto;
 }
 
-.kanban-toolbar-filter-group+.kanban-toolbar-filter-group {
-  border-left: 1px solid var(--line);
-  padding-left: 12px;
+.kanban-toolbar-agents-row {
+  flex: 0 0 auto;
 }
 
+.kanban-toolbar-filter-group+.kanban-toolbar-filter-group,
 .kanban-toolbar-search-group+.kanban-toolbar-filter-group {
   border-left: 1px solid var(--line);
-  padding-left: 12px;
+  padding-left: 8px;
 }
 
 .kanban-toolbar .filter-label {
   color: var(--text);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
   line-height: 1;
 }
 
 .kanban-toolbar-filter-group .chips {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
 }
 
 .kanban-toolbar .kanban-owner-select {
-  width: 188px;
-  min-width: 188px;
-  max-width: 188px;
-  height: 36px;
+  width: clamp(134px, 10.5vw, 158px);
+  min-width: 132px;
+  max-width: 158px;
+  height: 34px;
+  font-size: 12.5px;
   border-radius: 8px;
   border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
   background: linear-gradient(135deg, rgba(0, 224, 255, 0.07), rgba(15, 24, 43, 0) 72%), var(--surface);
@@ -707,6 +743,8 @@
 .stage-navigation-wrapper {
   width: 100%;
   min-width: 0;
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: center;
   background: transparent;
@@ -720,7 +758,8 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  height: 46px;
+  height: auto;
+  min-height: 38px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -744,7 +783,7 @@
   width: max-content;
   min-width: max-content;
   margin: 0;
-  height: 40px;
+  height: auto;
   padding: 0;
   box-sizing: border-box;
 }
@@ -773,7 +812,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
+  height: 38px;
   padding: 0 12px;
   border: 0;
   border-right: 1px solid var(--line);
@@ -864,6 +903,8 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: nowrap;
   align-items: stretch;
@@ -874,7 +915,7 @@
      e não pode rolar a página junto com o quadro. */
   overscroll-behavior: contain;
   scrollbar-width: none;
-  padding: 0 2px 8px;
+  padding: 0 0 8px;
 }
 
 .kanban-board::-webkit-scrollbar {
@@ -890,10 +931,9 @@
   padding: 10px;
   display: flex;
   flex-direction: column;
-  flex: 0 0 var(--kanban-column-width);
-  width: var(--kanban-column-width);
-  min-width: var(--kanban-column-width);
-  max-width: var(--kanban-column-width);
+  flex: 1 1 clamp(250px, 22%, 440px);
+  min-width: 250px;
+  max-width: none;
   height: 100%;
   overflow: hidden;
   contain: layout style paint;
