@@ -6021,6 +6021,30 @@ function servicesHasRecentBusiness(history) {
   return history.some(row => row.direction === 'outbound' && row.message_text && row.ai_provider !== 'buffer');
 }
 
+// A redação às vezes copia, palavra por palavra, o texto INTEIRO de um bloco aprovado para dentro de reply, em vez de informar
+// a chave em block_keys (regra do compositor: "o texto literal será anexado pelo sistema"). Comparação técnica de texto, sem
+// interpretar significado: a cópia integral de um bloco autorizado nesta decisão sai da prosa e o bloco é anexado pela chave,
+// exatamente como o sistema faria. Cópia parcial ou reescrita continua na prosa e segue para as auditorias normalmente.
+function servicesAttachCopiedBlocks(composition, blocks, authorizedKeys) {
+  if (!composition || typeof composition.reply !== 'string' || !Array.isArray(composition.block_keys)) return composition;
+  const squash = value => String(value || '').replace(/\r\n/g, '\n').split('\n').map(line => line.replace(/[ \t]+/g, ' ').trim()).join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim();
+  let reply = squash(composition.reply);
+  const found = [];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const text = squash(block?.text);
+    // Blocos curtos demais (ex.: uma linha de preço) podem coincidir com prosa legítima; só cópias substanciais contam.
+    if (text.length < 40 || !authorizedKeys.has(block.key) || !reply.includes(text)) continue;
+    found.push({ key: block.key, at: reply.indexOf(text) });
+    reply = reply.split(text).join('\n\n');
+  }
+  if (!found.length) return composition;
+  reply = reply.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const keys = [...composition.block_keys];
+  for (const { key } of found.sort((a, b) => a.at - b.at)) if (!keys.includes(key)) keys.push(key);
+  return { ...composition, reply, block_keys: keys };
+}
+
 // Deterministic auditor for services. It reuses the factual-ledger idea of the sales auditor (claims checked against sources)
 // without any vehicle rule: every claim is checked against the authority that owns it (EXT facts and blocks, the availability
 // proof of this request, the reservation receipt, the payment forward, the handoff actually executed). Dates, times and
@@ -6340,12 +6364,14 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
     error.rejected_candidates = rejectedCandidates;
     return error;
   };
+  const authorizedBlockKeys = new Set((decision.approved_blocks || []).map(block => block.key));
+  const attachCopiedBlocks = composed => (composed?.value ? { ...composed, value: servicesAttachCopiedBlocks(composed.value, blocks, authorizedBlockKeys) } : composed);
   const composeChecked = async revision => {
-    let composed = await servicesComposeReply(context, decision, execution, blocks, proof, history, revision);
+    let composed = attachCopiedBlocks(await servicesComposeReply(context, decision, execution, blocks, proof, history, revision));
     let audit = servicesAudit({ composition: composed.value, decision, execution, proof, semantic, blocks });
     if (audit.status !== 'approved' && audit.failures.length && audit.failures.every(code => code === 'AUDIT_PREPARATION_NOT_AUTHORIZED')) {
       rejectedCandidates.push({ reply: composed.value.reply, failures: audit.failures });
-      composed = await servicesComposeReply(context, decision, execution, blocks, proof, history, { kind: 'preparation', rejected_reply: String(composed?.value?.reply ?? '').slice(0, 500), failures: audit.failures, uncovered_request: '', ...(revision ? { previous_revision: revision } : {}) });
+      composed = attachCopiedBlocks(await servicesComposeReply(context, decision, execution, blocks, proof, history, { kind: 'preparation', rejected_reply: String(composed?.value?.reply ?? '').slice(0, 500), failures: audit.failures, uncovered_request: '', ...(revision ? { previous_revision: revision } : {}) }));
       audit = servicesAudit({ composition: composed.value, decision, execution, proof, semantic, blocks });
     }
     if (audit.status !== 'approved') throw reject(composed, audit.failures);

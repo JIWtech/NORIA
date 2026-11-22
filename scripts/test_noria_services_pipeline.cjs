@@ -646,7 +646,7 @@ test('auditoria de cobertura: recebe os blocos anexados à mensagem e a instruç
 
 test('composição: o auditor semântico recebe as chaves dos blocos anexados pela composição atual', async () => {
   const seen = [];
-  const core = loadCore(['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys'], { ...COMPOSE_CONSTS,
+  const core = loadCore(['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesAttachCopiedBlocks'], { ...COMPOSE_CONSTS,
     inputJson: { semantic_intent: { slots: {} } }, turn: { messages: [{ text: 'Qual o valor?' }] },
     servicesComposeReply: async () => ({ value: { reply: 'Temos várias opções:', block_keys: ['prep'], claims: [] }, model: 'm', usage: {} }),
     servicesSemanticAudit: async (_c, args) => { seen.push(args); return { status: 'approved', failures: [], assertions: 1 }; } });
@@ -768,7 +768,7 @@ test('auditoria: horário afirmado é aceito quando está no fato citado; horár
 // Orquestração composição + auditoria com o compositor e o auditor semântico simulados (sem Gemini).
 function composedFlow({ compositions, semanticReports }) {
   const calls = { compose: [], semantic: 0 };
-  const names = ['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys'];
+  const names = ['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesAttachCopiedBlocks'];
   const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: { slots: {} } }, turn: { messages: [] },
     servicesComposeReply: async (_c, _d, _e, _b, _p, _h, note) => { calls.compose.push(note); return { value: compositions[Math.min(calls.compose.length, compositions.length) - 1], model: 'm', usage: {} }; },
     servicesSemanticAudit: async () => semanticReports[Math.min(calls.semantic++, semanticReports.length - 1)] });
@@ -792,6 +792,37 @@ test('regressões: revisão estruturada, abertura final e composição inválida
   assert.deepEqual(flow.calls.compose[1], { rejected_reply: 'Incompleta', failures: ['AUDIT_REQUEST_NOT_COVERED'], uncovered_request: 'Pergunta?', kind: 'semantic' });
   flow = composedFlow({ compositions: [null], semanticReports: [okReport] });
   await assert.rejects(flow.run(), error => error.rejected_candidates[0].reply === '');
+});
+
+// Regressão (22/11, homologação com os blocos reais da Núbia): a redação copiou o bloco aprovado inteiro para dentro de reply em vez de
+// informar a chave. A duração do bloco ("1h30 a 2h30") virou AUDIT_TIME_NOT_AUTHORIZED e a cliente caiu na contingência.
+test('cópia literal e integral de bloco aprovado vira anexo pela chave; cópia parcial segue para a auditoria', async () => {
+  const names = ['servicesComposeAudited', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesAttachCopiedBlocks']
+    .filter(name => coreCode.includes('function ' + name + '('));
+  const classico = '☀️ Bronze Clássico — R$ 99,99\n\nPerfeito para a marquinha! ✨\n• Feito na máquina em pé, em sala compartilhada.\n• Reserve de 1h30 a 2h30 para curtir esse momento! 🌸';
+  const premium = '👑 Bronze Premium — R$ 149,99\n\n• Máquina dupla, em sala individual.\n• Reserve de 1h30 a 2h30 para viver essa experiência! 🌸';
+  const blocks = [{ key: 'bronze_classico', text: classico }, { key: 'bronze_premium', text: premium }, { key: 'nao_autorizado', text: 'Texto de outro bloco qualquer, longo o bastante para contar.' }];
+  const decision = { services: [{ service_id: 'bronze_classico' }, { service_id: 'bronze_premium' }], facts: [],
+    approved_blocks: [{ key: 'bronze_classico', purpose: 'presentation' }, { key: 'bronze_premium', purpose: 'presentation' }] };
+  const run = async (composition, semanticCalls = []) => {
+    const core = loadCore(names, { ...COMPOSE_CONSTS, inputJson: { semantic_intent: { slots: {} } }, turn: { messages: [] },
+      servicesComposeReply: async () => ({ value: composition, model: 'm', usage: {} }),
+      servicesSemanticAudit: async (_context, args) => { semanticCalls.push(args); return okReport; } });
+    return core.servicesComposeAudited({}, { decision, execution: { reservation: { status: 'not_attempted' }, payment_forward: { status: 'not_attempted' }, handoff: { executed: false } },
+      blocks, proof: null, history: [] });
+  };
+  const semanticCalls = [];
+  const result = await run(reply('Olá! Seguem os dois:\n\n' + classico + '\n\n' + premium.replace(/\n/g, '\n  ') + '\n\nQual prefere?'), semanticCalls);
+  assert.equal(result.audit.status, 'approved');
+  assert.deepEqual(result.composed.value.block_keys, ['bronze_classico', 'bronze_premium']);
+  assert.equal(result.composed.value.reply, 'Olá! Seguem os dois:\n\nQual prefere?');
+  assert.deepEqual(semanticCalls[0].attachedBlockKeys, ['bronze_classico', 'bronze_premium']);
+  // Chave já informada não duplica.
+  assert.deepEqual((await run(reply(classico, [], ['bronze_classico']))).composed.value.block_keys, ['bronze_classico']);
+  // Cópia parcial (só um trecho) continua na prosa e a duração segue barrada pela auditoria.
+  await assert.rejects(run(reply('O Clássico: • Reserve de 1h30 a 2h30 para curtir esse momento! 🌸')), /AUDIT_TIME_NOT_AUTHORIZED/);
+  // Bloco que não foi autorizado nesta decisão não é anexado nem removido.
+  await assert.rejects(run(reply('Texto de outro bloco qualquer, longo o bastante para contar. Às 1h30.')), /AUDIT_TIME_NOT_AUTHORIZED/);
 });
 
 test('regressões: horários vêm apenas de fatos de expediente e candidatas são anonimizadas', () => {
@@ -845,7 +876,7 @@ test('finalização descarta anúncio adulterado e entrega contexto rederivado a
   const history = [{ direction: 'inbound', sender_type: 'contact', message_text: 'anúncio original' }];
   const messages = [{ event_id: 'e', text: 'pedido atual' }];
   const expected = { title: 'anúncio validado' };
-  const core = loadCore(['runServicesTurnFinalize', 'servicesShouldAutoAssign', 'servicesComposeAudited', 'servicesComposeReply', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
+  const core = loadCore(['runServicesTurnFinalize', 'servicesShouldAutoAssign', 'servicesComposeAudited', 'servicesAttachCopiedBlocks', 'servicesComposeReply', 'servicesAudit', 'servicesHasRecentBusiness', 'servicesPreparationBlockKeys', 'servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], {
     ...COMPOSE_CONSTS, ...AUDIT_CONSTS, inputJson, turn: { messages },
     turnAdContext: rows => { assert.deepEqual(rows, [...history, ...messages]); return expected; },
     pipelineIdentity: () => ({ last_event_id: 'e', session_id: 's' }), servicesVerifiedDecision: () => ({ status: 'ok', facts: [], services: [], actions: {}, approved_blocks: [] }),
