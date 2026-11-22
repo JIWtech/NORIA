@@ -30,6 +30,30 @@ Iniciado pelo Codex (proposta SQL, chamada no CORE e testes). O Claude acrescent
 
 Publicar o Motor antes da migração não quebra nada, por causa da salvaguarda, mas o problema continua até a migração ser aplicada.
 
+## Publicação no n8n (2026-11-22 01:17 UTC, autorizada pelo responsável)
+
+Feita com `scripts/publish_exports_by_id.cjs apply`, a partir do `dev` em `16e52f2c`. Só o `jsCode` mudou. A ativação e o código foram conferidos byte a byte.
+
+| Workflow | Versão anterior | Versão publicada |
+| --- | --- | --- |
+| Núbia v2 `6jSiEH2ugboYSack` | `82a99237` | `8f05c355` |
+| Gênesis `fXGorIlPbyf9Qtsp` | `2338fefd` | `0600d5f6` |
+| Motor `mlKNPv862H2g3Gap` | `0886111d` | `01650402` |
+| Salon `yxdKP0PeskDMUFSo` | `4b8f82fe` | `a95ff499` |
+| Roteador `3N5oN6sxtir9lFrA` | `2bf2dc89` | `e29de9c4` |
+
+O pacote inclui:
+- a origem comprovada no encaminhamento (Motor e Salon);
+- o worker de disparos com as RPCs `*_paced` (Roteador);
+- o roteador com `selectPipeline`;
+- os ajustes das EXTs Gênesis e Núbia.
+
+O publicador passou a aceitar nós que não estão na referência de 12/11 quando o recibo mais recente os cobre. É o caso da cadeia retail do Roteador. Um nó de código sem referência nem recibo continua bloqueado.
+
+**Rollback:** os backups completos de cada workflow estão em `.local/deploy_backups/2026-11-22T01-17-18-913Z/<id>.json`. Para reverter, reenvie o JSON do backup por `PUT /workflows/<id>` e ative o workflow. As migrações já aplicadas são compatíveis com as versões anteriores.
+
+**Pendência:** não houve tráfego entre a publicação e o registro deste relatório. Os primeiros turnos reais precisam ser conferidos em `channel_events`.
+
 ## Como destravar o turno preso da Núbia (não executado)
 
 O turno está em `phase='review'`, com um ticket em `conversation_turn_review_tickets`. Ele deve ser resolvido pelo fluxo de revisão do painel (sino de notificações → revisão do turno, RPC `magia_resolve_turn_review`) por um operador do tenant. A conversa já está com a equipe ("Conversa atribuida a Will") e houve uma resposta manual depois, então a resolução esperada é encerrar a revisão sem reenviar nada pela IA.

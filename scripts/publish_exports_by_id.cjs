@@ -67,10 +67,14 @@ async function prepare(id) {
   for (const node of live.nodes) {
     const mine = local.nodes.find(item => item.id === node.id);
     const ref = reference.nodes.find(item => item.id === node.id);
-    if (!mine || !ref) throw Error('NODE_ID_DRIFT: ' + id + ' / ' + node.name);
+    const receiptNode = previousReceipt?.nodes?.find(item => item.nodeId === node.id);
+    // Nós criados depois da referência de 12/11 (ex.: cadeia retail publicada por publish_retail_chain.cjs) são aceitos
+    // quando há recibo de publicação posterior; nós de código precisam constar no recibo, que dá o hash esperado.
+    if (!mine || (!ref && !previousReceipt)) throw Error('NODE_ID_DRIFT: ' + id + ' / ' + node.name);
     if (!equal(shape(node), shape(mine))) throw Error('NODE_SHAPE_DIFFERS (só jsCode pode mudar): ' + id + ' / ' + node.name);
     if (typeof node.parameters?.jsCode !== 'string') continue;
-    const previousHash = previousReceipt?.nodes?.find(item => item.nodeId === node.id)?.to || sha(ref.parameters.jsCode);
+    if (!ref && !receiptNode) throw Error('NODE_ID_DRIFT (nó de código sem referência nem recibo): ' + id + ' / ' + node.name);
+    const previousHash = receiptNode?.to || sha(ref.parameters.jsCode);
     if (sha(node.parameters.jsCode) !== previousHash) throw Error('LIVE_CODE_DRIFT (n8n mudou desde o export): ' + id + ' / ' + node.name);
     if (sha(node.parameters.jsCode) !== sha(mine.parameters.jsCode)) {
       changes.push({ nodeId: node.id, name: node.name, code: mine.parameters.jsCode, from: sha(node.parameters.jsCode), to: sha(mine.parameters.jsCode) });
