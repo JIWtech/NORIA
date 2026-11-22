@@ -54,6 +54,23 @@ O publicador passou a aceitar nós que não estão na referência de 12/11 quand
 
 **Pendência:** não houve tráfego entre a publicação e o registro deste relatório. Os primeiros turnos reais precisam ser conferidos em `channel_events`.
 
+## Segunda publicação (2026-11-22 02:48 UTC, autorizada pelo responsável)
+
+Inclui a correção da cópia literal de bloco aprovado (commit `9568d22c`): quando a redação copia o texto inteiro de um bloco autorizado para dentro da resposta, a cópia sai da prosa e o bloco é anexado pela chave. Antes, a duração e o preço do bloco viravam `AUDIT_TIME_NOT_AUTHORIZED` e `AUDIT_AMOUNT_NOT_AUTHORIZED`, e o atendimento caía na contingência.
+
+| Workflow | Versão anterior | Versão publicada |
+| --- | --- | --- |
+| Motor `mlKNPv862H2g3Gap` | `01650402` | `488ec4be` |
+| Salon `yxdKP0PeskDMUFSo` | `a95ff499` | `b84b7e75` |
+| Roteador `3N5oN6sxtir9lFrA` | `e29de9c4` | `abbe1a73` (só o metadado `core_revision`) |
+
+Validação:
+- release 751/751;
+- teste real com o Gemini e os blocos de produção da Núbia: a comparação entre Clássico e Premium foi respondida sem contingência;
+- depois da publicação, os 5 workflows conferem "sem mudança" em relação ao `dev`.
+
+**Rollback:** `.local/deploy_backups/2026-11-22T02-48-28-329Z/<id>.json`. Para voltar só esta correção, basta reenviar esses três backups; a publicação de 01:17 continua valendo.
+
 ## Como destravar o turno preso da Núbia (não executado)
 
 O turno está em `phase='review'`, com um ticket em `conversation_turn_review_tickets`. Ele deve ser resolvido pelo fluxo de revisão do painel (sino de notificações → revisão do turno, RPC `magia_resolve_turn_review`) por um operador do tenant. A conversa já está com a equipe ("Conversa atribuida a Will") e houve uma resposta manual depois, então a resolução esperada é encerrar a revisão sem reenviar nada pela IA.
