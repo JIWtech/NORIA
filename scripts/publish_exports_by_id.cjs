@@ -18,11 +18,17 @@ const REFERENCE_DIR = path.join(WORKFLOWS_DIR, 'backup_pre_ondas_2026-11-12');
 // Recibos de cada publicação anterior, do mais antigo ao mais recente: o último recibo de cada workflow é a versão esperada.
 // Ordena pela hora da conferência (verifiedAt), não pelo nome da pasta: pastas com prefixo (fotos-, salon-...)
 // ficavam depois das datadas na ordem alfabética e escondiam publicações mais novas.
-const PRIOR_RECEIPTS = fs.readdirSync(path.join(root, '.local/deploy_backups'))
+const ALL_RECEIPTS = fs.readdirSync(path.join(root, '.local/deploy_backups'))
   .map(dir => path.join(root, '.local/deploy_backups', dir, 'receipts.json')).filter(file => fs.existsSync(file))
   .flatMap(file => JSON.parse(fs.readFileSync(file, 'utf8')))
-  .sort((a, b) => String(a.verifiedAt || '').localeCompare(String(b.verifiedAt || '')))
-  .reduce((latest, receipt) => ({ ...latest, [receipt.id]: receipt }), {});
+  .sort((a, b) => String(a.verifiedAt || '').localeCompare(String(b.verifiedAt || '')));
+const PRIOR_RECEIPTS = ALL_RECEIPTS.reduce((latest, receipt) => ({ ...latest, [receipt.id]: receipt }), {});
+// Um recibo só lista os nós alterados naquela publicação. O hash esperado de cada nó vem do recibo mais recente
+// que o contém; sem isso, um nó alterado numa publicação anterior seria comparado com a referência de 12/11.
+const PRIOR_NODE_HASHES = ALL_RECEIPTS.reduce((acc, receipt) => {
+  for (const node of receipt.nodes || []) acc[receipt.id + '/' + node.nodeId] = node.to;
+  return acc;
+}, {});
 // Ordem: sub-workflows antes do roteador que os chama.
 const ALL = ['6jSiEH2ugboYSack', 'vCDXJLqIBCZJRTVv', 'fXGorIlPbyf9Qtsp', 'sLxNG9o2falquchd', 'mlKNPv862H2g3Gap', 'yxdKP0PeskDMUFSo', '3N5oN6sxtir9lFrA'];
 // --only=id1,id2 restringe a publicação (os demais não são lidos nem tocados).
@@ -67,14 +73,14 @@ async function prepare(id) {
   for (const node of live.nodes) {
     const mine = local.nodes.find(item => item.id === node.id);
     const ref = reference.nodes.find(item => item.id === node.id);
-    const receiptNode = previousReceipt?.nodes?.find(item => item.nodeId === node.id);
+    const receiptHash = PRIOR_NODE_HASHES[id + '/' + node.id];
     // Nós criados depois da referência de 12/11 (ex.: cadeia retail publicada por publish_retail_chain.cjs) são aceitos
     // quando há recibo de publicação posterior; nós de código precisam constar no recibo, que dá o hash esperado.
     if (!mine || (!ref && !previousReceipt)) throw Error('NODE_ID_DRIFT: ' + id + ' / ' + node.name);
     if (!equal(shape(node), shape(mine))) throw Error('NODE_SHAPE_DIFFERS (só jsCode pode mudar): ' + id + ' / ' + node.name);
     if (typeof node.parameters?.jsCode !== 'string') continue;
-    if (!ref && !receiptNode) throw Error('NODE_ID_DRIFT (nó de código sem referência nem recibo): ' + id + ' / ' + node.name);
-    const previousHash = receiptNode?.to || sha(ref.parameters.jsCode);
+    if (!ref && !receiptHash) throw Error('NODE_ID_DRIFT (nó de código sem referência nem recibo): ' + id + ' / ' + node.name);
+    const previousHash = receiptHash || sha(ref.parameters.jsCode);
     if (sha(node.parameters.jsCode) !== previousHash) throw Error('LIVE_CODE_DRIFT (n8n mudou desde o export): ' + id + ' / ' + node.name);
     if (sha(node.parameters.jsCode) !== sha(mine.parameters.jsCode)) {
       changes.push({ nodeId: node.id, name: node.name, code: mine.parameters.jsCode, from: sha(node.parameters.jsCode), to: sha(mine.parameters.jsCode) });
