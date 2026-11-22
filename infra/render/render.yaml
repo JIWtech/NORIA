@@ -1,8 +1,11 @@
+# Referência da configuração do painel (noriasync.com.br). O serviço é configurado no painel do Render,
+# que publica automaticamente a cada push no branch dev. Mantenha este arquivo igual ao que está configurado lá.
 services:
   - type: static
     name: magia-app
     runtime: static
-    rootDir: magia/app
+    branch: dev
+    rootDir: app
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     envVars:
