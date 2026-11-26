@@ -141,7 +141,7 @@ function finalizeHarness({ actions = {}, status = 'ok', settings = {}, notified 
       return { key: { id: 'P' + log.provider.length } };
     },
   };
-  const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue',
+  const core = loadCore(['retailTenantPath', 'retailLoadItems', 'retailFormatPrice', 'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailPreviousContactHours', 'retailInsertEvent', 'retailCanContinue',
     'retailEvolution', 'retailSendProductMedia', 'retailPlanProductMedia', 'retailLoadMediaState', 'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'runRetailTurnFinalize', 'salesMediaHttpsLocation'], globals);
   const pipeline = { contract: 'noria_turn_pipeline_v1', contract_version: '1.0', decision_contract: 'dec_r', decision_provenance: 'prov_r' };
   return { run: () => core.runRetailTurnFinalize({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), log };
@@ -339,6 +339,30 @@ test('turno que perdeu a vez não reserva o aviso ao especialista (a sessão nã
   assert.equal(h.log.inserts.filter(row => String(row.service || '').startsWith('specialist_notice')).length, 0);
   assert.equal(h.log.provider.filter(p => p.url.includes('/sendText/')).length, 0);
   assert.equal(result.retail_execution?.notice?.status ?? 'stopped_control_changed', 'stopped_control_changed');
+});
+
+// Produção JOYERÍA, 26/11 17:52 UTC: número de teste que tinha falado em 22/11 (pedido de "ametista escarlate", "vou verificar com
+// a equipe") mandou só "Olá" quatro dias depois, e a IA respondeu a pendência antiga ("a linha blend é ... sem pedras").
+test('redação recebe há quantas horas foi o contato anterior e a regra de retomada depois de intervalo longo', async () => {
+  const calls = [];
+  const now = Date.now();
+  const at = hours => new Date(now - hours * 3600000).toISOString();
+  const { retailComposeReply } = loadCore(['retailComposeReply', 'retailFormatPrice', 'servicesHasRecentBusiness', 'retailPreviousContactHours'], {
+    turn: { messages: [{ event_id: 'm9', text: 'Olá', received_at: at(0) }] },
+    audioHistoryText: row => row.message_text, tenantBusinessHoursStatus: () => ({ configured: false, is_open: false }), cleanReplyText: text => text,
+    servicesGeminiJson: async (context, label, input, schema, rules) => { calls.push({ input, rules }); return { value: { reply: 'Olá!' }, model: 'm', usage: {} }; },
+  }, { withRegion: false });
+  const old = [{ direction: 'inbound', message_text: 'Quero com ametista escarlate', created_at: at(96) },
+    { direction: 'outbound', sender_type: 'assistant', message_text: 'Vou verificar com a equipe.', created_at: at(95.9) },
+    { id: 'm9', direction: 'inbound', message_text: 'Olá', created_at: at(0) }];
+  const args = history => ({ decision: { actions: {}, reason_codes: [] }, allowed: { present_item_ids: [] }, items: [], media: null, siteLinkItem: null, customerLine: null, handoff: null, history });
+  await retailComposeReply({}, args(old));
+  assert.equal(calls[0].input.previous_contact_hours_ago, 96, 'a mensagem atual não conta como contato anterior');
+  assert.ok(calls[0].rules.some(rule => /previous_contact_hours_ago/.test(rule) && /retom/.test(rule)), 'regra de retomada presente');
+  await retailComposeReply({}, args([{ direction: 'outbound', sender_type: 'assistant', message_text: 'Qual ocasião?', created_at: at(0.2) }]));
+  assert.equal(calls[1].input.previous_contact_hours_ago, 0);
+  await retailComposeReply({}, args([]));
+  assert.equal(calls[2].input.previous_contact_hours_ago, null, 'primeiro contato');
 });
 
 test('conferência de fotos: 15 frases reais (revisão do Gemini) e casos anteriores', () => {

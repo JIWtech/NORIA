@@ -112,7 +112,10 @@ const coreCode = fs.readFileSync(path.join(root, 'n8n/sources/noria_core.js'), '
 const region = extractRetailRegion(coreCode);
 const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const CORE_FUNCTIONS = ['runRetailTurnPrepare', 'runRetailTurnFinalize', 'retailTenantPath', 'retailLoadMediaState', 'retailLoadItems', 'retailFormatPrice',
-  'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailInsertEvent', 'retailCanContinue', 'retailEvolution', 'retailPlanProductMedia', 'retailSendProductMedia',
+  'retailAuditReply', 'retailAuditHint', 'retailComposeReply', 'retailPreviousContactHours', 'retailInsertEvent', 'retailCanContinue', 'retailEvolution', 'retailPlanProductMedia', 'retailSendProductMedia',
+  // Proteções dos pipelines em fases (contato automático, repetição e trava de laço).
+  'pipelineLoopGuardTrip', 'pipelineLoopGuardConfig', 'pipelineContactRepetition', 'pipelineStopForLoopGuard', 'pipelineWithContactContext', 'pipelineSemanticMessage',
+  'pipelineAutomatedContact', 'groundingAutomatedContactVerdict', 'ignoreAutomatedContact', 'normalizeText',
   'retailNoticeAlreadyReserved', 'retailSendSpecialistNotice', 'servicesGeminiJson', 'servicesTerminal', 'pipelineIdentity', 'salesMediaHttpsLocation', 'settingsFor',
   // Classificação de falha passageira (nova tentativa pela fila), usada no prepare e no finalize.
   'turnFailureIsTransient', 'salesSafeFailureDiagnostics', 'httpSafeDiagnostic', 'httpErrorHeaders', 'httpHeaderValue', 'httpProviderBody', 'httpRetryAfterMs'];
@@ -220,6 +223,14 @@ const SCENARIOS = {
   visita: ['Vocês atendem em casa?', 'Moro em Macaé'],
   fotos: ['Me manda foto da Prisma de 6mm'],
   semijoia: ['Vocês têm pingente de coração? Queria dar de presente', 'Gostei, quanto custa?'],
+  // Caso real de 26/11: conversa de 4 dias antes (gravada no histórico abaixo) e só um "Olá" agora.
+  retomada: ['Olá'],
+};
+// Histórico anterior de alguns cenários: [quem, texto, horas atrás].
+const PRIOR_HISTORY = {
+  retomada: [['customer', 'Quero aliança', 96.1], ['business', 'Você busca alianças para namoro, noivado ou casamento?', 96.08],
+    ['customer', 'Não tem pra bodas?', 96.06], ['business', 'Temos sim opções lindas para bodas. Você prefere algo clássico ou com algum detalhe diferente?', 96.04],
+    ['customer', 'Quero com ametista escarlate', 96.02], ['business', 'Vou verificar com a equipe sobre a ametista escarlate para a sua comemoração.', 96]],
 };
 
 // Argumentos: nomes de cenários embutidos, ou --cenarios <arquivo.json> no formato { "nome": ["mensagem 1", "mensagem 2"] }.
@@ -245,6 +256,12 @@ const SCENARIOS = {
   for (const [i, label] of wanted.entries()) {
     const chatId = '55219' + String(10000000 + i).slice(-8) + '@s.whatsapp.net';
     console.log('\n==================== ' + label + ' ====================');
+    for (const [from, text, hours] of PRIOR_HISTORY[label] || []) {
+      db.channel_events.push({ id: 'old-' + crypto.randomUUID(), tenant_id: TENANT, external_conversation_id: chatId, channel_type: 'whatsapp',
+        direction: from === 'customer' ? 'inbound' : 'outbound', sender_type: from === 'customer' ? 'contact' : 'assistant', message_text: text,
+        created_at: new Date(Date.now() - hours * 3600000).toISOString(), ai_provider: 'retail_pipeline' });
+    }
+    if (PRIOR_HISTORY[label]) console.log('  [histórico anterior] ' + PRIOR_HISTORY[label].length + ' mensagens de ~' + Math.round(PRIOR_HISTORY[label].at(-1)[2]) + ' h atrás');
     for (const [t, text] of scenarios[label].entries()) {
       if (sent >= maxMessages || spentTokens() >= maxTokens) {
         console.log('\n[TETO DE GASTO ATINGIDO] ' + sent + ' mensagens, ' + spentTokens() + ' tokens. Simulação encerrada.');

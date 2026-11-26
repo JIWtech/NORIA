@@ -6914,6 +6914,16 @@ function retailAuditReply(reply, items, { linkAppended = true, photosSent = true
   return [...new Set(failures)];
 }
 
+// Horas desde a última mensagem da conversa antes do lote atual (de qualquer lado); null no primeiro contato. Medida técnica:
+// quem decide se a cliente retomou o assunto é o Gemini, pela regra de leitura da redação.
+function retailPreviousContactHours(history = [], messages = []) {
+  const currentIds = new Set(messages.map(item => item.event_id));
+  const reference = Math.min(...messages.map(item => Date.parse(item.received_at || '')).filter(Number.isFinite), Date.now());
+  const previous = history.filter(row => row?.message_text && !currentIds.has(row.id) && Number.isFinite(Date.parse(row.created_at || '')) && Date.parse(row.created_at) <= reference)
+    .map(row => Date.parse(row.created_at));
+  return previous.length ? Math.max(0, Math.round((reference - Math.max(...previous)) / 3600000)) : null;
+}
+
 async function retailComposeReply(context, { decision, allowed, items, media, siteLinkItem, customerLine, handoff, history, revisionNote = '' }) {
   const str = { type: 'STRING' };
   const facts = items.filter(item => allowed.present_item_ids.includes(item.id)).map(item => ({
@@ -6923,6 +6933,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
     customer_messages: turn.messages.map(item => ({ id: item.event_id, text: item.text })),
     opening: !servicesHasRecentBusiness(history),
     recent_conversation: history.filter(row => row.message_text && row.ai_provider !== 'buffer').slice(-10).map(row => ({ from: row.direction === 'inbound' ? 'customer' : 'business', text: audioHistoryText(row) })),
+    previous_contact_hours_ago: retailPreviousContactHours(history, turn.messages),
     product_facts: facts,
     photos_being_sent: media ? { count: media.send.length, shared_note: media.send.find(entry => entry.shared_note)?.shared_note || null,
       item_ids: [...new Set(media.send.map(entry => entry.item_id).filter(Boolean))] } : null,
@@ -6936,6 +6947,7 @@ async function retailComposeReply(context, { decision, allowed, items, media, si
   }, { type: 'OBJECT', properties: { reply: str }, required: ['reply'] }, [
     // Só contrato e integridade dos fatos (genérico para qualquer tenant). Tom, tamanho e condução ficam no prompt do tenant.
     'Tarefa: redigir a resposta ao cliente seguindo as instruções do negócio acima, coerente com recent_conversation.',
+    'previous_contact_hours_ago é há quantas horas foi a mensagem anterior desta conversa (null no primeiro contato). Se for 12 ou mais e as mensagens atuais não retomarem um assunto anterior (por exemplo, só uma saudação), trate como uma retomada do contato: cumprimente e pergunte como pode ajudar, sem responder nem retomar por conta própria pedidos ou pendências antigas de recent_conversation.',
     'Fatos de produto só de product_facts: nome, modelo, linha, medida e preço exatamente como estão (price). Não crie nome de produto nem atribua a um item dados de outro.',
     'Ausência de um produto, categoria ou serviço nos dados não prova que o negócio não o tenha: nunca afirme que não tem; diga que vai verificar.',
     'Não escreva links nem números de telefone. Link: só existe quando site_link_will_be_appended for verdadeiro (o sistema anexa); se for falso, não mencione link. Fotos: só mencione envio se photos_being_sent existir; elas chegam logo depois desta mensagem, então não diga que já foram enviadas (com photos_already_in_conversation, já estão na conversa; com photos_not_available NO_SINGLE_PRODUCT_IN_FOCUS, pergunte de qual produto quer ver a foto primeiro; com NO_APPROVED_IMAGES, diga que vai verificar a foto); com shared_note, deixe claro que a foto mostra o modelo e diga a medida do item.',
