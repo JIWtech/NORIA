@@ -60,6 +60,25 @@ where q.phase in ('review', 'uncertain')
 order by t.slug, q.review_required_at;
 ```
 
+## Publicação no n8n (26/11/2026 13:34 UTC, autorizada pelo responsável)
+
+Feita com `scripts/publish_exports_by_id.cjs apply`, a partir do `dev` em `b1304cf2`. O `check` anterior confirmou que as versões ativas eram as dos recibos de 22/11. Só o `jsCode` mudou, e cada workflow foi conferido byte a byte depois da ativação.
+
+| Workflow | Versão anterior | Versão publicada | Conteúdo |
+| --- | --- | --- | --- |
+| Núbia v2 `6jSiEH2ugboYSack` | `8f05c355` | `e064bf9b` | Menu aprovado em pedido genérico de valores |
+| Motor `mlKNPv862H2g3Gap` | `488ec4be` | `b4ce917f` | Contato automático, repetição, trava de laço (fases e caminho padrão), cobertura tolerada |
+| Salon `yxdKP0PeskDMUFSo` | `b84b7e75` | `d88e0f92` | Só os metadados do build (revisão e hash) |
+| Roteador `3N5oN6sxtir9lFrA` | `abbe1a73` | `8557b60d` | Só a revisão do CORE gravada no evento |
+
+Sem mudança: Núbia v1 `vCDXJLqIBCZJRTVv`, Gênesis `fXGorIlPbyf9Qtsp` e NORIA `sLxNG9o2falquchd`.
+
+**Ordem:** as migrações `20261126125941` e `20261126133157` foram aplicadas antes da publicação.
+
+**Rollback:** os backups completos e os recibos estão em `.local/deploy_backups/2026-11-26T13-34-50-126Z/`. Para reverter, reenvie o JSON de cada workflow por `PUT /workflows/<id>` e ative. As migrações são compatíveis com as versões anteriores.
+
+**Pendência:** não houve tráfego até o registro deste relatório. Os primeiros turnos reais precisam ser conferidos em `channel_events`, pela revisão `conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26`, e na fila.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
