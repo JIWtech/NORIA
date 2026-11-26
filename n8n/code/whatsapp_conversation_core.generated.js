@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T13:02:15.728Z',
-  core_sha256: '3dbf0ed07e1a756a3dc615103d28a2a453b0082879352e2b0008ec3fc08f4907',
+  built_at: '2026-11-26T13:08:02.956Z',
+  core_sha256: '3445a0a88d6eb6150bb5b91eca0830e26458192dce34bc97bf462dc94e48d495',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6501,8 +6501,8 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   const semantic = inputJson.semantic_intent;
   const hasRecentBusiness = servicesHasRecentBusiness(history);
   const rejectedCandidates = [];
-  const reject = (composed, failures) => {
-    rejectedCandidates.push({ reply: composed?.value?.reply ?? '', failures });
+  const reject = (composed, failures, uncoveredRequest = '') => {
+    rejectedCandidates.push({ reply: composed?.value?.reply ?? '', failures, ...(uncoveredRequest ? { uncovered_request: uncoveredRequest } : {}) });
     const error = new Error('SERVICES_AUDIT_REJECTED:' + failures.join(','));
     error.rejected_candidates = rejectedCandidates;
     return error;
@@ -6552,16 +6552,26 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
     // costuma resolver, em vez de mandar a cliente direto para a equipe. Só uma tentativa extra por turno.
     const recomposable = code => /^(AUDIT_UNSUPPORTED_ASSERTION|AUDIT_ASSERTION_NOT_GROUNDED|AUDIT_SUPPORT_NOT_FOUND|AUDIT_QUOTE_MISMATCH|AUDIT_ASSERTED_AMOUNT|AUDIT_ASSERTED_TIME|AUDIT_REQUEST_NOT_COVERED)/.test(code);
     if (semanticAudit.status !== 'approved' && semanticAudit.failures?.length && semanticAudit.failures.every(recomposable)) {
-      rejectedCandidates.push({ reply: composed.value.reply, failures: semanticAudit.failures });
+      rejectedCandidates.push({ reply: composed.value.reply, failures: semanticAudit.failures,
+        ...(semanticAudit.uncovered_request ? { uncovered_request: String(semanticAudit.uncovered_request).slice(0, 500) } : {}) });
       ({ composed, audit } = await composeChecked({ kind: 'semantic', rejected_reply: String(composed?.value?.reply ?? '').slice(0, 500), failures: semanticAudit.failures, uncovered_request: String(semanticAudit.uncovered_request || '').slice(0, 500) }));
       semanticAudit = await auditProse();
       if (semanticAudit.status !== 'approved' && semanticAudit.failures?.length && semanticAudit.failures.every(code => code === 'AUDIT_REPEATED_OPENING')) {
         semanticAudit = { ...semanticAudit, status: 'approved', failures: [], tolerated_failures: ['AUDIT_REPEATED_OPENING'] };
       }
+      // Pedido ainda sem resposta depois desta recomposição, sem NENHUMA outra falha: todas as afirmações da resposta foram
+      // conferidas contra as autoridades, então não há fato sem fonte. Ela é entregue e marcada (tolerated_failures e o pedido
+      // descoberto ficam no services_pipeline para revisão) em vez de mandar a cliente para a equipe com espera de horas.
+      // Decisão do responsável em 26/11/2026: 11 de 15 reprovações da Núbia desde 21/11 eram só este caso.
+      const coverageOnly = code => code === 'AUDIT_REQUEST_NOT_COVERED' || code === 'AUDIT_REPEATED_OPENING';
+      if (semanticAudit.status !== 'approved' && semanticAudit.failures?.includes('AUDIT_REQUEST_NOT_COVERED') && semanticAudit.failures.every(coverageOnly)) {
+        semanticAudit = { ...semanticAudit, status: 'approved', failures: [], tolerated_failures: [...semanticAudit.failures],
+          tolerated_uncovered_request: String(semanticAudit.uncovered_request || '').slice(0, 500) };
+      }
     }
     audit = { ...audit, semantic: semanticAudit, status: semanticAudit.status };
     if (semanticAudit.status !== 'approved') {
-      throw reject(composed, semanticAudit.failures);
+      throw reject(composed, semanticAudit.failures, String(semanticAudit.uncovered_request || '').slice(0, 500));
     }
   }
   return { composed, audit };
@@ -6571,7 +6581,9 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
 function servicesRejectedCandidates(error) {
   const candidates = Array.isArray(error?.rejected_candidates) ? error.rejected_candidates : [];
   return candidates.slice(0, 3).map(item => ({ reply: salesRedactPersonalData(String(item?.reply || '')).slice(0, 500),
-    failures: (Array.isArray(item?.failures) ? item.failures : []).map(String).slice(0, 10) }));
+    failures: (Array.isArray(item?.failures) ? item.failures : []).map(String).slice(0, 10),
+    // Pedido que o auditor considerou sem resposta: mostra se a IA fugiu da pergunta ou se o auditor foi severo demais.
+    ...(item?.uncovered_request ? { uncovered_request: salesRedactPersonalData(String(item.uncovered_request)).slice(0, 300) } : {}) }));
 }
 
 async function runServicesTurnFinalize(context, pipeline, history, event, control) {

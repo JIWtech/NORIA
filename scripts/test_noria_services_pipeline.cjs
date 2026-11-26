@@ -899,14 +899,61 @@ test('revisão de abertura permite recomposição posterior de pedido descoberto
   assert.equal(flow.calls.compose.length, 3);
   assert.equal(flow.calls.compose[2].rejected_reply, 'Resposta incompleta');
   assert.equal(flow.calls.compose[2].uncovered_request, 'Qual valor?');
-  const rejected = composedFlow({ compositions: [reply('Olá!'), reply('Incompleta'), reply('Ainda incompleta')], semanticReports: [openingReport,
+  // Desde 26/11 (decisão do João): pedido ainda sem resposta depois da recomposição, sem nenhuma outra falha, é entregue e marcado.
+  const tolerated = composedFlow({ compositions: [reply('Olá!'), reply('Incompleta'), reply('Ainda incompleta')], semanticReports: [openingReport,
     { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED'], assertions: 1 },
-    { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED'], assertions: 1 }] });
-  await assert.rejects(rejected.run(), error => {
-    assert.deepEqual(error.rejected_candidates.map(candidate => candidate.reply), ['Olá!', 'Incompleta', 'Ainda incompleta']);
+    { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED'], assertions: 1, uncovered_request: 'Onde fica?' }] });
+  const delivered = await tolerated.run();
+  assert.equal(delivered.composed.value.reply, 'Ainda incompleta');
+  assert.deepEqual(delivered.audit.semantic.tolerated_failures, ['AUDIT_REQUEST_NOT_COVERED']);
+  assert.equal(delivered.audit.semantic.tolerated_uncovered_request, 'Onde fica?');
+  assert.equal(tolerated.calls.compose.length, 3);
+});
+
+// Frente 2 (26/11): 11 de 15 reprovações da Núbia desde 21/11 eram SÓ pedido sem resposta, com todas as afirmações conferidas; a cliente
+// caía em "fora do expediente" e esperava horas. Decisão do João: entregar a resposta segura e marcar, em vez de encaminhar.
+test('cobertura: pedido sem resposta após a recomposição é entregue com ressalva; com qualquer falha factual continua indo para a equipe', async () => {
+  const notCovered = uncovered => ({ status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED'], assertions: 1, uncovered_request: uncovered });
+  let flow = composedFlow({ compositions: [reply('Para qual serviço você quer ver valores?'), reply('Qual serviço você gostaria de fazer?')],
+    semanticReports: [notCovered('valor e vaga'), notCovered('valor')] });
+  const result = await flow.run();
+  assert.equal(result.audit.status, 'approved');
+  assert.equal(result.composed.value.reply, 'Qual serviço você gostaria de fazer?');
+  assert.deepEqual(result.audit.semantic.failures, []);
+  assert.deepEqual(result.audit.semantic.tolerated_failures, ['AUDIT_REQUEST_NOT_COVERED']);
+  assert.equal(result.audit.semantic.tolerated_uncovered_request, 'valor');
+  assert.equal(flow.calls.compose.length, 2, 'só tolera depois de uma recomposição guiada pelo pedido descoberto');
+  assert.equal(flow.calls.compose[1].uncovered_request, 'valor e vaga');
+
+  flow = composedFlow({ compositions: [reply('A'), reply('B')], semanticReports: [notCovered('valor'),
+    { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED', 'AUDIT_UNSUPPORTED_ASSERTION:availability'], assertions: 1 }] });
+  await assert.rejects(flow.run(), /AUDIT_UNSUPPORTED_ASSERTION:availability/);
+
+  flow = composedFlow({ compositions: [reply('A'), reply('B')], semanticReports: [notCovered('valor'), { status: 'rejected', failures: ['AUDIT_QUOTE_MISMATCH:fact'], assertions: 1 }] });
+  await assert.rejects(flow.run(), /AUDIT_QUOTE_MISMATCH:fact/);
+
+  // Pedido descoberto junto com abertura repetida, depois da recomposição: ambas são toleradas.
+  flow = composedFlow({ compositions: [reply('A'), reply('B')], semanticReports: [notCovered('valor'),
+    { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED', 'AUDIT_REPEATED_OPENING'], assertions: 1, uncovered_request: 'valor' }] });
+  assert.deepEqual((await flow.run()).audit.semantic.tolerated_failures, ['AUDIT_REQUEST_NOT_COVERED', 'AUDIT_REPEATED_OPENING']);
+
+  // Falha factual na primeira redação e só cobertura na segunda: houve recomposição, então entrega com ressalva.
+  flow = composedFlow({ compositions: [reply('Dura 12 dias.'), reply('Quer saber sobre qual bronze?')],
+    semanticReports: [{ status: 'rejected', failures: ['AUDIT_UNSUPPORTED_ASSERTION:result_promise'], assertions: 1 }, notCovered('durabilidade')] });
+  assert.equal((await flow.run()).composed.value.reply, 'Quer saber sobre qual bronze?');
+});
+
+test('cobertura: candidata rejeitada guarda o pedido descoberto no diagnóstico persistido', async () => {
+  const flow = composedFlow({ compositions: [reply('A'), reply('B')], semanticReports: [
+    { status: 'rejected', failures: ['AUDIT_REQUEST_NOT_COVERED'], assertions: 1, uncovered_request: 'Onde vocês ficam?' },
+    { status: 'rejected', failures: ['AUDIT_UNSUPPORTED_ASSERTION:service'], assertions: 1 }] });
+  await assert.rejects(flow.run(), error => {
+    assert.equal(error.rejected_candidates[0].uncovered_request, 'Onde vocês ficam?');
     return true;
   });
-  assert.equal(rejected.calls.compose.length, 3);
+  const { servicesRejectedCandidates } = loadCore(['servicesRejectedCandidates'], { salesRedactPersonalData: text => String(text).replace(/\d{8,}/g, '[telefone]') });
+  assert.deepEqual(servicesRejectedCandidates({ rejected_candidates: [{ reply: 'A', failures: ['AUDIT_REQUEST_NOT_COVERED'], uncovered_request: 'Me liga no 24999998888' }] }),
+    [{ reply: 'A', failures: ['AUDIT_REQUEST_NOT_COVERED'], uncovered_request: 'Me liga no [telefone]' }]);
 });
 
 test('revisão de preparo permite recomposição posterior de pedido descoberto', async () => {
