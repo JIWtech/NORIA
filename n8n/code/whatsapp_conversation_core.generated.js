@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T13:22:45.576Z',
-  core_sha256: 'f0e03a60cd0964eb81415539db3d6f8bc0cb453e32a8a2670b919c43f9fef206',
+  built_at: '2026-11-26T16:11:04.699Z',
+  core_sha256: 'dfb75f9b9d7d7f9d5c847ff7977256e1785ae047138b7cd8f9ef2aba970b39b0',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6342,7 +6342,10 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     if (!ok) { failures.push('AUDIT_SUPPORT_NOT_FOUND:' + item.category + ':' + item.support); continue; }
     // Existence is not support. The model must quote the authority literally, and the figures it asserts must be the authority's.
     const quote = norm(item.quote);
-    if (item.support === 'fact' && quote !== norm(factValue.get(ref))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
+    // Fato: o valor inteiro ou, como nos blocos, um trecho literal de pelo menos 8 caracteres (fato composto, por exemplo o resumo
+    // do horário "segunda a sábado, das 08:00 às 18:00; domingo: fechado"). Valor curto (preço, número) exige igualdade.
+    const factText = norm(factValue.get(ref));
+    if (item.support === 'fact' && quote !== factText && (quote.length < 8 || !factText.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
     if (item.support === 'block' && (quote.length < 8 || !blockText.get(ref)?.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:block');
     // Citar a autoridade literalmente não basta: o que a resposta afirma precisa tratar do que a autoridade diz.
     // Afirmação com vários termos relevantes e nenhum em comum com o fato/bloco citado é tratada como contradição ou invenção.

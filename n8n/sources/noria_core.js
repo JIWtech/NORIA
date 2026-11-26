@@ -6329,7 +6329,10 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     if (!ok) { failures.push('AUDIT_SUPPORT_NOT_FOUND:' + item.category + ':' + item.support); continue; }
     // Existence is not support. The model must quote the authority literally, and the figures it asserts must be the authority's.
     const quote = norm(item.quote);
-    if (item.support === 'fact' && quote !== norm(factValue.get(ref))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
+    // Fato: o valor inteiro ou, como nos blocos, um trecho literal de pelo menos 8 caracteres (fato composto, por exemplo o resumo
+    // do horário "segunda a sábado, das 08:00 às 18:00; domingo: fechado"). Valor curto (preço, número) exige igualdade.
+    const factText = norm(factValue.get(ref));
+    if (item.support === 'fact' && quote !== factText && (quote.length < 8 || !factText.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:fact');
     if (item.support === 'block' && (quote.length < 8 || !blockText.get(ref)?.includes(quote))) failures.push('AUDIT_QUOTE_MISMATCH:block');
     // Citar a autoridade literalmente não basta: o que a resposta afirma precisa tratar do que a autoridade diz.
     // Afirmação com vários termos relevantes e nenhum em comum com o fato/bloco citado é tratada como contradição ou invenção.

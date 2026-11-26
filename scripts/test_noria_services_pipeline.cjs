@@ -765,6 +765,24 @@ test('auditoria: horário afirmado é aceito quando está no fato citado; horár
   assert.ok(verify(report('Atendemos de segunda a sábado, das 08:00 às 20:00'), base).failures.includes('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY'));
 });
 
+// Produção, 26/11 16:07 UTC: "Qual os horários de atendimento?" respondido com "segunda a sábado, das 08:00 às 18:00" (trecho literal
+// do resumo, que termina com "; domingo: fechado") foi reprovado por AUDIT_QUOTE_MISMATCH:fact e a cliente foi para a equipe.
+test('auditoria: trecho literal de um fato composto sustenta a afirmação; trecho curto, alterado ou fora do fato não', () => {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const facts = [{ fact_id: 'business_hours.summary', value: 'segunda a sábado, das 08:00 às 18:00; domingo: fechado' }, { fact_id: 'service.s1.price', value: '149.99' }];
+  const base = { decision: { facts, approved_blocks: [] }, execution: { handoff: { executed: false } }, proof: null, semantic: { slots: {} }, blocks: [] };
+  const report = (text, quote, reference = 'business_hours.summary', category = 'schedule') => ({ covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true,
+    assertions: [{ text, category, support: 'fact', reference, quote, polarity: 'affirms' }] });
+  assert.equal(verify(report('Funcionamos de segunda a sábado, das 08:00 às 18:00', 'segunda a sábado, das 08:00 às 18:00'), base).status, 'approved');
+  assert.equal(verify(report('Atendemos de segunda a sábado, das 08:00 às 18:00', 'segunda a sábado, das 08:00 às 18:00; domingo: fechado'), base).status, 'approved', 'valor inteiro continua valendo');
+  assert.ok(verify(report('Funcionamos de segunda a domingo, das 08:00 às 18:00', 'segunda a domingo, das 08:00 às 18:00'), base).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'trecho que não está no fato');
+  assert.ok(verify(report('Fechamos no domingo', 'domingo'), base).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'trecho curto demais');
+  assert.ok(verify(report('O Bronze a Jato custa R$ 149,99', '149', 'service.s1.price', 'price'), base).failures.includes('AUDIT_QUOTE_MISMATCH:fact'), 'valor curto exige igualdade');
+  assert.equal(verify(report('O Bronze a Jato custa R$ 149,99', '149.99', 'service.s1.price', 'price'), base).status, 'approved');
+  assert.ok(verify(report('Atendemos de segunda a sábado, das 08:00 às 20:00', 'segunda a sábado, das 08:00 às 18:00'), base).failures.some(f => f.startsWith('AUDIT_ASSERTED_TIME')),
+    'horário afirmado fora do fato continua reprovado mesmo com trecho literal');
+});
+
 // Orquestração composição + auditoria com o compositor e o auditor semântico simulados (sem Gemini).
 function composedFlow({ compositions, semanticReports }) {
   const calls = { compose: [], semantic: 0 };
