@@ -300,7 +300,7 @@ test('áudio que não pode ser transcrito no retail: avisa a cliente, chama a eq
     composeMediaNotice: async (context, history, kind, fallback) => fallback,
     sendChannelMessage: async (context, text) => { log.sent.push(text); return { sent: true }; },
     complete: async status => { log.completed = status; }, servicesTerminal: value => ({ ...value, noria_terminal: true }),
-    usageGate: () => { throw new Error('não deveria seguir'); },
+    usageGate: () => { throw new Error('não deveria seguir'); }, pipelineLoopGuardTrip: async () => null,
   });
   const result = await core.runRetailTurnPrepare({ tenant: { id: 't' } }, {}, [], { raw_payload: {} }, {});
   assert.equal(result.noria_terminal, true);
@@ -320,6 +320,9 @@ test('falha passageira do Gemini na interpretação retail volta para a fila; fa
     servicesGeminiJson: async () => { throw new Error(transient ? 'GEMINI_RATE_LIMIT' : 'GEMINI_SCHEMA_REJECTED'); },
     salesSafeFailureDiagnostics: () => ({ category: transient ? 'rate_limit' : 'invalid_request' }),
     turnFailureIsTransient: diagnostic => diagnostic.category === 'rate_limit',
+    // Proteções dos pipelines em fases: cobertas em test_pipeline_contact_guard.cjs; aqui ficam neutras.
+    pipelineLoopGuardTrip: async () => null, pipelineWithContactContext: (schema, rules) => ({ schema, rules }),
+    pipelineSemanticMessage: item => ({ id: item.event_id, text: item.text, scope: 'current' }), groundingAutomatedContactVerdict: () => null,
   });
   const pipeline = { semantic_vocabulary: { intents: ['x'], roles: ['x'], materials: ['x'], decisions: ['x'], confidence: ['x'] }, semantic_contract: 'c', contract_version: '1.0' };
   await assert.rejects(build(true).runRetailTurnPrepare({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), /GEMINI_RATE_LIMIT/);

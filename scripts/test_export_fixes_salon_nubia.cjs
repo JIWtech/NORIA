@@ -42,6 +42,17 @@ function slice(code, start, end) {
   return code.slice(i, j);
 }
 
+// Entrada da interpretação services_v1: termina no esquema, seja ele passado direto (servicesSemanticSchema) ou já
+// acrescido do contact_context (contract.schema, desde a proteção contra contato automático nos pipelines em fases).
+function servicesIntentInput(code) {
+  const start = "'services_semantic_intent', {";
+  const i = code.indexOf(start);
+  assert.ok(i >= 0, 'trecho ausente: ' + start);
+  const ends = ['servicesSemanticSchema(', 'contract.schema, contract.rules'].map(end => code.indexOf(end, i + start.length)).filter(j => j > i);
+  assert.ok(ends.length, 'fim ausente da entrada services_semantic_intent');
+  return code.slice(i, Math.min(...ends));
+}
+
 function topFunction(code, name) {
   const i = code.indexOf('\nfunction ' + name + '(');
   assert.ok(i >= 0, 'função ausente: ' + name);
@@ -102,7 +113,7 @@ for (const [label, file] of Object.entries(ENGINES)) {
       : /const systemText = `\$\{basePrompt\}\$\{fullCatalogInstruction\}\$\{adContextInstruction\}/);
     // O anúncio chega ao interpretador, direto ou pela variável calculada no prepare a partir das mensagens da cliente.
     if (code.includes('servicesSemanticSchema(')) {
-      const intentInput = slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema(');
+      const intentInput = servicesIntentInput(code);
       if (/ad_context: adContext\b/.test(intentInput)) assert.match(code, /const adContext = turnAdContext\(\[\.\.\.history\.filter\(row => row\.direction === 'inbound' && row\.sender_type === 'contact'\), \.\.\.turn\.messages\]\)/);
       else assert.match(intentInput, /ad_context: turnAdContext\(/);
     }
@@ -136,9 +147,11 @@ for (const [label, file] of Object.entries(ENGINES)) {
     assert.equal(localDate('2026-11-12T02:30:00Z', {}), '2026-11-11', '23:30 em São Paulo ainda é o dia anterior');
     assert.equal(localDate('2026-11-12T13:00:00Z', {}), '2026-11-12');
     assert.equal(localDate('', {}), '');
-    const input = slice(code, "'services_semantic_intent', {", 'servicesSemanticSchema(');
+    const input = servicesIntentInput(code);
     assert.match(input, /scope: 'session', received_local_date: servicesMessageLocalDate\(row\.received_at, context\)/);
-    assert.match(input, /scope: 'current', received_local_date: servicesMessageLocalDate\(item\.received_at, context\)/);
+    // Mensagem atual: literal antigo ou pelo montador comum (pipelineSemanticMessage põe scope 'current').
+    assert.match(input, /scope: 'current', received_local_date: servicesMessageLocalDate\(item\.received_at, context\)|pipelineSemanticMessage\(item, \{ received_local_date: servicesMessageLocalDate\(item\.received_at, context\) \}\)/);
+    if (input.includes('pipelineSemanticMessage(')) assert.match(code, /return \{ id: item\.event_id, text: item\.text, scope: 'current', content_type: contentType, \.\.\.extra \};/);
     assert.match(code, /received_at: row\.created_at/);
     assert.match(slice(code, 'const SERVICES_SEMANTIC_RULES', '];'), /received_local_date/);
   });

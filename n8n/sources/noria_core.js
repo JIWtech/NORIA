@@ -4631,6 +4631,76 @@ async function ignoreAutomatedContact(context, generated) {
   return { ok: true, skipped: true, reason: 'automated_contact_ignored', customer_reply_sent: false };
 }
 
+// ---- Proteções dos pipelines em fases (retail_v1 e services_v1) ----------------------------------------------------------
+// Contato automático de OUTRA empresa (operadora, banco, central com menu): a própria interpretação semântica, que já é
+// chamada em todo turno, classifica quem escreveu; nenhuma chamada extra ao Gemini. O veredito só vale com as mesmas
+// salvaguardas do caminho padrão (groundingAutomatedContactVerdict) e o turno é encerrado pela RPC, sem resposta.
+function pipelineWithContactContext(schema, rules) {
+  const str = { type: 'STRING' };
+  const contactContext = { type: 'OBJECT', properties: {
+    kind: { type: 'STRING', enum: ['customer', 'external_automated_contact', 'uncertain'] }, other_business: str,
+    evidence_ids: { type: 'ARRAY', items: str }, quoted_or_forwarded: { type: 'BOOLEAN' }, contains_customer_request: { type: 'BOOLEAN' },
+  }, required: ['kind', 'other_business', 'evidence_ids', 'quoted_or_forwarded', 'contains_customer_request'] };
+  return {
+    schema: { ...schema, properties: { ...schema.properties, contact_context: contactContext }, required: [...schema.required, 'contact_context'] },
+    rules: [...rules,
+      'contact_context descreve quem escreveu as mensagens de scope current. Use external_automated_contact somente quando TODAS as mensagens atuais forem mensagens automáticas de OUTRA empresa (central de atendimento, menu de opções, cobrança, aviso de sistema, código ou campanha) e nenhuma trouxer pedido ou pergunta dirigida a este negócio. Nesse caso copie em other_business o nome dessa empresa exatamente como aparece no texto e liste em evidence_ids os ids de todas as mensagens atuais.',
+      'content_type é o formato técnico de cada mensagem (por exemplo buttons, list ou template, que pessoas não costumam enviar): é só um indício, nunca prova sozinho. Cliente que encaminha ou cita uma mensagem de outra empresa, saudação, dúvida ou pedido dirigido a este negócio é customer; na dúvida use uncertain. quoted_or_forwarded é true quando o texto foi encaminhado ou citado; contains_customer_request é true quando há pedido ou pergunta a este negócio.',
+    ],
+  };
+}
+
+// Mensagem atual para a interpretação: texto e, quando conhecido, o formato técnico (parsing do canal, não semântica).
+function pipelineSemanticMessage(item, extra = {}) {
+  const contentType = typeof item?.raw?.content_type === 'string' && item.raw.content_type ? item.raw.content_type : 'text';
+  return { id: item.event_id, text: item.text, scope: 'current', content_type: contentType, ...extra };
+}
+
+// Trava de laço: se a IA já respondeu muitas vezes na mesma conversa dentro da janela, ela pausa sem gastar tokens e a
+// conversa fica com a equipe. É a última proteção (a interpretação pode errar); limites por tenant em
+// settings.conversation_loop_guard. Padrão acima do maior uso real observado (21 respostas em 30 min, 60 dias, todos os tenants).
+function pipelineLoopGuardConfig(context) {
+  const defaults = { max_assistant_replies: 30, window_minutes: 30 };
+  const config = settingsFor(context)?.conversation_loop_guard;
+  if (config && config.enabled === false) return { enabled: false, ...defaults };
+  const valid = config && Number.isInteger(config.max_assistant_replies) && config.max_assistant_replies >= 5 && config.max_assistant_replies <= 200
+    && Number.isInteger(config.window_minutes) && config.window_minutes >= 5 && config.window_minutes <= 240;
+  return { enabled: true, ...(valid ? { max_assistant_replies: config.max_assistant_replies, window_minutes: config.window_minutes } : defaults) };
+}
+
+async function pipelineLoopGuardTrip(context, history = []) {
+  const config = pipelineLoopGuardConfig(context);
+  if (!config.enabled) return null;
+  // Depois que a equipe devolve a conversa para a IA, a contagem recomeça.
+  const resumedAt = [...history].reverse().find(row => row?.service === 'resume_ai' || row?.ai_provider === 'resume_ai')?.created_at;
+  const windowStart = Date.now() - config.window_minutes * 60000;
+  const since = new Date(Math.max(windowStart, Date.parse(resumedAt || '') || 0)).toISOString();
+  let rows;
+  try {
+    rows = await supabaseGet('/rest/v1/channel_events?select=id&tenant_id=eq.' + encodeFilter(context.tenant.id)
+      + '&channel_type=eq.whatsapp&external_conversation_id=eq.' + encodeFilter(chatId)
+      + '&direction=eq.outbound&sender_type=eq.assistant&created_at=gte.' + encodeFilter(since)
+      + '&limit=' + (config.max_assistant_replies + 1));
+  } catch { return null; }
+  // Falha aberta: sem contagem confiável, o atendimento segue (as demais salvaguardas continuam valendo).
+  if (!Array.isArray(rows) || rows.length < config.max_assistant_replies) return null;
+  return { replies_in_window: rows.length, max_assistant_replies: config.max_assistant_replies, window_minutes: config.window_minutes };
+}
+
+async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
+  if (!await commit()) return servicesTerminal({ ok: true, skipped: true, reason: 'superseded' }, pipeline);
+  // handoff=true: as próximas mensagens caem na trava humana até a equipe devolver a conversa para a IA. Um único aviso
+  // padrão de encaminhamento (sem Gemini) evita deixar sem resposta um cliente real muito ativo; se for robô, o que ele
+  // mandar depois já não recebe resposta.
+  Object.assign(event, { handoff: true, stage: 'Atendimento humano', service: 'atendimento_humano',
+    ai_provider: 'conversation_loop_guard', ai_error: 'CONVERSATION_LOOP_GUARD' });
+  event.raw_payload = { ...(event.raw_payload || {}), loop_guard: trip };
+  await saveEvent(event);
+  const sent = await sendChannelMessage(context, sessionHandoffMessage(context), event);
+  await complete('done');
+  return servicesTerminal({ ok: true, handoff: true, reason: 'conversation_loop_guard', ...sent }, pipeline);
+}
+
 async function callGroundedGemini(context, history, catalog, appointments) {
   const s = settingsFor(context);
   const prompt = String(s.system_prompt || '').trim();
@@ -5879,6 +5949,8 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
     await saveEvent(event); await complete('done');
     return servicesTerminal({ ok: true, skipped: true, human_lock: control.lockedByHuman === true }, pipeline);
   }
+  const loopTrip = await pipelineLoopGuardTrip(context, history);
+  if (loopTrip) return pipelineStopForLoopGuard(context, event, loopTrip, pipeline);
   await transcribeTurnAudio(context);
   const gate = usageGate(context);
   if (!gate.allowed) {
@@ -5897,23 +5969,29 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
   const reservations = await servicesLoadReservations(context);
   const units = Object.entries(settings.appointment_scheduling?.units || {}).map(([id, unit]) => ({ unit_id: id, name: unit?.name || '' }));
   const adContext = turnAdContext([...history.filter(row => row.direction === 'inbound' && row.sender_type === 'contact'), ...turn.messages]);
-  let semantic = null, semanticFailure = '', model = null, usage = {};
+  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null;
   const commandEvidence = servicesPaymentCommand(context);
   try {
     if (commandEvidence) throw new Error('CONFIGURED_COMMAND');
+    const contract = pipelineWithContactContext(servicesSemanticSchema(pipeline, catalog.matches.map(row => row.external_id)), SERVICES_SEMANTIC_RULES);
     const generated = await servicesGeminiJson(context, 'services_semantic_intent', {
       date: buildDateContext(context), current_message_ids: [...currentIds],
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session', received_local_date: servicesMessageLocalDate(row.received_at, context) })),
-        ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current', received_local_date: servicesMessageLocalDate(item.received_at, context) }))],
+        ...turn.messages.map(item => pipelineSemanticMessage(item, { received_local_date: servicesMessageLocalDate(item.received_at, context) }))],
       ad_context: adContext,
       // What the business said recently is context to read references ("pode ser às 10"); it is NOT evidence and carries no ids.
       assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
       services: catalog.matches.map(row => ({ service_id: row.external_id, name: row.name })), units, session_id: identity.session_id,
       reservations: reservations.map(row => ({ id: row.id, status: row.status, service_id: row.service_id })),
-    }, servicesSemanticSchema(pipeline, catalog.matches.map(row => row.external_id)), SERVICES_SEMANTIC_RULES);
-    semantic = generated.value && typeof generated.value === 'object' ? { ...generated.value, contract: pipeline.semantic_contract } : null;
+    }, contract.schema, contract.rules);
+    const { contact_context: contactContext, ...interpreted } = generated.value && typeof generated.value === 'object' ? generated.value : {};
+    ignoredContact = groundingAutomatedContactVerdict(contactContext, context);
+    if (ignoredContact) ignoredModel = generated.model;
+    semantic = generated.value && typeof generated.value === 'object' ? { ...interpreted, contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
   } catch (error) { semanticFailure = commandEvidence ? '' : String(error?.message || error).slice(0, 120); }
+  // Fora do try: falha da RPC não pode virar "falha de interpretação" e seguir para a EXT.
+  if (ignoredContact) return servicesTerminal(await ignoreAutomatedContact(context, { model: ignoredModel, ignored_contact: ignoredContact }), pipeline);
   return {
     operational_command: commandEvidence ? { kind: 'payment_signal', evidence_ids: commandEvidence } : null,
     contract: 'noria_intermediate_services_turn_v1', noria_phase: 'commercial_decision', operation: 'commercial.decide',
@@ -6579,6 +6657,8 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     await saveEvent(event); await complete('done');
     return servicesTerminal({ ok: true, skipped: true, human_lock: control.lockedByHuman === true }, pipeline);
   }
+  const loopTrip = await pipelineLoopGuardTrip(context, history);
+  if (loopTrip) return pipelineStopForLoopGuard(context, event, loopTrip, pipeline);
   // Áudio que não pode ser transcrito (desligado no tenant, ilegível ou falha) não derruba o turno: a cliente recebe um
   // aviso e a equipe assume, como no caminho padrão.
   try {
@@ -6617,23 +6697,27 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     current: turn.messages.map(item => item.text),
     context: [...sessionEvidence.slice(-10).map(row => row.text), ...assistantContext],
   }, { limit: Number.isInteger(prefilterLimit) ? prefilterLimit : undefined, keepIds: mediaState.presentedItemIds });
-  let semantic = null, semanticFailure = '', model = null, usage = {};
+  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null;
   try {
+    // Regras genéricas do contrato + orientações de interpretação do próprio tenant (settings.retail_policy.semantic_guidance).
+    const contract = pipelineWithContactContext(retailSemanticSchema(pipeline.semantic_vocabulary, shortlist.items.map(item => item.code)),
+      [...RETAIL_SEMANTIC_RULES, ...retailStrings(settings.retail_policy?.semantic_guidance).slice(0, 20)]);
     // Interpretação neutra (sem persona): o modelo descreve o que o cliente disse, com evidências; não decide nada comercial.
     const generated = await servicesGeminiJson(context, 'retail_semantic_intent', {
       current_message_ids: [...currentIds],
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session' })),
-        ...turn.messages.map(item => ({ id: item.event_id, text: item.text, scope: 'current' }))],
+        ...turn.messages.map(item => pipelineSemanticMessage(item))],
       assistant_context: assistantContext,
       catalog: retailCatalogForModel(shortlist.items), catalog_complete: candidates.complete && shortlist.mode === 'all', session_id: identity.session_id,
-    }, retailSemanticSchema(pipeline.semantic_vocabulary, shortlist.items.map(item => item.code)),
-    // Regras genéricas do contrato + orientações de interpretação do próprio tenant (settings.retail_policy.semantic_guidance).
-    [...RETAIL_SEMANTIC_RULES, ...retailStrings(settings.retail_policy?.semantic_guidance).slice(0, 20)],
+    }, contract.schema, contract.rules,
     // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.
     { persona: false, model: /^gemini-[a-z0-9.-]+$/.test(String(settings.semantic_model || '')) ? settings.semantic_model : '' });
+    const { contact_context: contactContext, ...interpreted } = generated.value && typeof generated.value === 'object' ? generated.value : {};
+    ignoredContact = groundingAutomatedContactVerdict(contactContext, context);
+    if (ignoredContact) ignoredModel = generated.model;
     // Códigos do recorte voltam a ser item_id; código desconhecido ou item fora do recorte é descartado aqui.
     semantic = generated.value && typeof generated.value === 'object'
-      ? { ...retailResolveProducts(generated.value, shortlist.items), contract: pipeline.semantic_contract } : null;
+      ? { ...retailResolveProducts(interpreted, shortlist.items), contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
   } catch (error) {
     // Pressão do provedor (limite, timeout, servidor) é passageira: nada foi enviado ainda, então a fila tenta de novo com o
@@ -6641,6 +6725,8 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     if (turnFailureIsTransient(salesSafeFailureDiagnostics(error, 'retail_semantic'))) throw error;
     semanticFailure = String(error?.message || error).slice(0, 120);
   }
+  // Fora do try: falha da RPC não pode virar "falha de interpretação" e seguir para a EXT.
+  if (ignoredContact) return servicesTerminal(await ignoreAutomatedContact(context, { model: ignoredModel, ignored_contact: ignoredContact }), pipeline);
   return {
     contract: 'noria_intermediate_retail_turn_v1', noria_phase: 'commercial_decision', operation: 'commercial.decide',
     tenant_id: identity.tenant_id, tenant_slug: tenantSlug, instance: identity.instance, remoteJid: chatId,
