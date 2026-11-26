@@ -520,7 +520,13 @@ if (informational) {
       continue;
     }
     const ambiguousPrice = serviceAmbiguityOnly && ['price', 'presentation'].includes(request.topic);
-    if (lowConfidence && !(v.confidence !== 'low' && ['location', 'payment_terms'].includes(request.topic)) && !ambiguousPrice) continue;
+    // Pedido genérico de valores, apresentação ou informações SEM serviço citado e sem dúvida entre serviços: o menu geral
+    // aprovado (todos os preços literais do tenant) responde sem escolher serviço nenhum. Como localização e pagamento, vale
+    // mesmo quando a interpretação pede esclarecimento, exceto com confiança baixa. Caso real (26/11): "Posso ter mais
+    // informações? | Qual valores" recebia só "qual serviço?", sem os valores.
+    const genericCatalog = ['price', 'presentation', 'general_info', 'catalog'].includes(request.topic) && !request.service_ids.length && !v.services.length
+      && !v.ambiguities.some(item => item.kind === 'service' && item.candidate_service_ids.length);
+    if (lowConfidence && !(v.confidence !== 'low' && (['location', 'payment_terms'].includes(request.topic) || genericCatalog)) && !ambiguousPrice) continue;
     if (ambiguousPrice) {
       const candidateIds = uniq(v.ambiguities.flatMap(item => item.candidate_service_ids)).filter(id => services.get(id)?.active);
       const candidates = candidateIds.length && approvedUsable ? minimalBlocks(candidateIds) : [];

@@ -22,7 +22,7 @@
     "n8n/sources/shared/text_utils.js": "8668ea1fc9bcc7a7d420d832b98493da29464072214518172b9c20112b2402f5",
     "n8n/sources/shared/whatsapp_jid.js": "ce70748dc2544ea704d671e91e637e6c9fdb036789f8d288d1596b99696e55e7",
     "n8n/sources/whatsapp_normalize_entry.js": "f155fc944344776835c4278210016bf0a4e412dd2ee7163fbb507371da9ed4e5",
-    "n8n/sources/nubia_extension.js": "2aa10e5024ac713def49a31d07f79768dc459680cd6df94c47b12f31b12651be",
+    "n8n/sources/nubia_extension.js": "91ca53b1c3d8b73f556380ab2570a20210405cc1e67f5522541db85599e88ef8",
     "n8n/sources/noria_extension.js": "6eb51daca29a015291185436ea98268a6453c2e91dc4fb3ff22d1496ebf90af3",
     "n8n/sources/joyeria_extension.js": "5cb9600f089b1c420b2eaa50ff21504658eda24972c6bd67ac5651aa52191b51",
     "clients/ic_saloon/salon_engine.js": "08ad341337fa63b96cf3f3109800bf2b204c467f2bf839b03aede8582769176e",

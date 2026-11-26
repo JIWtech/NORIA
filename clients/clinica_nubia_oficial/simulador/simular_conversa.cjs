@@ -173,7 +173,7 @@ function report(text, r) {
   console.log('\nCLIENTE: ' + text);
   const s = r.prepared?.semantic_intent || {};
   if (r.prepared?.semantic_failure) console.log('  [interpretação falhou] ' + r.prepared.semantic_failure);
-  console.log('  [interpretação] intenção=' + s.primary_intent + ' pedidos=' + (s.info_requests || []).map(i => i.topic).join(',') + ' serviços=' + (s.services || []).map(x => x.service_id).join(','));
+  console.log('  [interpretação] intenção=' + s.primary_intent + ' confiança=' + s.confidence + ' esclarecer=' + s.conversation?.requires_clarification + ' pedidos=' + (s.info_requests || []).map(i => i.topic).join(',') + ' serviços=' + (s.services || []).map(x => x.service_id).join(','));
   const d = r.decided?.commercial_decision || {};
   console.log('  [EXT] status=' + (d.status || r.decided?.commercial_decision_status) + ' motivos=' + (d.reason_codes || []).join(',') + ' fatos=' + (d.facts || []).length
     + ' blocos=' + (d.approved_blocks || []).map(b => b.key).join(',') + ' handoff=' + (d.actions?.handoff?.required ? d.actions.handoff.reason : 'não')

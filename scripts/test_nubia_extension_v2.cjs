@@ -402,6 +402,29 @@ test('blocos ausentes, empate e limite de composição não autorizam escolha pa
   assert.deepEqual(d.actions.present_information.block_keys.sort(), ['pair1', 'pair2']);
 });
 
+// Simulação de 26/11 com a mensagem real "Olá! Posso ter mais informações sobre isso? | Qual valores": a interpretação pediu
+// esclarecimento (nenhum serviço citado) e a EXT descartou o pedido de valores; a cliente só recebeu "qual serviço?" sem o menu.
+test('pedido genérico de valores com esclarecimento libera o menu geral aprovado; confiança baixa ou dúvida entre serviços não', async () => {
+  const settings = baseSettings();
+  settings.approved_messages.catalog_prices.svc_sun = 30;
+  settings.approved_messages.blocks.menu = { text: 'A R$ 10,00 B R$ 20,00 S R$ 30,00', service_ids: ['svc_a', 'svc_b', 'svc_sun'] };
+  const request = topic => ({ topic, service_ids: [], evidence_ids: ['m1'] });
+  const clarify = { topic_change: false, requires_clarification: true };
+  let d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', confidence: 'medium', conversation: clarify, info_requests: [request('general_info'), request('price')] } })).commercial_decision;
+  assert.ok(d.reason_codes.includes('CLARIFICATION_REQUIRED'), 'o esclarecimento continua pedido');
+  assert.deepEqual(d.actions.present_information.block_keys, ['menu']);
+  assert.ok(d.actions.present_information.topics.includes('price'));
+  assert.equal(d.actions.check_availability.allowed, false);
+  d = (await run({ settings, semantic: { primary_intent: 'ambiguous', confidence: 'medium', conversation: clarify, info_requests: [request('presentation')] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, ['menu'], 'apresentação genérica também');
+  d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', confidence: 'low', conversation: clarify, info_requests: [request('price')] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, [], 'confiança baixa: nada é liberado, como localização e pagamento');
+  d = (await run({ settings, semantic: { primary_intent: 'info_inquiry', confidence: 'medium', conversation: clarify, services: [ref('svc_a', 'mentioned')], info_requests: [request('price')] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, [], 'com serviço citado e esclarecimento pedido, não troca pelo menu geral');
+  d = (await run({ settings, semantic: { primary_intent: 'ambiguous', confidence: 'medium', ambiguities: [{ kind: 'date', candidate_service_ids: [] }], info_requests: [request('price')] } })).commercial_decision;
+  assert.deepEqual(d.actions.present_information.block_keys, ['menu'], 'dúvida que não é de serviço não impede o menu');
+});
+
 test('baixa confiança global não libera localização ou pagamento', async () => {
   const settings = baseSettings(); settings.business_facts.locations = [{ id: 'u1', verified: true, address: 'Rua 1' }];
   const d = (await run({ settings, semantic: { primary_intent: 'ambiguous', confidence: 'low', ambiguities: [{ kind: 'service', candidate_service_ids: ['svc_a', 'svc_b'] }], conversation: { topic_change: false, requires_clarification: true }, info_requests: ['location', 'payment_terms'].map(topic => ({ topic, service_ids: [], evidence_ids: ['m1'] })) } })).commercial_decision;
