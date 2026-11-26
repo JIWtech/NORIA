@@ -90,6 +90,13 @@ Correção de 13:12 (Brasília), commit `de651071`: um fato composto aceita cita
 
 Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a checagem: Motor `b4ce917f` → `4223f074` e Salon `d88e0f92` → `600f66fa` (só metadado do build). Backups em `.local/deploy_backups/2026-11-26T16-12-05-783Z/`.
 
+### Checagem das 15:09 (Brasília)
+
+- "ainda tem vaga para a black?": a redação prometeu chamar a equipe, mas a EXT não tinha decidido encaminhar. A auditoria barrou corretamente com `AUDIT_HANDOFF_NOT_EXECUTED`, e a contingência encaminhou. Não há dado sobre a promoção, então a equipe responder é o desfecho certo.
+- "Queria marca pra fazer bronze": a EXT pediu esclarecimento, e a IA listou as opções reais e perguntou qual a cliente prefere. As duas redações foram reprovadas com `AUDIT_QUOTE_MISMATCH:fact`. Com o Gemini real (2 chamadas) e os nomes reais do catálogo, o mesmo texto foi aprovado, porque o auditor citou o nome inteiro. Sem a citação feita em produção, a causa não pode ser comprovada.
+- Correção, commit `beb2b101`: a reprovação passa a gravar as afirmações que falharam (`failed_assertions`: motivo, referência e citação; até 5, com dados pessoais mascarados) em `services_pipeline.rejected_candidates`. Serviços 63/63 e release 794/794.
+- Publicado às 18:13 UTC: Motor `4223f074` → `74a35947` e Salon `600f66fa` → `c63576d1` (só metadado). Backups em `.local/deploy_backups/2026-11-26T18-13-00-892Z/`.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
