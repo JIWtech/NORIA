@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T12:54:35.128Z',
-  core_sha256: '4e3c3ef655992d41ae7d4579a3923fce2755235549cc576648e2be84f8725809',
+  built_at: '2026-11-26T13:02:15.728Z',
+  core_sha256: '3dbf0ed07e1a756a3dc615103d28a2a453b0082879352e2b0008ec3fc08f4907',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -4685,9 +4685,9 @@ function pipelineContactRepetition(history = [], messages = [], windowMinutes = 
   return { repeated_messages: repeated, current_messages_repeated: currentRepeated, window_minutes: windowMinutes };
 }
 
-// Veredito de contato automático para os pipelines em fases. A RPC magia_ignore_automated_turn só aceita a prova gerada
-// pelo ai_model do tenant; com modelo próprio de interpretação (semantic_model) o turno segue normalmente e fica marcado,
-// e a trava de laço continua valendo.
+// Veredito de contato automático para os pipelines em fases. A RPC magia_ignore_automated_turn aceita a prova gerada pelo
+// ai_model ou pelo semantic_model do tenant (migração 20261126125941); com qualquer outro modelo o turno segue normalmente,
+// fica marcado e a trava de laço continua valendo.
 function pipelineAutomatedContact(value, context, repetition, history, model) {
   const since = Date.now() - (repetition?.window_minutes || 30) * 60000;
   const extraBusinessTexts = repetition?.current_messages_repeated
@@ -4695,7 +4695,8 @@ function pipelineAutomatedContact(value, context, repetition, history, model) {
     : [];
   const verdict = groundingAutomatedContactVerdict(value, context, { extraBusinessTexts });
   if (!verdict) return { verdict: null, unconfirmed: null };
-  if (model !== settingsFor(context).ai_model) return { verdict: null, unconfirmed: 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC' };
+  const settings = settingsFor(context);
+  if (!model || ![settings.ai_model, settings.semantic_model].filter(Boolean).includes(model)) return { verdict: null, unconfirmed: 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC' };
   return { verdict, unconfirmed: null };
 }
 

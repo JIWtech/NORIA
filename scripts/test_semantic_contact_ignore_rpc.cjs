@@ -77,6 +77,36 @@ test('sem ingresso autenticado, com tentativa de entrega ou papel errado, recusa
   } finally { await db.close(); }
 });
 
+test('20261126125941: aceita a prova do semantic_model do tenant, recusa outro modelo e o rollback volta a aceitar só o ai_model', async () => {
+  const db = await database();
+  const readLf = file => fs.readFileSync(require.resolve(file), 'utf8').replace(/\r\n/g, '\n');
+  const migration = readLf('../supabase/migrations/20261126125941_semantic_contact_ignore_semantic_model.sql');
+  const rollback = readLf('../supabase/migrations_pending_review/20261126125941_semantic_contact_ignore_semantic_model.rollback.sql');
+  const call = model => db.query('select magia_ignore_automated_turn($1,$2,$3,$4,$5::jsonb) as result', [tenant, 'chat', token, model, JSON.stringify(proof)]);
+  try {
+    await db.exec(`update tenant_settings set settings=settings || '{"semantic_model":"gemini-semantic"}'::jsonb`);
+    await assert.rejects(call('gemini-semantic'), /SEMANTIC_IGNORE_MODEL_MISMATCH/, 'antes da migração: só o ai_model');
+    await db.exec(migration);
+    await assert.rejects(call('gemini-outro'), /SEMANTIC_IGNORE_MODEL_MISMATCH/, 'modelo que não é do tenant continua recusado');
+    await db.exec(`update tenant_settings set settings=settings || '{"semantic_model":""}'::jsonb`);
+    await assert.rejects(call(''), /SEMANTIC_IGNORE_MODEL_MISMATCH/, 'semantic_model vazio não vira curinga');
+    await db.exec(`update tenant_settings set settings=settings || '{"semantic_model":"gemini-semantic"}'::jsonb`);
+    assert.equal((await call('gemini-semantic')).rows[0].result.finished, true);
+    assert.equal((await db.query("select ai_model from channel_events where ai_provider='automated_contact_ignored'")).rows[0].ai_model, 'gemini-semantic');
+    await db.exec(rollback);
+    const def = (await db.query("select prosrc from pg_proc where proname='magia_ignore_automated_turn'")).rows[0].prosrc;
+    assert.equal(def.includes('semantic_model'), false, 'rollback restaura a versão sem semantic_model');
+  } finally { await db.close(); }
+});
+
+test('20261126125941: ai_model continua aceito depois da migração', async () => {
+  const db = await database();
+  try {
+    await db.exec(fs.readFileSync(require.resolve('../supabase/migrations/20261126125941_semantic_contact_ignore_semantic_model.sql'), 'utf8'));
+    assert.equal((await ignore(db)).rows[0].result.finished, true);
+  } finally { await db.close(); }
+});
+
 test('proposta de prompt é guardada por hash, preserva configurações e tem rollback exato', async () => {
   const db = await database();
   try {

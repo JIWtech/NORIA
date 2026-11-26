@@ -249,12 +249,21 @@ for (const kind of ['retail', 'services']) {
   });
 }
 
-test('retail: interpretação com modelo diferente do ai_model não chama a RPC (ela só aceita o ai_model) e segue para a EXT', async () => {
-  const h = harness('retail', { semanticValue: retailValue(automated()), settings: { semantic_model: 'gemini-outro' } });
+test('retail: interpretação com o semantic_model do tenant é aceita pela RPC (migração 20261126125941)', async () => {
+  const h = harness('retail', { semanticValue: retailValue(automated()), settings: { semantic_model: 'gemini-interpretacao' } });
   const out = await h.run();
-  assert.equal(out.noria_phase, 'commercial_decision');
-  assert.deepEqual(h.log.rpc, []);
-  assert.equal(out.semantic_automated_contact_unconfirmed, 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC');
+  assert.equal(out.reason, 'automated_contact_ignored');
+  assert.equal(h.log.rpc[0].body.p_model, 'gemini-interpretacao');
+});
+
+test('veredito com modelo que não é do tenant não chama a RPC e segue marcado para a EXT', () => {
+  const { pipelineAutomatedContact } = loadCore(['pipelineAutomatedContact', 'groundingAutomatedContactVerdict'], {
+    turn: { messages: BOT_MESSAGES }, normalizeText, settingsFor: () => ({ ai_model: 'gemini-a', semantic_model: 'gemini-b' }) });
+  const context = { tenant: { id: T, name: 'JOYERÍA' } };
+  const repetition = { repeated_messages: 0, current_messages_repeated: false, window_minutes: 30 };
+  assert.equal(pipelineAutomatedContact(automated(), context, repetition, [], 'gemini-b').verdict.other_business, 'Claro');
+  assert.deepEqual(pipelineAutomatedContact(automated(), context, repetition, [], 'gemini-c'), { verdict: null, unconfirmed: 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC' });
+  assert.deepEqual(pipelineAutomatedContact(automated(), context, repetition, [], ''), { verdict: null, unconfirmed: 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC' });
 });
 
 test('trava de laço desligada pelo tenant não consulta o banco', async () => {
