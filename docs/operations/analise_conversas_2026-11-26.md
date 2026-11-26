@@ -97,6 +97,14 @@ Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a
 - Correção, commit `beb2b101`: a reprovação passa a gravar as afirmações que falharam (`failed_assertions`: motivo, referência e citação; até 5, com dados pessoais mascarados) em `services_pipeline.rejected_candidates`. Serviços 63/63 e release 794/794.
 - Publicado às 18:13 UTC: Motor `4223f074` → `74a35947` e Salon `600f66fa` → `c63576d1` (só metadado). Backups em `.local/deploy_backups/2026-11-26T18-13-00-892Z/`.
 
+### JOYERÍA: "Olá" respondido com pendência antiga (15:20, Brasília)
+
+- Relato do responsável: no número de teste recém-conectado, a IA respondeu um "oi" com uma frase sobre a linha blend.
+- Causa: o número já tinha conversado em 22/11. A cliente pediu aliança "com ametista escarlate", e a IA respondeu "vou verificar com a equipe". Quatro dias depois chegou só "Olá", e a redação, que recebe as últimas 10 mensagens sem noção de tempo, respondeu a pendência ("a linha blend é ... sem pedras"). A JOYERÍA não usa sessões por inatividade (`attendance_lifecycle` vazio).
+- Correção, commit `724e20dd`: a redação do `retail_v1` recebe `previous_contact_hours_ago` e uma regra de leitura. Com 12 h ou mais e sem retomada de assunto, a IA cumprimenta e pergunta como ajudar. Validado no simulador com o histórico real (2 chamadas). Retail 23/23 e release 795/795.
+- Publicado às 18:21 UTC: Motor `74a35947` → `935898eb` e Salon `c63576d1` → `01552f28` (só metadado). Backups em `.local/deploy_backups/2026-11-26T18-21-06-218Z/`.
+- Alternativa de configuração, não aplicada (é mudança de dados de tenant): ligar `attendance_lifecycle: session_v2` na JOYERÍA, como na Núbia, para abrir sessão nova depois de inatividade.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
