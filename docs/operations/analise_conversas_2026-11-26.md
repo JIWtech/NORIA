@@ -79,6 +79,17 @@ Sem mudança: Núbia v1 `vCDXJLqIBCZJRTVv`, Gênesis `fXGorIlPbyf9Qtsp` e NORIA 
 
 **Pendência:** não houve tráfego até o registro deste relatório. Os primeiros turnos reais precisam ser conferidos em `channel_events`, pela revisão `conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26`, e na fila.
 
+## Checagens a cada 30 min depois da publicação
+
+| Horário (Brasília) | Resultado |
+| --- | --- |
+| 10:39 a 12:39 | Sem erro. A IA responde com a revisão nova (`…_2026_11_26`). |
+| 13:09 | Contingência na Núbia: "Qual os horários de atendimento?" respondido certo, mas reprovado com `AUDIT_QUOTE_MISMATCH:fact`, porque a resposta citou só um trecho do resumo do horário. Corrigido e publicado (abaixo). Também houve um `core_error` HTTP 500 do Supabase em `magia_turn_suppression_status`: falha momentânea, que a fila reprocessou sozinha 30 s depois. |
+
+Correção de 13:12 (Brasília), commit `de651071`: um fato composto aceita citação por trecho literal de pelo menos 8 caracteres, como os blocos. Valor curto, como preço, continua exigindo igualdade, e as conferências de horário e valor afirmados seguem valendo. Serviços 61/61 (com o caso real) e release 792/792.
+
+Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a checagem: Motor `b4ce917f` → `4223f074` e Salon `d88e0f92` → `600f66fa` (só metadado do build). Backups em `.local/deploy_backups/2026-11-26T16-12-05-783Z/`.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
