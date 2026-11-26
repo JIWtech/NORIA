@@ -6311,7 +6311,13 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
   const timesIn = text => new Set([...String(text || '').matchAll(/\b([01]?\d|2[0-3])(?::([0-5]\d)|h([0-5]\d)?)(?!\d)/g)]
     .map(match => match[1].padStart(2, '0') + ':' + (match[2] || match[3] || '00')));
   const knownAmounts = new Set([...factValue.values()].map(Number).filter(Number.isFinite).map(n => n.toFixed(2)));
+  // Diagnóstico: qual afirmação reprovou, com referência e citação (até 5, truncadas). Sem isso, um AUDIT_QUOTE_MISMATCH em
+  // produção não mostra o que o auditor citou, e a causa não pode ser comprovada.
+  const failedAssertions = [];
+  const clip = (value, max) => String(value ?? '').slice(0, max);
   for (const item of report.assertions) {
+    const start = failures.length;
+    try {
     if (!item || !SERVICES_ASSERTION_CATEGORIES.includes(item.category) || !SERVICES_SUPPORT_KINDS.includes(item.support) || typeof item.reference !== 'string'
       || (item.polarity !== undefined && !['affirms', 'denies'].includes(item.polarity))) { failures.push('AUDIT_ASSERTION_INVALID'); continue; }
     // Negar uma reserva ("ainda não foi feita") não induz a cliente a erro; só vale enquanto não existir recibo.
@@ -6348,8 +6354,13 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
     for (const time of timesIn(item.text)) {
       if (!timeAllowed(item, time) && !authorityTimes.has(time)) failures.push('AUDIT_ASSERTED_TIME_NOT_IN_AUTHORITY');
     }
+    } finally {
+      if (failures.length > start && failedAssertions.length < 5) failedAssertions.push({ failures: [...new Set(failures.slice(start))],
+        category: clip(item?.category, 40), support: clip(item?.support, 40), reference: clip(item?.reference, 80), quote: clip(item?.quote, 160), text: clip(item?.text, 160) });
+    }
   }
-  return { status: failures.length ? 'rejected' : 'approved', failures: [...new Set(failures)], assertions: report.assertions.length };
+  return { status: failures.length ? 'rejected' : 'approved', failures: [...new Set(failures)], assertions: report.assertions.length,
+    ...(failedAssertions.length ? { failed_assertions: failedAssertions } : {}) };
 }
 
 async function servicesSemanticAudit(context, { reply, decision, execution, proof, semantic, blocks, hasRecentBusiness = false, customerMessages = [], attachedBlockKeys = [] }) {
@@ -6493,8 +6504,9 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
   const semantic = inputJson.semantic_intent;
   const hasRecentBusiness = servicesHasRecentBusiness(history);
   const rejectedCandidates = [];
-  const reject = (composed, failures, uncoveredRequest = '') => {
-    rejectedCandidates.push({ reply: composed?.value?.reply ?? '', failures, ...(uncoveredRequest ? { uncovered_request: uncoveredRequest } : {}) });
+  const reject = (composed, failures, uncoveredRequest = '', failedAssertions = null) => {
+    rejectedCandidates.push({ reply: composed?.value?.reply ?? '', failures, ...(uncoveredRequest ? { uncovered_request: uncoveredRequest } : {}),
+      ...(Array.isArray(failedAssertions) && failedAssertions.length ? { failed_assertions: failedAssertions } : {}) });
     const error = new Error('SERVICES_AUDIT_REJECTED:' + failures.join(','));
     error.rejected_candidates = rejectedCandidates;
     return error;
@@ -6545,7 +6557,8 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
     const recomposable = code => /^(AUDIT_UNSUPPORTED_ASSERTION|AUDIT_ASSERTION_NOT_GROUNDED|AUDIT_SUPPORT_NOT_FOUND|AUDIT_QUOTE_MISMATCH|AUDIT_ASSERTED_AMOUNT|AUDIT_ASSERTED_TIME|AUDIT_REQUEST_NOT_COVERED)/.test(code);
     if (semanticAudit.status !== 'approved' && semanticAudit.failures?.length && semanticAudit.failures.every(recomposable)) {
       rejectedCandidates.push({ reply: composed.value.reply, failures: semanticAudit.failures,
-        ...(semanticAudit.uncovered_request ? { uncovered_request: String(semanticAudit.uncovered_request).slice(0, 500) } : {}) });
+        ...(semanticAudit.uncovered_request ? { uncovered_request: String(semanticAudit.uncovered_request).slice(0, 500) } : {}),
+        ...(semanticAudit.failed_assertions?.length ? { failed_assertions: semanticAudit.failed_assertions } : {}) });
       ({ composed, audit } = await composeChecked({ kind: 'semantic', rejected_reply: String(composed?.value?.reply ?? '').slice(0, 500), failures: semanticAudit.failures, uncovered_request: String(semanticAudit.uncovered_request || '').slice(0, 500) }));
       semanticAudit = await auditProse();
       if (semanticAudit.status !== 'approved' && semanticAudit.failures?.length && semanticAudit.failures.every(code => code === 'AUDIT_REPEATED_OPENING')) {
@@ -6563,7 +6576,7 @@ async function servicesComposeAudited(context, { decision, execution, blocks, pr
     }
     audit = { ...audit, semantic: semanticAudit, status: semanticAudit.status };
     if (semanticAudit.status !== 'approved') {
-      throw reject(composed, semanticAudit.failures, String(semanticAudit.uncovered_request || '').slice(0, 500));
+      throw reject(composed, semanticAudit.failures, String(semanticAudit.uncovered_request || '').slice(0, 500), semanticAudit.failed_assertions);
     }
   }
   return { composed, audit };
@@ -6575,7 +6588,12 @@ function servicesRejectedCandidates(error) {
   return candidates.slice(0, 3).map(item => ({ reply: salesRedactPersonalData(String(item?.reply || '')).slice(0, 500),
     failures: (Array.isArray(item?.failures) ? item.failures : []).map(String).slice(0, 10),
     // Pedido que o auditor considerou sem resposta: mostra se a IA fugiu da pergunta ou se o auditor foi severo demais.
-    ...(item?.uncovered_request ? { uncovered_request: salesRedactPersonalData(String(item.uncovered_request)).slice(0, 300) } : {}) }));
+    ...(item?.uncovered_request ? { uncovered_request: salesRedactPersonalData(String(item.uncovered_request)).slice(0, 300) } : {}),
+    // Afirmações que reprovaram (motivo, referência e citação), para provar a causa de cada reprovação.
+    ...(Array.isArray(item?.failed_assertions) && item.failed_assertions.length ? { failed_assertions: item.failed_assertions.slice(0, 5).map(a => ({
+      failures: (Array.isArray(a?.failures) ? a.failures : []).map(String).slice(0, 5), category: String(a?.category || '').slice(0, 40),
+      support: String(a?.support || '').slice(0, 40), reference: String(a?.reference || '').slice(0, 80),
+      quote: salesRedactPersonalData(String(a?.quote || '')).slice(0, 160), text: salesRedactPersonalData(String(a?.text || '')).slice(0, 160) })) } : {}) }));
 }
 
 async function runServicesTurnFinalize(context, pipeline, history, event, control) {

@@ -783,6 +783,38 @@ test('auditoria: trecho literal de um fato composto sustenta a afirmação; trec
     'horário afirmado fora do fato continua reprovado mesmo com trecho literal');
 });
 
+// Produção, 26/11 18:02 UTC: opções reais de bronze reprovadas com AUDIT_QUOTE_MISMATCH:fact sem como saber o que o auditor citou.
+// A reprovação passa a trazer a afirmação que falhou (motivo, referência e citação), para o diagnóstico registrar a causa.
+test('auditoria: reprovação informa qual afirmação falhou, com referência e citação', () => {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const facts = [{ fact_id: 'service.a.name', value: 'Bronze Clássico' }, { fact_id: 'service.b.name', value: 'Bronze Premium' }];
+  const base = { decision: { facts, approved_blocks: [] }, execution: { handoff: { executed: false } }, proof: null, semantic: { slots: {} }, blocks: [] };
+  const assertion = (quote, reference = 'service.a.name') => ({ text: 'Temos o Clássico e o Premium', category: 'service', support: 'fact', reference, quote, polarity: 'affirms' });
+  const report = assertions => ({ covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true, assertions });
+  const out = verify(report([assertion('Bronze Clássico'), assertion('Clássico e Premium')]), base);
+  assert.deepEqual(out.failures, ['AUDIT_QUOTE_MISMATCH:fact']);
+  assert.deepEqual(out.failed_assertions, [{ failures: ['AUDIT_QUOTE_MISMATCH:fact'], category: 'service', support: 'fact', reference: 'service.a.name',
+    quote: 'Clássico e Premium', text: 'Temos o Clássico e o Premium' }]);
+  assert.equal('failed_assertions' in verify(report([assertion('Bronze Clássico')]), base), false, 'aprovada não traz o campo');
+  const many = verify(report(Array.from({ length: 8 }, () => assertion('x'.repeat(400)))), base);
+  assert.equal(many.failed_assertions.length, 5, 'no máximo 5');
+  assert.equal(many.failed_assertions[0].quote.length, 160, 'citação truncada');
+});
+
+test('cobertura: candidata rejeitada guarda as afirmações que falharam no diagnóstico persistido (com dados mascarados)', async () => {
+  const failed = [{ failures: ['AUDIT_QUOTE_MISMATCH:fact'], category: 'service', support: 'fact', reference: 'service.a.name', quote: 'Clássico e Premium', text: 'Liga 24999998888' }];
+  const flow = composedFlow({ compositions: [reply('A'), reply('B')], semanticReports: [
+    { status: 'rejected', failures: ['AUDIT_QUOTE_MISMATCH:fact'], assertions: 1, failed_assertions: failed },
+    { status: 'rejected', failures: ['AUDIT_QUOTE_MISMATCH:fact'], assertions: 1, failed_assertions: failed }] });
+  await assert.rejects(flow.run(), error => {
+    assert.deepEqual(error.rejected_candidates.map(c => c.failed_assertions), [failed, failed]);
+    return true;
+  });
+  const { servicesRejectedCandidates } = loadCore(['servicesRejectedCandidates'], { salesRedactPersonalData: text => String(text).replace(/\d{8,}/g, '[telefone]') });
+  assert.deepEqual(servicesRejectedCandidates({ rejected_candidates: [{ reply: 'A', failures: ['AUDIT_QUOTE_MISMATCH:fact'], failed_assertions: failed }] })[0].failed_assertions,
+    [{ ...failed[0], text: 'Liga [telefone]' }]);
+});
+
 // Orquestração composição + auditoria com o compositor e o auditor semântico simulados (sem Gemini).
 function composedFlow({ compositions, semanticReports }) {
   const calls = { compose: [], semantic: 0 };

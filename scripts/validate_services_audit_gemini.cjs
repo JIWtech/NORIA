@@ -19,9 +19,9 @@ const consts = ['SERVICES_ASSERTION_CATEGORIES', 'SERVICES_SUPPORT_KINDS', 'SERV
 const constSource = ast.statements.filter(ts.isVariableStatement)
   .filter(n => n.declarationList.declarations.some(d => consts.includes(d.name.getText(ast)))).map(n => n.getText(ast)).join('\n');
 const fnNames = ['servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesGeminiJson', 'servicesAssertionSharesAuthorityTerms',
-  'tenantBusinessHoursSource', 'tenantBusinessHoursFacts', 'resolveTenantDayHours', 'normalizeText'];
+  'tenantBusinessHoursSource', 'tenantBusinessHoursFacts', 'tenantBusinessHoursStatus', 'tenantTimeZone', 'resolveTenantDayHours', 'normalizeText'];
 const fnSource = ast.statements.filter(ts.isFunctionDeclaration).filter(n => fnNames.includes(n.name.text)).map(n => n.getText(ast)).join('\n');
-let calls = 0;
+let calls = 0, lastReport = null;
 const globals = {
   settingsFor: context => ({ ai_model: MODEL, ...(context?.settings?.settings || {}) }),
   usageGate: () => ({ allowed: true }),
@@ -30,7 +30,9 @@ const globals = {
     if (++calls > MAX) throw new Error('LIMITE_DE_CHAMADAS_ATINGIDO');
     const response = await fetch(url, { method, headers, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
     if (!response.ok) throw new Error('GEMINI_HTTP_' + response.status + ': ' + (await response.text()).slice(0, 200));
-    return response.json();
+    const parsed = await response.json();
+    try { lastReport = JSON.parse(parsed.candidates[0].content.parts.filter(p => !p.thought).map(p => p.text || '').join('')); } catch { lastReport = null; }
+    return parsed;
   },
 };
 const core = new Function(...Object.keys(globals), constSource + '\n' + fnSource + '\nreturn {' + fnNames.join(',') + '};')(...Object.values(globals));
@@ -76,16 +78,33 @@ const primeiros = [
   { name: '5. pergunta de horário respondida só com o menu de preços (controle negativo)', customer: ['Vocês atendem até que horas dia de semana?'],
     reply: 'Oie, maravilhosa! ✨ Olha só nossas opções:', attached: [menu.key], expect: 'rejected' },
 ];
-const cases = (process.argv.includes('--cenarios=novos') ? novos : process.argv.includes('--cenarios=horario') ? horario : primeiros).slice(0, MAX);
+// Produção 26/11 18:02 UTC: esclarecimento pedido pela EXT (CLARIFICATION_REQUIRED) respondido com as opções reais; reprovado
+// com AUDIT_QUOTE_MISMATCH:fact. Os fatos são os nomes completos dos candidatos (service.<id>.name), como a EXT entrega.
+const nameFact = (id, value) => ({ fact_id: 'service.' + id + '.name', value });
+const opcoes = [
+  { name: 'O1. opções de bronze listadas pelo nome curto, pedindo qual prefere', customer: ['Oi Aninha aqui mandei msg no insta', 'Queria marca pra fazer bronze'],
+    reply: 'Oie, maravilhosa! ✨ Que alegria te ver por aqui. Temos algumas opções lindas de bronze, como o Clássico, Premium, Comfort, de Sol e a Jato. Qual delas faz mais o seu estilo para eu te ajudar com o agendamento? 💖',
+    attached: [], expect: 'approved', reasons: ['CLARIFICATION_REQUIRED'], noBlocks: true,
+    facts: [nameFact('bronze_classico', 'Bronze Clássico'), nameFact('bronze_premium', 'Bronze Premium'), nameFact('bronze_comfort', 'Bronze Comfort'),
+      nameFact('bronze_no_sol', 'Bronze de Sol'), nameFact('bronze_jato_corpo_todo', 'Bronze a Jato')] },
+];
+const cases = (process.argv.includes('--cenarios=novos') ? novos : process.argv.includes('--cenarios=horario') ? horario
+  : process.argv.includes('--cenarios=opcoes') ? opcoes : primeiros).slice(0, MAX);
 
 (async () => {
   let ok = 0;
   for (const item of cases) {
-    const caseDecision = item.facts ? { ...decision, facts: [...decision.facts, ...item.facts] } : decision;
-    const result = await core.servicesSemanticAudit({}, { ...base, decision: caseDecision, reply: item.reply, customerMessages: item.customer, attachedBlockKeys: item.attached });
+    const caseDecision = { ...(item.facts ? { ...decision, facts: [...decision.facts, ...item.facts] } : decision), ...(item.reasons ? { reason_codes: item.reasons } : {}) };
+    // noBlocks: decisão sem bloco aprovado (como a EXT entrega no esclarecimento entre serviços), só com os fatos do caso.
+    const scoped = item.noBlocks ? { ...base, blocks: [], decision: { ...caseDecision, approved_blocks: [], facts: item.facts } } : { ...base, decision: caseDecision };
+    const result = await core.servicesSemanticAudit({}, { ...scoped, reply: item.reply, customerMessages: item.customer, attachedBlockKeys: item.attached });
     const pass = result.status === item.expect;
     if (pass) ok += 1;
     console.log(`${pass ? 'OK  ' : 'FALHA'} ${item.name}\n      esperado=${item.expect} obtido=${result.status} ${result.failures.join(',') || ''}${result.error ? ' erro=' + result.error : ''}`);
+    // Citações que o auditor devolveu (só o que ele afirmou sustentar com fato ou bloco), para diagnosticar reprovações.
+    if (process.argv.includes('--detalhe')) for (const a of lastReport?.assertions || []) {
+      if (['fact', 'block'].includes(a.support)) console.log(`      [${a.category}/${a.support}] ref=${a.reference} quote="${a.quote}" text="${String(a.text).slice(0, 90)}"`);
+    }
   }
   console.log(`\n${ok}/${cases.length} casos como esperado; chamadas ao Gemini: ${calls} (limite ${MAX}); modelo ${MODEL}`);
   if (ok !== cases.length) process.exitCode = 1;
