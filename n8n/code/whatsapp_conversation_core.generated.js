@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T13:08:02.956Z',
-  core_sha256: '3445a0a88d6eb6150bb5b91eca0830e26458192dce34bc97bf462dc94e48d495',
+  built_at: '2026-11-26T13:22:45.576Z',
+  core_sha256: 'f0e03a60cd0964eb81415539db3d6f8bc0cb453e32a8a2670b919c43f9fef206',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -4749,8 +4749,10 @@ async function pipelineLoopGuardTrip(context, history = []) {
     trigger: repeating && limit < config.max_assistant_replies ? 'repetition' : 'volume', repeated_messages: repetition.repeated_messages };
 }
 
+// pipeline null: caminho padrão (runTurn), que devolve o resultado simples, sem os campos de término do pipeline em fases.
 async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
-  if (!await commit()) return servicesTerminal({ ok: true, skipped: true, reason: 'superseded' }, pipeline);
+  const finish = value => pipeline ? servicesTerminal(value, pipeline) : value;
+  if (!await commit()) return finish({ ok: true, skipped: true, reason: 'superseded' });
   // handoff=true: as próximas mensagens caem na trava humana até a equipe devolver a conversa para a IA. Um único aviso
   // padrão de encaminhamento (sem Gemini) evita deixar sem resposta um cliente real muito ativo; se for robô, o que ele
   // mandar depois já não recebe resposta.
@@ -4760,7 +4762,7 @@ async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
   await saveEvent(event);
   const sent = await sendChannelMessage(context, sessionHandoffMessage(context), event);
   await complete('done');
-  return servicesTerminal({ ok: true, handoff: true, reason: 'conversation_loop_guard', ...sent }, pipeline);
+  return finish({ ok: true, handoff: true, reason: 'conversation_loop_guard', ...sent });
 }
 
 async function callGroundedGemini(context, history, catalog, appointments) {
@@ -16680,6 +16682,9 @@ async function runTurn() {
     await saveEvent(event); await complete('done');
     return { ok: true, human_lock: true, skipped: true };
   }
+  // Mesma trava de laço dos pipelines em fases (21/11: a IA da noria respondeu 7 vezes em 4 min ao robô de uma operadora).
+  const loopTrip = await pipelineLoopGuardTrip(context, history);
+  if (loopTrip) return pipelineStopForLoopGuard(context, event, loopTrip, null);
   try {
     await transcribeTurnAudio(context);
   } catch (error) {

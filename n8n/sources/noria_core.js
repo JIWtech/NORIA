@@ -4736,8 +4736,10 @@ async function pipelineLoopGuardTrip(context, history = []) {
     trigger: repeating && limit < config.max_assistant_replies ? 'repetition' : 'volume', repeated_messages: repetition.repeated_messages };
 }
 
+// pipeline null: caminho padrão (runTurn), que devolve o resultado simples, sem os campos de término do pipeline em fases.
 async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
-  if (!await commit()) return servicesTerminal({ ok: true, skipped: true, reason: 'superseded' }, pipeline);
+  const finish = value => pipeline ? servicesTerminal(value, pipeline) : value;
+  if (!await commit()) return finish({ ok: true, skipped: true, reason: 'superseded' });
   // handoff=true: as próximas mensagens caem na trava humana até a equipe devolver a conversa para a IA. Um único aviso
   // padrão de encaminhamento (sem Gemini) evita deixar sem resposta um cliente real muito ativo; se for robô, o que ele
   // mandar depois já não recebe resposta.
@@ -4747,7 +4749,7 @@ async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
   await saveEvent(event);
   const sent = await sendChannelMessage(context, sessionHandoffMessage(context), event);
   await complete('done');
-  return servicesTerminal({ ok: true, handoff: true, reason: 'conversation_loop_guard', ...sent }, pipeline);
+  return finish({ ok: true, handoff: true, reason: 'conversation_loop_guard', ...sent });
 }
 
 async function callGroundedGemini(context, history, catalog, appointments) {
@@ -16667,6 +16669,9 @@ async function runTurn() {
     await saveEvent(event); await complete('done');
     return { ok: true, human_lock: true, skipped: true };
   }
+  // Mesma trava de laço dos pipelines em fases (21/11: a IA da noria respondeu 7 vezes em 4 min ao robô de uma operadora).
+  const loopTrip = await pipelineLoopGuardTrip(context, history);
+  if (loopTrip) return pipelineStopForLoopGuard(context, event, loopTrip, null);
   try {
     await transcribeTurnAudio(context);
   } catch (error) {

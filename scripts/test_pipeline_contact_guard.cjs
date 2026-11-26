@@ -172,6 +172,33 @@ for (const kind of ['retail', 'services']) {
   });
 }
 
+// 21/11: no caminho padrão (tenant noria), a IA respondeu 7 vezes em 4 min ao robô de uma operadora repetindo o mesmo menu.
+test('caminho padrão: a trava de laço roda depois da trava humana e antes do áudio e do Gemini', () => {
+  const ast = ts.createSourceFile('core.js', coreCode, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const runTurn = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name.text === 'runTurn').getText(ast);
+  const lock = runTurn.indexOf("event.ai_provider = 'human_lock'; event.handoff = true;");
+  const guard = runTurn.indexOf('const loopTrip = await pipelineLoopGuardTrip(context, history);', lock);
+  const stop = runTurn.indexOf('if (loopTrip) return pipelineStopForLoopGuard(context, event, loopTrip, null);', guard);
+  const audio = runTurn.indexOf('await transcribeTurnAudio(context);', lock);
+  const gemini = runTurn.indexOf('await callGemini(', lock);
+  assert.ok(lock > 0 && guard > lock && stop > guard && audio > stop && gemini > stop, 'ordem: trava humana → trava de laço → áudio → Gemini');
+});
+
+test('caminho padrão: parada pela trava de laço devolve o formato do runTurn (sem campos de pipeline)', async () => {
+  const log = { sent: [], events: [], completed: null };
+  const { pipelineStopForLoopGuard } = loadCore(['pipelineStopForLoopGuard'], {
+    commit: async () => true, saveEvent: async event => { log.events.push(event); }, complete: async status => { log.completed = status; },
+    sendChannelMessage: async (context, text) => { log.sent.push(text); return { sent: true }; },
+    sessionHandoffMessage: () => 'Encaminhado.', servicesTerminal: () => { throw new Error('não é pipeline'); } });
+  const trip = { replies_in_window: 10, max_assistant_replies: 10, window_minutes: 30, trigger: 'repetition', repeated_messages: 9 };
+  const out = await pipelineStopForLoopGuard({}, { raw_payload: {} }, trip, null);
+  assert.deepEqual(out, { ok: true, handoff: true, reason: 'conversation_loop_guard', sent: true });
+  assert.equal(log.events[0].ai_provider, 'conversation_loop_guard');
+  assert.deepEqual(log.events[0].raw_payload.loop_guard, trip);
+  assert.deepEqual(log.sent, ['Encaminhado.']);
+  assert.equal(log.completed, 'done');
+});
+
 test('trava de laço: limites do tenant, desligamento explícito e configuração inválida usa o padrão', () => {
   const { pipelineLoopGuardConfig } = loadCore(['pipelineLoopGuardConfig'], { settingsFor: context => context.settings });
   const of = guard => pipelineLoopGuardConfig({ settings: guard === undefined ? {} : { conversation_loop_guard: guard } });
