@@ -4649,6 +4649,7 @@ function pipelineWithContactContext(schema, rules) {
       'contact_context descreve quem escreveu as mensagens de scope current. Use external_automated_contact somente quando TODAS as mensagens atuais forem mensagens automáticas de OUTRA empresa (central de atendimento, menu de opções, cobrança, aviso de sistema, código ou campanha) e nenhuma trouxer pedido ou pergunta dirigida a este negócio. Nesse caso copie em other_business o nome dessa empresa exatamente como aparece no texto e liste em evidence_ids os ids de todas as mensagens atuais.',
       'content_type é o formato técnico de cada mensagem (por exemplo buttons, list ou template, que pessoas não costumam enviar): é só um indício, nunca prova sozinho. Cliente que encaminha ou cita uma mensagem de outra empresa, saudação, dúvida ou pedido dirigido a este negócio é customer; na dúvida use uncertain. quoted_or_forwarded é true quando o texto foi encaminhado ou citado; contains_customer_request é true quando há pedido ou pergunta a este negócio.',
       'contact_repetition mede, na janela recente, quantas mensagens do contato repetem um texto idêntico que ele já tinha mandado (current_messages_repeated indica se as mensagens atuais são repetições). Uma pessoa reage ao que este negócio responde; o mesmo texto de menu, cobrança ou campanha repetido várias vezes, sem levar em conta as respostas, é forte indício de mensagem automática de outra empresa. Nesse caso o nome da empresa pode estar só nas mensagens anteriores do contato (customer_messages de scope session): copie-o de lá.',
+      'recently_ignored_businesses lista empresas cujas mensagens automáticas deste mesmo contato já foram identificadas e ignoradas há poucos minutos. Se as mensagens atuais continuam essa mesma automação (por exemplo, andamento de pedido, cobrança ou menu) sem pedido dirigido a este negócio, use external_automated_contact e copie o nome exatamente dessa lista.',
     ],
   };
 }
@@ -4672,14 +4673,28 @@ function pipelineContactRepetition(history = [], messages = [], windowMinutes = 
   return { repeated_messages: repeated, current_messages_repeated: currentRepeated, window_minutes: windowMinutes };
 }
 
+// Empresas cujas mensagens automáticas já foram ignoradas nesta conversa, dentro da janela (prova gravada pela RPC
+// magia_ignore_automated_turn). Caso real de 26/11: o robô de pedidos de um restaurante mandou "Seu pedido na <empresa>
+// foi realizado" (ignorada) e, 20 s depois, "Seu pedido já está em produção", sem o nome; a IA respondeu ao robô.
+// A mensagem que inicia o pedido nem entra no histórico (fica como buffer), por isso o nome vem da prova.
+function pipelineRecentlyIgnoredBusinesses(history = [], windowMinutes = 30) {
+  const since = Date.now() - windowMinutes * 60000;
+  const names = history.filter(row => row?.ai_provider === 'automated_contact_ignored' && Date.parse(row.created_at || '') >= since)
+    .map(row => row?.raw_payload?.contact_context)
+    .filter(proof => proof?.contract === 'noria_semantic_contact_ignore_v1' && proof.kind === 'external_automated_contact')
+    .map(proof => typeof proof.other_business === 'string' ? proof.other_business.trim() : '')
+    .filter(name => name && name.length <= 160);
+  return [...new Set(names)];
+}
+
 // Veredito de contato automático para os pipelines em fases. A RPC magia_ignore_automated_turn aceita a prova gerada pelo
 // ai_model ou pelo semantic_model do tenant (migração 20261126125941); com qualquer outro modelo o turno segue normalmente,
 // fica marcado e a trava de laço continua valendo.
 function pipelineAutomatedContact(value, context, repetition, history, model) {
   const since = Date.now() - (repetition?.window_minutes || 30) * 60000;
-  const extraBusinessTexts = repetition?.current_messages_repeated
+  const extraBusinessTexts = [...(repetition?.current_messages_repeated
     ? history.filter(row => row?.direction === 'inbound' && row?.sender_type === 'contact' && Date.parse(row.created_at || '') >= since).map(row => row.message_text || '')
-    : [];
+    : []), ...pipelineRecentlyIgnoredBusinesses(history, repetition?.window_minutes || 30)];
   const verdict = groundingAutomatedContactVerdict(value, context, { extraBusinessTexts });
   if (!verdict) return { verdict: null, unconfirmed: null };
   const settings = settingsFor(context);
@@ -6031,6 +6046,7 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session', received_local_date: servicesMessageLocalDate(row.received_at, context) })),
         ...turn.messages.map(item => pipelineSemanticMessage(item, { received_local_date: servicesMessageLocalDate(item.received_at, context) }))],
       ad_context: adContext, contact_repetition: repetition,
+      recently_ignored_businesses: pipelineRecentlyIgnoredBusinesses(history, repetition.window_minutes),
       // What the business said recently is context to read references ("pode ser às 10"); it is NOT evidence and carries no ids.
       assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
       services: catalog.matches.map(row => ({ service_id: row.external_id, name: row.name })), units, session_id: identity.session_id,
@@ -6796,6 +6812,7 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session' })),
         ...turn.messages.map(item => pipelineSemanticMessage(item))],
       assistant_context: assistantContext, contact_repetition: repetition,
+      recently_ignored_businesses: pipelineRecentlyIgnoredBusinesses(history, repetition.window_minutes),
       catalog: retailCatalogForModel(shortlist.items), catalog_complete: candidates.complete && shortlist.mode === 'all', session_id: identity.session_id,
     }, contract.schema, contract.rules,
     // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.

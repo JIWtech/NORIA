@@ -324,6 +324,7 @@ test('falha passageira do Gemini na interpretação retail volta para a fila; fa
     pipelineLoopGuardTrip: async () => null, pipelineWithContactContext: (schema, rules) => ({ schema, rules }),
     pipelineSemanticMessage: item => ({ id: item.event_id, text: item.text, scope: 'current' }),
     pipelineContactRepetition: () => ({ repeated_messages: 0, current_messages_repeated: false, window_minutes: 30 }),
+    pipelineRecentlyIgnoredBusinesses: () => [],
     pipelineLoopGuardConfig: () => ({ window_minutes: 30 }), pipelineAutomatedContact: () => ({ verdict: null, unconfirmed: null }),
   });
   const pipeline = { semantic_vocabulary: { intents: ['x'], roles: ['x'], materials: ['x'], decisions: ['x'], confidence: ['x'] }, semantic_contract: 'c', contract_version: '1.0' };

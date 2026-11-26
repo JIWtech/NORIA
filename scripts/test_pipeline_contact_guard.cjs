@@ -37,7 +37,8 @@ const SERVICES_PIPE = { capability: 'services_v1', contract_version: '2.0', sema
   semantic_vocabulary: { intents: ['a'], roles: ['b'], topics: ['c'], dispositions: ['d'], ambiguity_kinds: ['e'], confidence: ['f'] } };
 
 const MOTOR = ['groundingAutomatedContactVerdict', 'ignoreAutomatedContact', 'pipelineWithContactContext', 'pipelineSemanticMessage',
-  'pipelineLoopGuardConfig', 'pipelineLoopGuardTrip', 'pipelineStopForLoopGuard', 'pipelineContactRepetition', 'pipelineAutomatedContact'];
+  'pipelineLoopGuardConfig', 'pipelineLoopGuardTrip', 'pipelineStopForLoopGuard', 'pipelineContactRepetition', 'pipelineAutomatedContact',
+  'pipelineRecentlyIgnoredBusinesses'];
 const minutesAgo = n => new Date(Date.now() - n * 60000).toISOString();
 // Histórico com o robô repetindo dois textos de menu (como em 25/11) e as respostas da IA no meio.
 const LOGIN = 'Claro\nPara fazer login, clique no link abaixo ⬇️';
@@ -274,6 +275,39 @@ for (const kind of ['retail', 'services']) {
     assert.equal(out.noria_phase, 'commercial_decision');
     assert.deepEqual(h.log.rpc, []);
   });
+
+  // 26/11, Núbia: o robô de pedidos de um restaurante foi ignorado na 1ª mensagem (com o nome) e respondido na 2ª (sem o nome).
+  const ignoredProof = (minutes, extra = {}) => ({ id: 'ig' + minutes, direction: 'outbound', sender_type: 'system', ai_provider: 'automated_contact_ignored',
+    created_at: minutesAgo(minutes), raw_payload: { contact_context: { contract: 'noria_semantic_contact_ignore_v1', kind: 'external_automated_contact',
+      other_business: 'BRUTUS SANTA RITA', evidence_ids: ['x1'], quoted_or_forwarded: false, contains_customer_request: false, ...extra } } });
+  const ORDER = [{ event_id: 'm1', text: 'Seu #H70MT3, já está em produção. 😋 Avisaremos quando ele estiver pronto!', raw: {} }];
+
+  test(`${kind}: continuação de automação já ignorada na conversa, sem o nome da empresa, é ignorada`, async () => {
+    const h = harness(kind, { semanticValue: value(automated(['m1'], { other_business: 'BRUTUS SANTA RITA' })), history: [ignoredProof(1)], messages: ORDER });
+    const out = await h.run();
+    assert.equal(out.reason, 'automated_contact_ignored');
+    assert.equal(h.log.rpc[0].body.p_proof.other_business, 'BRUTUS SANTA RITA');
+    assert.deepEqual(h.log.gemini[0].input.recently_ignored_businesses, ['BRUTUS SANTA RITA']);
+    assert.ok(h.log.gemini[0].rules.some(rule => /recently_ignored_businesses/.test(rule)));
+  });
+
+  test(`${kind}: prova antiga, de outra empresa ou inválida não serve de nome para ignorar`, async () => {
+    for (const history of [[ignoredProof(90)], [ignoredProof(1, { contract: 'outro' })], [{ ...ignoredProof(1), ai_provider: 'services_pipeline' }]]) {
+      const h = harness(kind, { semanticValue: value(automated(['m1'], { other_business: 'BRUTUS SANTA RITA' })), history, messages: ORDER });
+      const out = await h.run();
+      assert.equal(out.noria_phase, 'commercial_decision', JSON.stringify(history[0]));
+      assert.deepEqual(h.log.rpc, []);
+    }
+    const other = harness(kind, { semanticValue: value(automated(['m1'], { other_business: 'Outra Loja' })), history: [ignoredProof(1)], messages: ORDER });
+    assert.equal((await other.run()).noria_phase, 'commercial_decision');
+  });
+
+  test(`${kind}: cliente que escreve depois de uma automação ignorada segue o fluxo normal`, async () => {
+    const h = harness(kind, { semanticValue: value(customer), history: [ignoredProof(1)], messages: [{ event_id: 'm1', text: 'Oi, quero agendar amanhã', raw: {} }] });
+    const out = await h.run();
+    assert.equal(out.noria_phase, 'commercial_decision');
+    assert.deepEqual(h.log.rpc, []);
+  });
 }
 
 test('retail: interpretação com o semantic_model do tenant é aceita pela RPC (migração 20261126125941)', async () => {
@@ -284,7 +318,7 @@ test('retail: interpretação com o semantic_model do tenant é aceita pela RPC 
 });
 
 test('veredito com modelo que não é do tenant não chama a RPC e segue marcado para a EXT', () => {
-  const { pipelineAutomatedContact } = loadCore(['pipelineAutomatedContact', 'groundingAutomatedContactVerdict'], {
+  const { pipelineAutomatedContact } = loadCore(['pipelineAutomatedContact', 'groundingAutomatedContactVerdict', 'pipelineRecentlyIgnoredBusinesses'], {
     turn: { messages: BOT_MESSAGES }, normalizeText, settingsFor: () => ({ ai_model: 'gemini-a', semantic_model: 'gemini-b' }) });
   const context = { tenant: { id: T, name: 'JOYERÍA' } };
   const repetition = { repeated_messages: 0, current_messages_repeated: false, window_minutes: 30 };
