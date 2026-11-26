@@ -2,8 +2,8 @@
 // magia_track_turn_review copiado de produção. Rodar: node --test scripts/test_admin_close_stale_turn_reviews.cjs
 const test = require('node:test'), assert = require('node:assert/strict'), fs = require('node:fs');
 const { PGlite } = require('../app/node_modules/@electric-sql/pglite');
-const migration = fs.readFileSync(require.resolve('../supabase/migrations_pending_review/20261126_admin_close_stale_turn_reviews.sql'), 'utf8');
-const rollback = fs.readFileSync(require.resolve('../supabase/migrations_pending_review/20261126_admin_close_stale_turn_reviews.rollback.sql'), 'utf8');
+const migration = fs.readFileSync(require.resolve('../supabase/migrations/20261126133157_admin_close_stale_turn_reviews.sql'), 'utf8');
+const rollback = fs.readFileSync(require.resolve('../supabase/migrations_pending_review/20261126133157_admin_close_stale_turn_reviews.rollback.sql'), 'utf8');
 const A = '10000000-0000-4000-8000-00000000000a', B = '10000000-0000-4000-8000-00000000000b';
 const tok = n => '20000000-0000-4000-8000-0000000000' + String(n).padStart(2, '0');
 const ev = n => '30000000-0000-4000-8000-0000000000' + String(n).padStart(2, '0');

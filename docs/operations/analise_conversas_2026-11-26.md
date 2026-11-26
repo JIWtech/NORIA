@@ -45,7 +45,11 @@ Testes: suíte de release `node scripts/validate_noria_release.cjs` com 791/791.
 
 A RPC do painel recusa os casos seguros com `STALE_TURN_REVIEW`, porque o `queue_snapshot` do chamado não bate mais com a fila.
 
-Proposta: `supabase/migrations_pending_review/20261126_admin_close_stale_turn_reviews.sql`, com rollback ao lado e teste `scripts/test_admin_close_stale_turn_reviews.cjs`. A função simula por padrão (`p_dry_run = true`) e reaplica os critérios conversa a conversa. Aplicar e executar só com autorização.
+Migração `supabase/migrations/20261126133157_admin_close_stale_turn_reviews.sql`, aplicada e executada em 26/11 com autorização do responsável. Teste em `scripts/test_admin_close_stale_turn_reviews.cjs`. A função simula por padrão (`p_dry_run = true`) e reaplica os critérios conversa a conversa.
+
+Resultado: a simulação apontou 33 (Núbia) e 61 (Gênesis), exatamente as seguras. A execução fechou as 94, com 94 recibos `cancelled` e chamados marcados `admin_closed_stale`; nenhuma fila ficou com sobra. Ficaram abertas 114 (Núbia 7, Gênesis 107) para a equipe.
+
+Rollback: `supabase/migrations_pending_review/20261126133157_admin_close_stale_turn_reviews.rollback.sql`. Ele devolve cada fila à revisão com o mesmo chamado aberto, apaga o recibo e remove a função; só toca filas que continuam prontas e sem lote travado.
 
 Para listar as conversas que ficam para a equipe, sem expor dados aqui:
 

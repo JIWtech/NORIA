@@ -1,4 +1,4 @@
--- Rollback de 20261126_admin_close_stale_turn_reviews.
+-- Rollback de 20261126133157_admin_close_stale_turn_reviews.
 -- 1) Desfaz os encerramentos feitos pela função (se ela foi executada com p_dry_run=false): devolve cada fila ao estado
 --    guardado em resolution_snapshot, reabre o chamado e apaga o recibo terminal criado. Só toca chamados com
 --    resolution='admin_closed_stale' e filas que continuam em 'ready' sem lote travado (nada aconteceu depois).

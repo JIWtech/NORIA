@@ -1,5 +1,7 @@
 -- Encerramento em lote de conversas travadas em revisão que a equipe já atendeu por fora (Frente 3, 26/11/2026).
--- PROPOSTA: aplicar só com autorização do responsável.
+-- APLICADA em produção em 26/11/2026 com autorização do responsável (versão registrada 20261126133157) e executada no mesmo dia:
+-- 94 conversas encerradas (Núbia 33, Gênesis 61); as outras 114 seguem abertas para a equipe.
+-- Rollback: supabase/migrations_pending_review/20261126133157_admin_close_stale_turn_reviews.rollback.sql
 --
 -- Contexto: 94 conversas (33 da Núbia, 61 da Gênesis) estão em phase='review' desde outubro, com chamado aberto, e a equipe
 -- respondeu por último em todas. A RPC do painel (magia_resolve_turn_review) recusa essas conversas com STALE_TURN_REVIEW,
