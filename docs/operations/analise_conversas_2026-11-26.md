@@ -105,6 +105,14 @@ Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a
 - Publicado às 18:21 UTC: Motor `74a35947` → `935898eb` e Salon `c63576d1` → `01552f28` (só metadado). Backups em `.local/deploy_backups/2026-11-26T18-21-06-218Z/`.
 - Alternativa de configuração, não aplicada (é mudança de dados de tenant): ligar `attendance_lifecycle: session_v2` na JOYERÍA, como na Núbia, para abrir sessão nova depois de inatividade.
 
+### Checagem das 20:00 (Brasília): robô de pedidos de restaurante
+
+- Núbia, 19:37: o robô de pedidos de um restaurante mandou "Seu pedido na <empresa> foi realizado" (ignorada certo) e, 20 s depois, "Seu pedido já está em produção", sem o nome. A IA respondeu "Recebemos sua mensagem por aqui. Como posso te ajudar hoje?". A mensagem seguinte já caiu na trava humana.
+- Causa: o nome de outra empresa só valia como prova vindo de mensagens anteriores quando o texto atual era repetição. A primeira mensagem do robô nem entra no histórico (fica como `buffer`).
+- Correção, commit `48c88154`: a prova gravada pela RPC (`automated_contact_ignored`) na mesma conversa, dentro da janela da trava de laço, passa a valer como nome da empresa; a interpretação recebe `recently_ignored_businesses` e uma regra de leitura. Prova antiga, inválida ou de outra empresa não serve, e cliente que escreve depois segue normal. Contato 37/37 e release 801/801. Não validado com o Gemini real.
+- Restante do período sem erro da IA: a pergunta da promoção de 30% foi para a equipe (sem dados da promoção), e os pedidos de valores receberam o menu.
+- Publicado às 23:08 UTC, autorizado pelo responsável: Motor `935898eb` → `00175ff8` e Salon `01552f28` → `6ef63af8` (só metadado). Backups em `.local/deploy_backups/2026-11-26T23-08-34-299Z/`.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
