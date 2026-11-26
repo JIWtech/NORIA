@@ -94,8 +94,8 @@ function validateTenantPolicyContract() {
 }
 const coreBuildMetadata = {
   revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T12:41:46.418Z',
-  core_sha256: '0d613531181803b8b42691f690cc65c03452b23db66faf5ad92aed3104c9bf63',
+  built_at: '2026-11-26T12:54:35.128Z',
+  core_sha256: '4e3c3ef655992d41ae7d4579a3923fce2755235549cc576648e2be84f8725809',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -4617,7 +4617,9 @@ function modelOutputDiagnostic(body, reason, attempt = 1) {
     validation_reason: reasons.includes(reason) ? reason : 'invalid_structure', attempt: attempt === 2 ? 2 : 1 };
 }
 
-function groundingAutomatedContactVerdict(value, context) {
+// extraBusinessTexts: textos do próprio contato (fora do turno atual) onde o nome da outra empresa pode aparecer. Só os
+// pipelines em fases passam, e só quando todas as mensagens atuais repetem textos dele (o robô que repete o menu sem o nome).
+function groundingAutomatedContactVerdict(value, context, { extraBusinessTexts = [] } = {}) {
   if (!value || value.kind !== 'external_automated_contact' || value.quoted_or_forwarded !== false || value.contains_customer_request !== false) return null;
   const messages = turn.messages || [];
   const ids = Array.isArray(value.evidence_ids) ? [...new Set(value.evidence_ids)] : [];
@@ -4626,7 +4628,7 @@ function groundingAutomatedContactVerdict(value, context) {
   const business = typeof value.other_business === 'string' ? value.other_business.trim() : '';
   const own = [context?.tenant?.name, settingsFor(context).business_facts?.name].filter(Boolean).map(normalizeText);
   if (!business || business.length > 160 || own.includes(normalizeText(business))) return null;
-  if (!messages.some(message => normalizeText(message.text || '').includes(normalizeText(business)))) return null;
+  if (![...messages.map(message => message.text), ...extraBusinessTexts].some(text => normalizeText(text || '').includes(normalizeText(business)))) return null;
   return { contract: 'noria_semantic_contact_ignore_v1', kind: value.kind, other_business: business,
     evidence_ids: ids, quoted_or_forwarded: false, contains_customer_request: false };
 }
@@ -4659,8 +4661,42 @@ function pipelineWithContactContext(schema, rules) {
     rules: [...rules,
       'contact_context descreve quem escreveu as mensagens de scope current. Use external_automated_contact somente quando TODAS as mensagens atuais forem mensagens automáticas de OUTRA empresa (central de atendimento, menu de opções, cobrança, aviso de sistema, código ou campanha) e nenhuma trouxer pedido ou pergunta dirigida a este negócio. Nesse caso copie em other_business o nome dessa empresa exatamente como aparece no texto e liste em evidence_ids os ids de todas as mensagens atuais.',
       'content_type é o formato técnico de cada mensagem (por exemplo buttons, list ou template, que pessoas não costumam enviar): é só um indício, nunca prova sozinho. Cliente que encaminha ou cita uma mensagem de outra empresa, saudação, dúvida ou pedido dirigido a este negócio é customer; na dúvida use uncertain. quoted_or_forwarded é true quando o texto foi encaminhado ou citado; contains_customer_request é true quando há pedido ou pergunta a este negócio.',
+      'contact_repetition mede, na janela recente, quantas mensagens do contato repetem um texto idêntico que ele já tinha mandado (current_messages_repeated indica se as mensagens atuais são repetições). Uma pessoa reage ao que este negócio responde; o mesmo texto de menu, cobrança ou campanha repetido várias vezes, sem levar em conta as respostas, é forte indício de mensagem automática de outra empresa. Nesse caso o nome da empresa pode estar só nas mensagens anteriores do contato (customer_messages de scope session): copie-o de lá.',
     ],
   };
+}
+
+// Repetição de texto do contato na janela: medida técnica (texto idêntico após normalizar espaços e acentos), não semântica.
+// Textos curtos ("ok", "sim") e marcadores de mídia não contam: pessoas repetem isso naturalmente. Maior repetição real de
+// clientes em 60 dias: 3 mensagens em 30 min; o robô de 25/11 repetiu 79.
+function pipelineContactRepetition(history = [], messages = [], windowMinutes = 30) {
+  const since = Date.now() - windowMinutes * 60000;
+  const key = text => normalizeText(text || '').replace(/\s+/g, ' ').trim();
+  const counts = value => value.length >= 20 && !value.startsWith('[');
+  const currentIds = new Set(messages.map(item => item.event_id));
+  const previous = history.filter(row => row?.direction === 'inbound' && row?.sender_type === 'contact' && !currentIds.has(row.id)
+    && Date.parse(row.created_at || '') >= since).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)).map(row => key(row.message_text));
+  const seen = new Set();
+  let repeated = 0;
+  for (const value of previous) { if (!counts(value)) continue; if (seen.has(value)) repeated++; else seen.add(value); }
+  const current = messages.map(item => key(item.text));
+  const currentRepeated = current.length > 0 && current.every(value => counts(value) && seen.has(value));
+  for (const value of current) { if (!counts(value)) continue; if (seen.has(value)) repeated++; else seen.add(value); }
+  return { repeated_messages: repeated, current_messages_repeated: currentRepeated, window_minutes: windowMinutes };
+}
+
+// Veredito de contato automático para os pipelines em fases. A RPC magia_ignore_automated_turn só aceita a prova gerada
+// pelo ai_model do tenant; com modelo próprio de interpretação (semantic_model) o turno segue normalmente e fica marcado,
+// e a trava de laço continua valendo.
+function pipelineAutomatedContact(value, context, repetition, history, model) {
+  const since = Date.now() - (repetition?.window_minutes || 30) * 60000;
+  const extraBusinessTexts = repetition?.current_messages_repeated
+    ? history.filter(row => row?.direction === 'inbound' && row?.sender_type === 'contact' && Date.parse(row.created_at || '') >= since).map(row => row.message_text || '')
+    : [];
+  const verdict = groundingAutomatedContactVerdict(value, context, { extraBusinessTexts });
+  if (!verdict) return { verdict: null, unconfirmed: null };
+  if (model !== settingsFor(context).ai_model) return { verdict: null, unconfirmed: 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC' };
+  return { verdict, unconfirmed: null };
 }
 
 // Mensagem atual para a interpretação: texto e, quando conhecido, o formato técnico (parsing do canal, não semântica).
@@ -4671,19 +4707,27 @@ function pipelineSemanticMessage(item, extra = {}) {
 
 // Trava de laço: se a IA já respondeu muitas vezes na mesma conversa dentro da janela, ela pausa sem gastar tokens e a
 // conversa fica com a equipe. É a última proteção (a interpretação pode errar); limites por tenant em
-// settings.conversation_loop_guard. Padrão acima do maior uso real observado (21 respostas em 30 min, 60 dias, todos os tenants).
+// settings.conversation_loop_guard. Dois limites: com o contato repetindo textos idênticos (robô), 10 respostas bastam;
+// sem repetição, só 30 (acima do maior uso real em 60 dias: 21 respostas em 30 min, de clientes de verdade).
 function pipelineLoopGuardConfig(context) {
-  const defaults = { max_assistant_replies: 30, window_minutes: 30 };
+  const defaults = { max_assistant_replies: 30, window_minutes: 30, repeated_max_assistant_replies: 10, min_repeated_messages: 5 };
   const config = settingsFor(context)?.conversation_loop_guard;
   if (config && config.enabled === false) return { enabled: false, ...defaults };
-  const valid = config && Number.isInteger(config.max_assistant_replies) && config.max_assistant_replies >= 5 && config.max_assistant_replies <= 200
-    && Number.isInteger(config.window_minutes) && config.window_minutes >= 5 && config.window_minutes <= 240;
-  return { enabled: true, ...(valid ? { max_assistant_replies: config.max_assistant_replies, window_minutes: config.window_minutes } : defaults) };
+  const intIn = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  const out = { enabled: true, ...defaults };
+  if (config && intIn(config.max_assistant_replies, 5, 200) && intIn(config.window_minutes, 5, 240)) {
+    out.max_assistant_replies = config.max_assistant_replies; out.window_minutes = config.window_minutes;
+  }
+  if (config && intIn(config.repeated_max_assistant_replies, 3, 200)) out.repeated_max_assistant_replies = config.repeated_max_assistant_replies;
+  if (config && intIn(config.min_repeated_messages, 2, 50)) out.min_repeated_messages = config.min_repeated_messages;
+  out.repeated_max_assistant_replies = Math.min(out.repeated_max_assistant_replies, out.max_assistant_replies);
+  return out;
 }
 
 async function pipelineLoopGuardTrip(context, history = []) {
   const config = pipelineLoopGuardConfig(context);
   if (!config.enabled) return null;
+  const repetition = pipelineContactRepetition(history, turn?.messages || [], config.window_minutes);
   // Depois que a equipe devolve a conversa para a IA, a contagem recomeça.
   const resumedAt = [...history].reverse().find(row => row?.service === 'resume_ai' || row?.ai_provider === 'resume_ai')?.created_at;
   const windowStart = Date.now() - config.window_minutes * 60000;
@@ -4696,8 +4740,12 @@ async function pipelineLoopGuardTrip(context, history = []) {
       + '&limit=' + (config.max_assistant_replies + 1));
   } catch { return null; }
   // Falha aberta: sem contagem confiável, o atendimento segue (as demais salvaguardas continuam valendo).
-  if (!Array.isArray(rows) || rows.length < config.max_assistant_replies) return null;
-  return { replies_in_window: rows.length, max_assistant_replies: config.max_assistant_replies, window_minutes: config.window_minutes };
+  if (!Array.isArray(rows)) return null;
+  const repeating = repetition.repeated_messages >= config.min_repeated_messages;
+  const limit = repeating ? config.repeated_max_assistant_replies : config.max_assistant_replies;
+  if (rows.length < limit) return null;
+  return { replies_in_window: rows.length, max_assistant_replies: limit, window_minutes: config.window_minutes,
+    trigger: repeating && limit < config.max_assistant_replies ? 'repetition' : 'volume', repeated_messages: repetition.repeated_messages };
 }
 
 async function pipelineStopForLoopGuard(context, event, trip, pipeline) {
@@ -5982,7 +6030,8 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
   const reservations = await servicesLoadReservations(context);
   const units = Object.entries(settings.appointment_scheduling?.units || {}).map(([id, unit]) => ({ unit_id: id, name: unit?.name || '' }));
   const adContext = turnAdContext([...history.filter(row => row.direction === 'inbound' && row.sender_type === 'contact'), ...turn.messages]);
-  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null;
+  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null, automatedUnconfirmed = null;
+  const repetition = pipelineContactRepetition(history, turn.messages, pipelineLoopGuardConfig(context).window_minutes);
   const commandEvidence = servicesPaymentCommand(context);
   try {
     if (commandEvidence) throw new Error('CONFIGURED_COMMAND');
@@ -5991,14 +6040,15 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
       date: buildDateContext(context), current_message_ids: [...currentIds],
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session', received_local_date: servicesMessageLocalDate(row.received_at, context) })),
         ...turn.messages.map(item => pipelineSemanticMessage(item, { received_local_date: servicesMessageLocalDate(item.received_at, context) }))],
-      ad_context: adContext,
+      ad_context: adContext, contact_repetition: repetition,
       // What the business said recently is context to read references ("pode ser às 10"); it is NOT evidence and carries no ids.
       assistant_context: history.filter(row => row.direction === 'outbound' && row.sender_type === 'assistant' && row.message_text && row.ai_provider !== 'buffer').slice(-4).map(row => audioHistoryText(row)),
       services: catalog.matches.map(row => ({ service_id: row.external_id, name: row.name })), units, session_id: identity.session_id,
       reservations: reservations.map(row => ({ id: row.id, status: row.status, service_id: row.service_id })),
     }, contract.schema, contract.rules);
     const { contact_context: contactContext, ...interpreted } = generated.value && typeof generated.value === 'object' ? generated.value : {};
-    ignoredContact = groundingAutomatedContactVerdict(contactContext, context);
+    const automated = pipelineAutomatedContact(contactContext, context, repetition, history, generated.model);
+    ignoredContact = automated.verdict; automatedUnconfirmed = automated.unconfirmed;
     if (ignoredContact) ignoredModel = generated.model;
     semantic = generated.value && typeof generated.value === 'object' ? { ...interpreted, contract: pipeline.semantic_contract } : null;
     model = generated.model; usage = generated.usage;
@@ -6014,6 +6064,7 @@ async function runServicesTurnPrepare(context, pipeline, history, event, control
     session_id: identity.session_id, request_id: identity.request_id, turn_token: identity.turn_token,
     // The later phases run in other executions: they receive the very claim (with transcribed text) instead of claiming again.
     noria_preclaimed_turn: turn, turn, semantic_intent: semantic, semantic_failure: semanticFailure || null, semantic_model: model, semantic_usage: usage,
+    ...(automatedUnconfirmed ? { semantic_automated_contact_unconfirmed: automatedUnconfirmed } : {}),
     session_evidence: sessionEvidence, reservations, availability: null,
     ad_context: adContext,
   };
@@ -6710,7 +6761,8 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     current: turn.messages.map(item => item.text),
     context: [...sessionEvidence.slice(-10).map(row => row.text), ...assistantContext],
   }, { limit: Number.isInteger(prefilterLimit) ? prefilterLimit : undefined, keepIds: mediaState.presentedItemIds });
-  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null;
+  let semantic = null, semanticFailure = '', model = null, usage = {}, ignoredContact = null, ignoredModel = null, automatedUnconfirmed = null;
+  const repetition = pipelineContactRepetition(history, turn.messages, pipelineLoopGuardConfig(context).window_minutes);
   try {
     // Regras genéricas do contrato + orientações de interpretação do próprio tenant (settings.retail_policy.semantic_guidance).
     const contract = pipelineWithContactContext(retailSemanticSchema(pipeline.semantic_vocabulary, shortlist.items.map(item => item.code)),
@@ -6720,13 +6772,14 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
       current_message_ids: [...currentIds],
       customer_messages: [...sessionEvidence.map(row => ({ id: row.id, text: row.text, scope: 'session' })),
         ...turn.messages.map(item => pipelineSemanticMessage(item))],
-      assistant_context: assistantContext,
+      assistant_context: assistantContext, contact_repetition: repetition,
       catalog: retailCatalogForModel(shortlist.items), catalog_complete: candidates.complete && shortlist.mode === 'all', session_id: identity.session_id,
     }, contract.schema, contract.rules,
     // Interpretação pode usar um modelo próprio do tenant (settings.semantic_model); sem ele, usa o ai_model.
     { persona: false, model: /^gemini-[a-z0-9.-]+$/.test(String(settings.semantic_model || '')) ? settings.semantic_model : '' });
     const { contact_context: contactContext, ...interpreted } = generated.value && typeof generated.value === 'object' ? generated.value : {};
-    ignoredContact = groundingAutomatedContactVerdict(contactContext, context);
+    const automated = pipelineAutomatedContact(contactContext, context, repetition, history, generated.model);
+    ignoredContact = automated.verdict; automatedUnconfirmed = automated.unconfirmed;
     if (ignoredContact) ignoredModel = generated.model;
     // Códigos do recorte voltam a ser item_id; código desconhecido ou item fora do recorte é descartado aqui.
     semantic = generated.value && typeof generated.value === 'object'
@@ -6747,6 +6800,7 @@ async function runRetailTurnPrepare(context, pipeline, history, event, control) 
     noria_client_policy: tenantBusinessRules, noria_business_context: inputJson.noria_business_context,
     session_id: identity.session_id, request_id: identity.request_id, turn_token: identity.turn_token,
     noria_preclaimed_turn: turn, turn, semantic_intent: semantic, semantic_failure: semanticFailure || null, semantic_model: model, semantic_usage: usage,
+    ...(automatedUnconfirmed ? { semantic_automated_contact_unconfirmed: automatedUnconfirmed } : {}),
     semantic_catalog: { mode: shortlist.mode, sent: shortlist.items.length, total: candidates.items.length },
     session_evidence: sessionEvidence,
     // Para a EXT, item com foto pendente de reconciliação conta como já apresentado.

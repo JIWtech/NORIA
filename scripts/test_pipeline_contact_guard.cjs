@@ -37,7 +37,15 @@ const SERVICES_PIPE = { capability: 'services_v1', contract_version: '2.0', sema
   semantic_vocabulary: { intents: ['a'], roles: ['b'], topics: ['c'], dispositions: ['d'], ambiguity_kinds: ['e'], confidence: ['f'] } };
 
 const MOTOR = ['groundingAutomatedContactVerdict', 'ignoreAutomatedContact', 'pipelineWithContactContext', 'pipelineSemanticMessage',
-  'pipelineLoopGuardConfig', 'pipelineLoopGuardTrip', 'pipelineStopForLoopGuard'];
+  'pipelineLoopGuardConfig', 'pipelineLoopGuardTrip', 'pipelineStopForLoopGuard', 'pipelineContactRepetition', 'pipelineAutomatedContact'];
+const minutesAgo = n => new Date(Date.now() - n * 60000).toISOString();
+// Histórico com o robô repetindo dois textos de menu (como em 25/11) e as respostas da IA no meio.
+const LOGIN = 'Claro\nPara fazer login, clique no link abaixo ⬇️';
+const MENU = 'Identifiquei que você ainda não fez o login, você prefere: 1- Tentar fazer o login novamente 2- Ajuda com cadastro/senha 3- Voltar para o Menu';
+const botHistory = (count, startMinutes = 20) => Array.from({ length: count }, (_, i) => [
+  { id: 'h' + i, direction: 'inbound', sender_type: 'contact', message_text: i % 2 ? MENU : LOGIN, created_at: minutesAgo(startMinutes - i) },
+  { id: 'a' + i, direction: 'outbound', sender_type: 'assistant', message_text: 'Que alegria! Você busca alianças?', created_at: minutesAgo(startMinutes - i) },
+]).flat();
 
 // recent: respostas da IA que a consulta de contagem devolve (o banco aplica a janela; aqui só importa a quantidade e o filtro).
 function harness(kind, { semanticValue, recent = 0, settings = {}, history = [], messages = BOT_MESSAGES, geminiError = null } = {}) {
@@ -47,7 +55,7 @@ function harness(kind, { semanticValue, recent = 0, settings = {}, history = [],
     inputJson: { noria_extension: 'loja', tenant_id: T }, RETAIL_DEFAULT_CANDIDATES: 250,
     SERVICES_SEMANTIC_RULES: ['regra de serviços'], normalizeText,
     pipelineIdentity: () => ({ session_id: 's1', tenant_id: T, instance: 'loja', request_id: 'm1:tok-1', turn_token: 'tok-1' }),
-    settingsFor: () => ({ ai_enabled: true, ...settings }), transcribeTurnAudio: async () => {}, usageGate: () => ({ allowed: true }),
+    settingsFor: () => ({ ai_enabled: true, ai_model: 'gemini-fixture', ...settings }), transcribeTurnAudio: async () => {}, usageGate: () => ({ allowed: true }),
     encodeFilter: value => encodeURIComponent(String(value)),
     supabaseGet: async url => {
       log.gets.push(url);
@@ -58,10 +66,10 @@ function harness(kind, { semanticValue, recent = 0, settings = {}, history = [],
     retailLoadMediaState: async () => ({ presentedItemIds: [] }), audioHistoryText: row => row.message_text || '',
     loadCatalogContext: async () => ({ matches: [{ external_id: 'svc1', name: 'Serviço' }] }), servicesLoadReservations: async () => [],
     servicesPaymentCommand: () => null, buildDateContext: () => ({}), servicesMessageLocalDate: () => '2026-11-25', turnAdContext: () => null,
-    servicesGeminiJson: async (context, label, input, schema, rules) => {
+    servicesGeminiJson: async (context, label, input, schema, rules, options = {}) => {
       log.gemini.push({ label, input, schema, rules });
       if (geminiError) throw new Error(geminiError);
-      return { value: semanticValue, model: 'gemini-fixture', usage: { totalTokenCount: 10 } };
+      return { value: semanticValue, model: options.model || 'gemini-fixture', usage: { totalTokenCount: 10 } };
     },
     salesSafeFailureDiagnostics: () => ({ category: 'invalid_request' }), turnFailureIsTransient: () => false,
     commit: async () => true, saveEvent: async event => { log.events.push(JSON.parse(JSON.stringify(event))); },
@@ -149,7 +157,7 @@ for (const kind of ['retail', 'services']) {
     assert.equal(saved.stage, 'Atendimento humano');
     assert.equal(saved.ai_provider, 'conversation_loop_guard');
     assert.equal(saved.ai_error, 'CONVERSATION_LOOP_GUARD');
-    assert.deepEqual(saved.raw_payload.loop_guard, { replies_in_window: 30, max_assistant_replies: 30, window_minutes: 30 });
+    assert.deepEqual(saved.raw_payload.loop_guard, { replies_in_window: 30, max_assistant_replies: 30, window_minutes: 30, trigger: 'volume', repeated_messages: 0 });
     const count = h.log.gets.find(url => url.startsWith('/rest/v1/channel_events'));
     for (const part of ['tenant_id=eq.' + T, 'external_conversation_id=eq.' + encodeURIComponent(CHAT), 'direction=eq.outbound', 'sender_type=eq.assistant', 'created_at=gte.', 'limit=31']) {
       assert.ok(count.includes(part), 'consulta escopada: ' + part);
@@ -167,11 +175,86 @@ for (const kind of ['retail', 'services']) {
 test('trava de laço: limites do tenant, desligamento explícito e configuração inválida usa o padrão', () => {
   const { pipelineLoopGuardConfig } = loadCore(['pipelineLoopGuardConfig'], { settingsFor: context => context.settings });
   const of = guard => pipelineLoopGuardConfig({ settings: guard === undefined ? {} : { conversation_loop_guard: guard } });
-  assert.deepEqual(of(undefined), { enabled: true, max_assistant_replies: 30, window_minutes: 30 });
-  assert.deepEqual(of({ max_assistant_replies: 12, window_minutes: 10 }), { enabled: true, max_assistant_replies: 12, window_minutes: 10 });
-  assert.deepEqual(of({ enabled: false }), { enabled: false, max_assistant_replies: 30, window_minutes: 30 });
-  assert.deepEqual(of({ max_assistant_replies: 1, window_minutes: 9999 }), { enabled: true, max_assistant_replies: 30, window_minutes: 30 });
-  assert.deepEqual(of({ max_assistant_replies: '20', window_minutes: 2.5 }), { enabled: true, max_assistant_replies: 30, window_minutes: 30 });
+  const DEFAULTS = { max_assistant_replies: 30, window_minutes: 30, repeated_max_assistant_replies: 10, min_repeated_messages: 5 };
+  assert.deepEqual(of(undefined), { enabled: true, ...DEFAULTS });
+  assert.deepEqual(of({ max_assistant_replies: 12, window_minutes: 10 }), { enabled: true, ...DEFAULTS, max_assistant_replies: 12, window_minutes: 10, repeated_max_assistant_replies: 10 });
+  assert.deepEqual(of({ repeated_max_assistant_replies: 8, min_repeated_messages: 4 }), { enabled: true, ...DEFAULTS, repeated_max_assistant_replies: 8, min_repeated_messages: 4 });
+  assert.deepEqual(of({ enabled: false }), { enabled: false, ...DEFAULTS });
+  assert.deepEqual(of({ max_assistant_replies: 1, window_minutes: 9999 }), { enabled: true, ...DEFAULTS });
+  assert.deepEqual(of({ max_assistant_replies: '20', window_minutes: 2.5, repeated_max_assistant_replies: 1, min_repeated_messages: 99 }), { enabled: true, ...DEFAULTS });
+  // O limite com repetição nunca passa do limite absoluto.
+  assert.equal(of({ max_assistant_replies: 8, window_minutes: 30 }).repeated_max_assistant_replies, 8);
+});
+
+test('repetição: conta textos idênticos do contato na janela; ignora curtos, mídia, outra direção e o que já saiu da janela', () => {
+  const { pipelineContactRepetition } = loadCore(['pipelineContactRepetition'], { normalizeText });
+  const rows = [
+    ...botHistory(6),
+    { id: 'old1', direction: 'inbound', sender_type: 'contact', message_text: MENU, created_at: minutesAgo(90) },
+    { id: 'ok1', direction: 'inbound', sender_type: 'contact', message_text: 'ok', created_at: minutesAgo(5) },
+    { id: 'ok2', direction: 'inbound', sender_type: 'contact', message_text: 'ok', created_at: minutesAgo(4) },
+    { id: 'img1', direction: 'inbound', sender_type: 'contact', message_text: '[image] [image] [image] [image]', created_at: minutesAgo(4) },
+    { id: 'img2', direction: 'inbound', sender_type: 'contact', message_text: '[image] [image] [image] [image]', created_at: minutesAgo(3) },
+  ];
+  const out = pipelineContactRepetition(rows, [{ event_id: 'm1', text: 'Claro  para fazer LOGIN, clique no link abaixo ⬇️' }], 30);
+  // 6 mensagens do robô (3 de cada texto) + a atual: 2 primeiras são novas, 5 repetem.
+  assert.deepEqual(out, { repeated_messages: 5, current_messages_repeated: true, window_minutes: 30 });
+  const fresh = pipelineContactRepetition(rows, [{ event_id: 'm1', text: 'Quero uma aliança de ouro 18k para noivado' }], 30);
+  assert.equal(fresh.current_messages_repeated, false);
+  assert.equal(fresh.repeated_messages, 4);
+  // Linha da mensagem atual já presente no histórico não conta duas vezes.
+  const dup = pipelineContactRepetition([{ id: 'm1', direction: 'inbound', sender_type: 'contact', message_text: MENU, created_at: minutesAgo(1) }], [{ event_id: 'm1', text: MENU }], 30);
+  assert.equal(dup.repeated_messages, 0);
+});
+
+for (const kind of ['retail', 'services']) {
+  const value = kind === 'retail' ? retailValue : servicesValue;
+
+  test(`${kind}: robô repetindo o mesmo texto para com cerca de 10 respostas da IA`, async () => {
+    const h = harness(kind, { semanticValue: value(customer), recent: 10, history: botHistory(10), messages: [{ event_id: 'm1', text: MENU, raw: {} }] });
+    const out = await h.run();
+    assert.equal(out.reason, 'conversation_loop_guard');
+    assert.equal(h.log.gemini.length, 0);
+    assert.deepEqual(h.log.events.at(-1).raw_payload.loop_guard, { replies_in_window: 10, max_assistant_replies: 10, window_minutes: 30, trigger: 'repetition', repeated_messages: 9 });
+  });
+
+  test(`${kind}: cliente real ativo (sem repetição) com 10 respostas segue normalmente`, async () => {
+    const talk = Array.from({ length: 10 }, (_, i) => ({ id: 'c' + i, direction: 'inbound', sender_type: 'contact', message_text: 'Pergunta diferente número ' + i + ' sobre a aliança de ouro', created_at: minutesAgo(20 - i) }));
+    const h = harness(kind, { semanticValue: value(customer), recent: 10, history: talk });
+    const out = await h.run();
+    assert.equal(out.noria_phase, 'commercial_decision');
+  });
+
+  test(`${kind}: a interpretação recebe a medida de repetição do contato`, async () => {
+    const h = harness(kind, { semanticValue: value(customer), recent: 2, history: botHistory(3), messages: [{ event_id: 'm1', text: MENU, raw: {} }] });
+    await h.run();
+    assert.deepEqual(h.log.gemini[0].input.contact_repetition, { repeated_messages: 2, current_messages_repeated: true, window_minutes: 30 });
+    assert.ok(h.log.gemini[0].rules.some(rule => /contact_repetition/.test(rule)));
+  });
+
+  test(`${kind}: robô que repete menu sem citar a empresa é ignorado quando o nome aparece nas mensagens dele da janela`, async () => {
+    const contact = automated(['m1']);
+    const h = harness(kind, { semanticValue: value(contact), recent: 2, history: botHistory(3), messages: [{ event_id: 'm1', text: MENU, raw: {} }] });
+    const out = await h.run();
+    assert.equal(out.reason, 'automated_contact_ignored');
+    assert.equal(h.log.rpc[0].body.p_proof.other_business, 'Claro');
+  });
+
+  test(`${kind}: mensagem nova (não repetida) sem o nome da empresa não é ignorada só pelo histórico`, async () => {
+    const h = harness(kind, { semanticValue: value(automated(['m1'])), recent: 2, history: botHistory(3),
+      messages: [{ event_id: 'm1', text: 'Sua fatura vence amanhã, evite o bloqueio do serviço', raw: {} }] });
+    const out = await h.run();
+    assert.equal(out.noria_phase, 'commercial_decision');
+    assert.deepEqual(h.log.rpc, []);
+  });
+}
+
+test('retail: interpretação com modelo diferente do ai_model não chama a RPC (ela só aceita o ai_model) e segue para a EXT', async () => {
+  const h = harness('retail', { semanticValue: retailValue(automated()), settings: { semantic_model: 'gemini-outro' } });
+  const out = await h.run();
+  assert.equal(out.noria_phase, 'commercial_decision');
+  assert.deepEqual(h.log.rpc, []);
+  assert.equal(out.semantic_automated_contact_unconfirmed, 'MODEL_NOT_ACCEPTED_BY_IGNORE_RPC');
 });
 
 test('trava de laço desligada pelo tenant não consulta o banco', async () => {
@@ -193,8 +276,8 @@ test('trava de laço conta só depois que a equipe devolveu a conversa para a IA
 
 test('trava de laço com falha na contagem não bloqueia o atendimento (falha aberta)', async () => {
   for (const supabaseGet of [async () => { throw new Error('HTTP 503'); }, async () => ({ message: 'erro' })]) {
-    const { pipelineLoopGuardTrip } = loadCore(['pipelineLoopGuardTrip', 'pipelineLoopGuardConfig'], {
-      settingsFor: () => ({}), chatId: CHAT, encodeFilter: v => encodeURIComponent(String(v)), supabaseGet,
+    const { pipelineLoopGuardTrip } = loadCore(['pipelineLoopGuardTrip', 'pipelineLoopGuardConfig', 'pipelineContactRepetition'], {
+      settingsFor: () => ({}), chatId: CHAT, encodeFilter: v => encodeURIComponent(String(v)), supabaseGet, normalizeText, turn: { messages: [] },
     });
     assert.equal(await pipelineLoopGuardTrip({ tenant: { id: T } }, []), null);
   }

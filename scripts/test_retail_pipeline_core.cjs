@@ -322,7 +322,9 @@ test('falha passageira do Gemini na interpretação retail volta para a fila; fa
     turnFailureIsTransient: diagnostic => diagnostic.category === 'rate_limit',
     // Proteções dos pipelines em fases: cobertas em test_pipeline_contact_guard.cjs; aqui ficam neutras.
     pipelineLoopGuardTrip: async () => null, pipelineWithContactContext: (schema, rules) => ({ schema, rules }),
-    pipelineSemanticMessage: item => ({ id: item.event_id, text: item.text, scope: 'current' }), groundingAutomatedContactVerdict: () => null,
+    pipelineSemanticMessage: item => ({ id: item.event_id, text: item.text, scope: 'current' }),
+    pipelineContactRepetition: () => ({ repeated_messages: 0, current_messages_repeated: false, window_minutes: 30 }),
+    pipelineLoopGuardConfig: () => ({ window_minutes: 30 }), pipelineAutomatedContact: () => ({ verdict: null, unconfirmed: null }),
   });
   const pipeline = { semantic_vocabulary: { intents: ['x'], roles: ['x'], materials: ['x'], decisions: ['x'], confidence: ['x'] }, semantic_contract: 'c', contract_version: '1.0' };
   await assert.rejects(build(true).runRetailTurnPrepare({ tenant: { id: T } }, pipeline, [], { raw_payload: {} }, {}), /GEMINI_RATE_LIMIT/);
