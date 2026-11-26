@@ -206,6 +206,9 @@ const SCENARIOS = {
   let turns = 0;
   for (const [i, label] of wanted.entries()) {
     if (turns >= maxTurns || spentTokens() >= maxTokens) { console.log('\n[TETO DE GASTO ATINGIDO] ' + turns + ' turnos, ' + spentTokens() + ' tokens.'); break; }
+    // Um turno precisa de pelo menos 3 chamadas: não começa um cenário que seria cortado no meio.
+    const callsLeft = Number(process.env.SIM_MAX_CHAMADAS || 5) - Object.values(usage).reduce((sum, u) => sum + u.calls, 0);
+    if (callsLeft < 3) { console.log('\n[TETO DE CHAMADAS] restam ' + callsLeft + '; cenários não rodados: ' + wanted.slice(i).join(', ')); break; }
     turns++;
     const chatId = '5500' + String(90000000 + i) + '@s.whatsapp.net';
     console.log('\n==================== ' + label + ' ====================');
