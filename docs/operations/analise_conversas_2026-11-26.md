@@ -125,6 +125,19 @@ Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a
 - Referência de publicação: antes das correções, o código ativo no n8n correspondia aos exports locais (conferido em 27/11: as diferenças são só estas correções e os metadados do build). Pendente de publicação: Motor, Salon, Roteador (só a revisão) e Núbia v2.
 - Em aberto: faltam `.local/deploy_backups` e `n8n/workflows/backup_pre_ondas_2026-11-12`, lidas por `publish_exports_by_id.cjs`; o script precisa de ajuste antes da próxima publicação.
 
+#### Publicação das correções de 27/11 (14:18 UTC, autorizada pelo responsável)
+
+`publish_exports_by_id.cjs` passou a aceitar a falta das pastas antigas: `--expect=<id>:<versão>` fixa a versão ativa pelo último registro. O `check` anterior mostrou só os nós esperados.
+
+| Workflow | Versão anterior | Versão publicada |
+| --- | --- | --- |
+| Núbia v2 `6jSiEH2ugboYSack` | `e064bf9b` | `7f410df9` |
+| Motor `mlKNPv862H2g3Gap` | `00175ff8` | `3ed7e10e` |
+| Salon `yxdKP0PeskDMUFSo` | `6ef63af8` | `8651d417` |
+| Roteador `3N5oN6sxtir9lFrA` | `8557b60d` | `c97f7a28` (só a revisão do CORE) |
+
+Depois da publicação, o código ativo ficou idêntico aos exports locais. **Rollback:** backups e recibos em `.local/deploy_backups/2026-11-27T14-18-19-692Z/`; reenvie o JSON por `PUT /workflows/<id>` e ative. A pendência do script e das pastas ausentes está resolvida; os backups anteriores a 27/11 continuam sem localização.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
