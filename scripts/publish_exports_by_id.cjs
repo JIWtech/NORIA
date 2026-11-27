@@ -1,6 +1,6 @@
 'use strict';
 // Publicação autorizada dos exports locais (n8n/workflows/*.json, nomes por ID) no n8n.
-// Uso: node scripts/publish_exports_by_id.cjs <check|apply>
+// Uso: node scripts/publish_exports_by_id.cjs <check|apply> [--only=id1,id2] [--expect=id:versão,...]
 // Travas: (1) backup completo de cada workflow publicado antes de qualquer escrita; (2) a versão ativa precisa ser igual ao
 // export de referência anterior às correções (nada mudou no n8n desde então); (3) só jsCode muda — nós, conexões e settings
 // do n8n são preservados e precisam coincidir com o export local; (4) depois do PUT, ativa e confere byte a byte.
@@ -18,8 +18,12 @@ const REFERENCE_DIR = path.join(WORKFLOWS_DIR, 'backup_pre_ondas_2026-11-12');
 // Recibos de cada publicação anterior, do mais antigo ao mais recente: o último recibo de cada workflow é a versão esperada.
 // Ordena pela hora da conferência (verifiedAt), não pelo nome da pasta: pastas com prefixo (fotos-, salon-...)
 // ficavam depois das datadas na ordem alfabética e escondiam publicações mais novas.
-const ALL_RECEIPTS = fs.readdirSync(path.join(root, '.local/deploy_backups'))
-  .map(dir => path.join(root, '.local/deploy_backups', dir, 'receipts.json')).filter(file => fs.existsSync(file))
+const RECEIPTS_DIR = path.join(root, '.local/deploy_backups');
+// Sem recibos nem export de referência (pastas locais perdidas em 27/11/2026), a versão esperada vem do registro da última
+// publicação: --expect=<id>:<início da versão>,... (ao menos 8 caracteres). Os recibos desta publicação refazem a cadeia.
+const EXPECTED = Object.fromEntries((process.argv.find(arg => arg.startsWith('--expect=')) || '').slice(9).split(',').filter(Boolean).map(item => item.split(':')));
+const ALL_RECEIPTS = (fs.existsSync(RECEIPTS_DIR) ? fs.readdirSync(RECEIPTS_DIR) : [])
+  .map(dir => path.join(RECEIPTS_DIR, dir, 'receipts.json')).filter(file => fs.existsSync(file))
   .flatMap(file => JSON.parse(fs.readFileSync(file, 'utf8')))
   .sort((a, b) => String(a.verifiedAt || '').localeCompare(String(b.verifiedAt || '')));
 const PRIOR_RECEIPTS = ALL_RECEIPTS.reduce((latest, receipt) => ({ ...latest, [receipt.id]: receipt }), {});
@@ -61,10 +65,15 @@ const fileFor = (dir, id) => { const f = fs.readdirSync(dir).find(name => name.e
 
 async function prepare(id) {
   const local = JSON.parse(fs.readFileSync(fileFor(WORKFLOWS_DIR, id), 'utf8'));
-  const referencePath = fileFor(REFERENCE_DIR, id) || fileFor(WORKFLOWS_DIR, id);
-  const reference = JSON.parse(fs.readFileSync(referencePath, 'utf8'));
+  const referencePath = fs.existsSync(REFERENCE_DIR) ? fileFor(REFERENCE_DIR, id) : null;
+  const reference = referencePath ? JSON.parse(fs.readFileSync(referencePath, 'utf8')) : null;
   const live = await api('GET', '/workflows/' + id);
   const previousReceipt = PRIOR_RECEIPTS[id];
+  const expected = String(EXPECTED[id] || '');
+  // A versão ativa precisa ser conhecida: pelo recibo, pelo --expect ou pelo código igual ao do export de referência.
+  if (!previousReceipt && expected && (expected.length < 8 || !live.versionId.startsWith(expected))) throw Error('EXPECTED_VERSION_DRIFT: ' + id + ' ativo ' + live.versionId);
+  const pinned = Boolean(previousReceipt || expected);
+  if (!pinned && !reference) throw Error('SEM_REFERENCIA (informe --expect=<id>:<versão do último registro>): ' + id);
   if (!live.active || live.versionId !== live.activeVersionId) throw Error('VERSION_GUARD (inativo ou rascunho diferente do ativo): ' + id);
   if (previousReceipt && live.versionId !== previousReceipt.version) throw Error('PREVIOUS_PUBLICATION_VERSION_DRIFT: ' + id);
   if (!equal(live.connections, local.connections)) throw Error('CONNECTIONS_DIFFER (export local x n8n): ' + id);
@@ -72,16 +81,15 @@ async function prepare(id) {
   const changes = [];
   for (const node of live.nodes) {
     const mine = local.nodes.find(item => item.id === node.id);
-    const ref = reference.nodes.find(item => item.id === node.id);
+    const ref = reference?.nodes.find(item => item.id === node.id);
     const receiptHash = PRIOR_NODE_HASHES[id + '/' + node.id];
     // Nós criados depois da referência de 12/11 (ex.: cadeia retail publicada por publish_retail_chain.cjs) são aceitos
-    // quando há recibo de publicação posterior; nós de código precisam constar no recibo, que dá o hash esperado.
-    if (!mine || (!ref && !previousReceipt)) throw Error('NODE_ID_DRIFT: ' + id + ' / ' + node.name);
+    // quando a versão ativa está fixada (recibo ou --expect); o hash esperado, quando existe, continua conferido.
+    if (!mine || (!ref && !pinned)) throw Error('NODE_ID_DRIFT: ' + id + ' / ' + node.name);
     if (!equal(shape(node), shape(mine))) throw Error('NODE_SHAPE_DIFFERS (só jsCode pode mudar): ' + id + ' / ' + node.name);
     if (typeof node.parameters?.jsCode !== 'string') continue;
-    if (!ref && !receiptHash) throw Error('NODE_ID_DRIFT (nó de código sem referência nem recibo): ' + id + ' / ' + node.name);
-    const previousHash = receiptHash || sha(ref.parameters.jsCode);
-    if (sha(node.parameters.jsCode) !== previousHash) throw Error('LIVE_CODE_DRIFT (n8n mudou desde o export): ' + id + ' / ' + node.name);
+    const previousHash = receiptHash || (ref ? sha(ref.parameters.jsCode) : null);
+    if (previousHash && sha(node.parameters.jsCode) !== previousHash) throw Error('LIVE_CODE_DRIFT (n8n mudou desde o export): ' + id + ' / ' + node.name);
     if (sha(node.parameters.jsCode) !== sha(mine.parameters.jsCode)) {
       changes.push({ nodeId: node.id, name: node.name, code: mine.parameters.jsCode, from: sha(node.parameters.jsCode), to: sha(mine.parameters.jsCode) });
     }
