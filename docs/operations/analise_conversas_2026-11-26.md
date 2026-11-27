@@ -113,6 +113,16 @@ Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a
 - Restante do período sem erro da IA: a pergunta da promoção de 30% foi para a equipe (sem dados da promoção), e os pedidos de valores receberam o menu.
 - Publicado às 23:08 UTC, autorizado pelo responsável: Motor `935898eb` → `00175ff8` e Salon `01552f28` → `6ef63af8` (só metadado). Backups em `.local/deploy_backups/2026-11-26T23-08-34-299Z/`.
 
+### Checagem de 27/11 (11:04, Brasília): dois bloqueios indevidos da auditoria
+
+- Nenhuma execução com erro no n8n desde as 23:08 UTC de 26/11. Na Núbia, 4 contingências, todas respondidas pela equipe.
+- 26/11 21:06: "No momento estamos fechados" foi classificado como `availability` (vaga na agenda), que não aceita o fato `business_hours.current_status`.
+- 27/11 00:38: "Vou te enviar todos os detalhes" foi classificado como afirmação sobre o serviço.
+- Correção no `dev`, sem publicar: o auditor é orientado a tratar aberto/fechado como `schedule`, e o contrato ganhou a categoria `attachment_notice` (suporte `attached_block`), aceita só quando o bloco citado segue anexado. A primeira tentativa, só com instrução (`conversational`), falhou no Gemini real.
+- Validação com o Gemini real (7 chamadas, cerca de 13,9 mil tokens): "fechados" aprovado; aviso com anexo aprovado depois da segunda correção; vaga sem prova, promessa de envio sem anexo e promessa de privacidade sem fonte continuam reprovadas. Foram auditorias isoladas, não turnos completos. Serviços 66/66 e release 804/804.
+- Rollback antes de publicar: reverter o commit no `dev`.
+- Em aberto: 27/11 08:10 e 22/11, interpretação inválida (`EVIDENCE_MISSING_SERVICE`) com a mensagem de anúncio mandou para a equipe; a pasta `.local/deploy_backups` não foi encontrada, e `publish_exports_by_id.cjs` depende dos recibos dela.
+
 ## Limitações conhecidas
 
 - O robô que repete mensagens sem citar a empresa só é ignorado quando o nome aparece em mensagens anteriores dele; nos demais casos, quem segura é a trava de laço.
