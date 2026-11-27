@@ -431,3 +431,26 @@ test('baixa confiança global não libera localização ou pagamento', async () 
   assert.ok(!d.facts.some(f => f.fact_id.startsWith('location.')));
   assert.deepEqual(d.actions.present_information.topics, []);
 });
+
+// Núbia, 22/11 e 27/11 08:10: "Olá! Posso ter mais informações sobre isso?" (anúncio) e o modelo listou um serviço sem nenhuma
+// mensagem como prova. O contrato inteiro era recusado e a cliente ia para a equipe.
+test('serviço sem evidência é ignorado: o pedido segue, sem o serviço presumido', async () => {
+  const ask = { topic: 'presentation', service_ids: [], evidence_ids: ['m1'] };
+  for (const services of [[{ service_id: 'svc_a', role: 'asked_about', evidence_ids: [] }], [{ service_id: 'svc_a', role: 'selected' }]]) {
+    const d = (await run({ semantic: { primary_intent: 'info_inquiry', services, info_requests: [ask] } })).commercial_decision;
+    assert.equal(d.status, 'ok', JSON.stringify(d.reason_codes));
+    assert.deepEqual(d.services, []);
+    assert.ok(d.reason_codes.includes('SERVICE_WITHOUT_EVIDENCE_IGNORED'));
+  }
+  // Intenção de agendar com o serviço presumido: nada é reservado nem consultado sem a escolha comprovada.
+  const booking = (await run({ semantic: { primary_intent: 'booking_intent', services: [{ service_id: 'svc_a', role: 'booking_target', evidence_ids: [] }], slots } })).commercial_decision;
+  assert.equal(booking.status, 'ok');
+  assert.deepEqual(booking.services, []);
+  assert.equal(booking.actions.create_reservation.allowed, false);
+  assert.equal(booking.actions.check_availability.allowed, false);
+  // Evidência inventada e serviço desconhecido continuam recusando o contrato.
+  for (const bad of [{ service_id: 'svc_a', role: 'asked_about', evidence_ids: ['zzz'] }, { service_id: 'nao_existe', role: 'asked_about', evidence_ids: [] }]) {
+    const d = (await run({ semantic: { primary_intent: 'info_inquiry', services: [bad], info_requests: [ask] } })).commercial_decision;
+    assert.equal(d.status, 'refused');
+  }
+});

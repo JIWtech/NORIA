@@ -244,6 +244,7 @@ function validateSemantic(raw) {
   if (!confidence) errors.push('INVALID_CONFIDENCE');
 
   const refs = [];
+  let unprovenServiceRefs = 0;
   if (!Array.isArray(raw.services)) errors.push('INVALID_SERVICES');
   else {
     if (raw.services.length > 8) errors.push('TOO_MANY_SERVICE_REFERENCES');
@@ -253,6 +254,9 @@ function validateSemantic(raw) {
       // A escolha do serviço pode ter sido feita antes, na mesma sessão (o turno atual traz dia/hora). A intenção acionável continua
       // exigindo evidência do turno atual. A prova de sessão é a própria evidência (sessionMessages só traz a sessão atual); o modelo
       // não precisa ecoar session_id, mas um session_id explícito de outra sessão continua recusado.
+      // Serviço sem NENHUMA mensagem como prova é presunção do modelo (ex.: "mais informações sobre isso" de um anúncio): é
+      // ignorado, sem recusar o resto do pedido. Evidência inventada continua recusando o contrato.
+      if (!asStrings(ref.evidence_ids).length) { unprovenServiceRefs++; continue; }
       const ids = evidence(ref.evidence_ids, 'SERVICE');
       if (explicitOtherSession(ref.session_id)) errors.push('SERVICE_SESSION_MISMATCH');
       refs.push({ service_id: ref.service_id, role: ref.role, evidence_ids: ids });
@@ -321,7 +325,7 @@ function validateSemantic(raw) {
     payment_declared: paymentDeclared, payment_evidence_ids: paymentEvidence, human_requested: humanRequested, human_evidence_ids: humanEvidence,
     previous_service_declared: previousDeclared, previous_service_evidence_ids: previousEvidence,
     topic_change: convRaw.topic_change, requires_clarification: convRaw.requires_clarification, intent_correction: correction,
-    disposition, disposition_evidence_ids: dispositionEvidence, ambiguities,
+    disposition, disposition_evidence_ids: dispositionEvidence, ambiguities, unproven_service_refs: unprovenServiceRefs,
   } };
 }
 
@@ -441,6 +445,7 @@ if (!semantic.valid) {
   return finish('refused');
 }
 const v = semantic.v;
+if (v.unproven_service_refs) decision.reason_codes.push('SERVICE_WITHOUT_EVIDENCE_IGNORED');
 decision.evidence_used.push(...v.evidence_ids);
 if (v.previous_service_declared) {
   A.handoff = { required: true, reason: 'PREVIOUS_SERVICE_CUSTOMER', auto_assign: true };
