@@ -657,6 +657,56 @@ test('composição: o auditor semântico recebe as chaves dos blocos anexados pe
   assert.deepEqual(seen[0].customerMessages, ['Qual o valor?']);
 });
 
+// Núbia, 26/11 21:06 e 27/11 00:38 (Brasília): "No momento estamos fechados" classificado como availability e "Vou te enviar
+// todos os detalhes" (aviso do bloco anexado) classificado como afirmação sobre o serviço mandaram a cliente para a equipe.
+test('auditor: orientado sobre aberto/fechado agora e sobre o aviso de envio do bloco anexado', async () => {
+  let rules = [];
+  const { servicesSemanticAudit } = loadCore(['servicesSemanticAudit', 'servicesVerifySemanticReport'], { ...AUDIT_CONSTS,
+    tenantBusinessHoursStatus: () => ({ configured: true, is_open: false }),
+    servicesGeminiJson: async (_c, _n, _p, _s, instructions) => { rules = instructions; return { value: { assertions: [], covers_entire_reply: true }, model: 'm' }; } });
+  await servicesSemanticAudit({}, { reply: 'x', decision: { facts: [], approved_blocks: [] }, execution: { handoff: { executed: false } }, proof: null, semantic: {}, blocks: [] });
+  const hours = rules.find(line => line.includes('business_hours.current_status'));
+  assert.ok(hours, 'há instrução sobre o estado atual do negócio');
+  assert.match(hours, /category schedule/);
+  assert.match(hours, /support fact/);
+  assert.match(hours, /availability é somente/);
+  const announcement = rules.find(line => line.startsWith('Aviso de envio'));
+  assert.ok(announcement, 'há instrução sobre o aviso de envio');
+  assert.match(announcement, /category attachment_notice/);
+  assert.match(announcement, /support attached_block/);
+  assert.match(announcement, /attached_blocks vazio[^.]*support none/);
+});
+
+test('auditoria: aviso de envio só é aceito quando o bloco citado segue anexado à mensagem', async () => {
+  let schema = null;
+  const notice = reference => ({ text: 'Vou te enviar todos os detalhes para você conferir como funciona', category: 'attachment_notice', support: 'attached_block', reference, quote: '', polarity: 'affirms' });
+  let item = notice('menu');
+  const { servicesSemanticAudit } = loadCore(['servicesSemanticAudit', 'servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], { ...AUDIT_CONSTS,
+    tenantBusinessHoursStatus: () => ({ configured: false, is_open: false }),
+    servicesGeminiJson: async (_c, _n, _p, s) => { schema = s; return { value: { assertions: [item], covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true }, model: 'm' }; } });
+  const audit = attachedBlockKeys => servicesSemanticAudit({}, { reply: item.text, decision: { facts: [], approved_blocks: [{ key: 'menu' }] },
+    execution: { handoff: { executed: false } }, proof: null, semantic: {}, blocks: [{ key: 'menu', text: 'MENU' }], attachedBlockKeys });
+  assert.equal((await audit(['menu'])).status, 'approved');
+  assert.ok(schema.properties.assertions.items.properties.category.enum.includes('attachment_notice'));
+  assert.ok(schema.properties.assertions.items.properties.support.enum.includes('attached_block'));
+  assert.deepEqual((await audit([])).failures, ['AUDIT_SUPPORT_NOT_FOUND:attachment_notice:attached_block'], 'sem anexo não há o que enviar');
+  item = notice('outro');
+  assert.deepEqual((await audit(['menu'])).failures, ['AUDIT_SUPPORT_NOT_FOUND:attachment_notice:attached_block'], 'bloco que não segue na mensagem');
+  item = { ...notice('menu'), category: 'service' };
+  assert.deepEqual((await audit(['menu'])).failures, ['AUDIT_UNSUPPORTED_ASSERTION:service'], 'o anexo não sustenta afirmação sobre o serviço');
+});
+
+// A verificação continua a mesma: o estado atual passa como schedule + fact e continua reprovado como vaga na agenda.
+test('auditoria: "estamos fechados" é sustentado pelo fato de estado atual só fora da categoria availability', () => {
+  const verify = loadCore(['servicesVerifySemanticReport', 'servicesAssertionSharesAuthorityTerms'], AUDIT_CONSTS).servicesVerifySemanticReport;
+  const base = { decision: { facts: [{ fact_id: 'business_hours.current_status', value: 'fechado no momento' }], approved_blocks: [] },
+    execution: { handoff: { executed: false } }, proof: null, semantic: { slots: {} }, blocks: [] };
+  const report = category => ({ covers_entire_reply: true, opening_repeated: false, addresses_customer_requests: true, assertions: [
+    { text: 'No momento estamos fechados', category, support: 'fact', reference: 'business_hours.current_status', quote: 'fechado no momento', polarity: 'affirms' }] });
+  assert.equal(verify(report('schedule'), base).status, 'approved');
+  assert.deepEqual(verify(report('availability'), base).failures, ['AUDIT_UNSUPPORTED_ASSERTION:availability']);
+});
+
 test('contingência: as respostas reprovadas ficam registradas (truncadas) para diagnóstico', () => {
   const { servicesRejectedCandidates } = loadCore(['servicesRejectedCandidates', 'salesRedactPersonalData'], {});
   const error = Object.assign(new Error('SERVICES_AUDIT_REJECTED:X'), { rejected_candidates: [{ reply: 'a'.repeat(900), failures: ['X'] }, { reply: 'b', failures: ['Y', 'Z'] }] });

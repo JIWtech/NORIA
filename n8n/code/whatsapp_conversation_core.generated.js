@@ -93,9 +93,9 @@ function validateTenantPolicyContract() {
   }
 }
 const coreBuildMetadata = {
-  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26',
-  built_at: '2026-11-26T23:05:27.387Z',
-  core_sha256: 'd6dbcffd23e27aabcc78f26e28034f07888c817c71da63f6055d62906c4c0d3a',
+  revision: 'conversation_core_v2_1_34_core_ext_decision_identity_2026_11_27',
+  built_at: '2026-11-27T14:11:30.983Z',
+  core_sha256: 'b7ee5e712a8f9ed77c1db646cf182d8de682c127fe62df89217b040013fa0c01',
   ext_sha256: '8f9ef52e0ea13fbdcf4ae4607db57867d04a2a0fbd61ec32f3e472caeed070b6',
 };
 const coreRevision = coreBuildMetadata.revision;
@@ -6284,13 +6284,14 @@ function servicesAudit({ composition, decision, execution, proof, semantic, bloc
 // supports are a closed contract, not a word list. Justification for the extra call: omissions cannot be detected without
 // reading the prose. Controls: it runs once per turn, only after the deterministic audit approved and only when the reply has
 // text; it uses no persona, temperature 0 and a small thinking budget; any failure of the call rejects the reply (fail closed).
-const SERVICES_ASSERTION_CATEGORIES = ['price', 'service', 'schedule', 'availability', 'reservation', 'payment', 'handoff', 'preparation', 'conditions', 'health_safety', 'result_promise', 'conversational'];
-const SERVICES_SUPPORT_KINDS = ['fact', 'block', 'availability', 'reservation_receipt', 'payment_forward', 'handoff_execution', 'customer_provided', 'none'];
+const SERVICES_ASSERTION_CATEGORIES = ['price', 'service', 'schedule', 'availability', 'reservation', 'payment', 'handoff', 'preparation', 'conditions', 'health_safety', 'result_promise', 'attachment_notice', 'conversational'];
+const SERVICES_SUPPORT_KINDS = ['fact', 'block', 'availability', 'reservation_receipt', 'payment_forward', 'handoff_execution', 'customer_provided', 'attached_block', 'none'];
 // Which authorities may support which kind of assertion. 'conversational' carries no factual content and needs none.
+// 'attachment_notice' é o aviso de que um bloco segue junto: só vale se o bloco citado estiver mesmo anexado à mensagem.
 const SERVICES_SUPPORT_RULES = {
   price: ['fact', 'block'], service: ['fact', 'block', 'customer_provided'], schedule: ['fact', 'block', 'availability', 'customer_provided'], availability: ['availability'],
   reservation: ['reservation_receipt'], payment: ['payment_forward', 'fact', 'block'], handoff: ['handoff_execution'], preparation: ['block', 'fact'],
-  conditions: ['fact', 'block'], health_safety: ['fact', 'block'], result_promise: ['fact', 'block'], conversational: SERVICES_SUPPORT_KINDS,
+  conditions: ['fact', 'block'], health_safety: ['fact', 'block'], result_promise: ['fact', 'block'], attachment_notice: ['attached_block'], conversational: SERVICES_SUPPORT_KINDS,
 };
 
 // Verdadeiro quando a afirmação tem poucos termos relevantes (não dá para julgar) ou compartilha ao menos um termo com a autoridade.
@@ -6308,7 +6309,7 @@ function servicesAssertionSharesAuthorityTerms(assertionText, authorityText, nor
   return claimed.some(term => authority.includes(stem(term)));
 }
 
-function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false, requireRequestCoverage = false }) {
+function servicesVerifySemanticReport(report, { decision, execution, proof, semantic, blocks, hasRecentBusiness = false, requireRequestCoverage = false, attachedBlockKeys = [] }) {
   const failures = [];
   if (!report || typeof report !== 'object' || !Array.isArray(report.assertions) || report.assertions.length > 80) return { status: 'rejected', failures: ['AUDIT_REPORT_INVALID'], assertions: 0 };
   if (report.covers_entire_reply !== true) failures.push('AUDIT_COVERAGE_NOT_CONFIRMED');
@@ -6360,7 +6361,8 @@ function servicesVerifySemanticReport(report, { decision, execution, proof, sema
             : item.support === 'reservation_receipt' ? Boolean(receipt) && (!refTime(ref) || receiptTimes.has(refTime(ref)))
               : item.support === 'payment_forward' ? paymentForwarded
                 : item.support === 'handoff_execution' ? execution.handoff?.executed === true
-                  : /* customer_provided */ Boolean(provided[ref]);
+                  : item.support === 'attached_block' ? attachedBlockKeys.includes(ref)
+                    : /* customer_provided */ Boolean(provided[ref]);
     if (!ok) { failures.push('AUDIT_SUPPORT_NOT_FOUND:' + item.category + ':' + item.support); continue; }
     // Existence is not support. The model must quote the authority literally, and the figures it asserts must be the authority's.
     const quote = norm(item.quote);
@@ -6435,9 +6437,11 @@ async function servicesSemanticAudit(context, { reply, decision, execution, proo
       'reservation é SOMENTE a afirmação de que uma reserva foi criada, confirmada ou garantida (exige reservation_receipt). Pedido encaminhado à equipe, "a equipe conclui/confirma a reserva", orientação de como agendar e promessa de retorno NÃO são reservation: são handoff (support handoff_execution) ou, se explicam uma regra do negócio, service/conditions sustentados por fact ou block. Se a resposta disser que a reserva ainda NÃO foi feita, use reservation com polarity denies.',
       'polarity é denies quando o item nega algo (por exemplo, um horário indisponível) e affirms nos demais casos. Um trecho que nega um horário e oferece outro vira dois itens.',
       'O text de cada item é o que a resposta afirma. Só use support fact ou block se o fato ou trecho citado realmente diz o que o text afirma. Se o text diz outra coisa, contradiz a autoridade ou acrescenta uma característica que ela não menciona (por exemplo, "produtos extras" quando o fato fala de sala individual), use support none.',
+      'Dizer que o negócio está aberto ou fechado agora é category schedule, com support fact no fato business_hours.current_status e o value dele em quote; o horário de funcionamento também é schedule. availability é somente vaga ou horário livre na agenda.',
+      'Aviso de envio: quando attached_blocks não está vazio, dizer que o material segue junto ou logo depois ("segue o menu", "vou te enviar os detalhes", "deixei aqui embaixo") é category attachment_notice, com support attached_block e a key do bloco anexado em reference. Com attached_blocks vazio, a promessa de enviar algo usa support none em category service. Qualquer característica, preço ou condição dita no mesmo trecho vira item próprio.',
     ], { persona: false, thinkingBudget: 256, maxOutputTokens: 3072 });
   } catch (error) { return { status: 'rejected', failures: ['AUDIT_UNAVAILABLE'], assertions: 0, error: String(error?.message || error).slice(0, 120) }; }
-  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness, requireRequestCoverage: true }),
+  return { ...servicesVerifySemanticReport(generated.value, { decision, execution, proof, semantic, blocks, hasRecentBusiness, requireRequestCoverage: true, attachedBlockKeys: attachedBlocks.map(block => block.key) }),
     uncovered_request: typeof generated.value?.uncovered_request === 'string' ? generated.value.uncovered_request.slice(0, 500) : '', model: generated.model };
 }
 

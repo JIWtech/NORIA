@@ -6,13 +6,13 @@
     "requires_coordinated_deployment": true,
     "production_approved": false
   },
-  "core_revision": "conversation_core_v2_1_34_core_ext_decision_identity_2026_11_26",
-  "built_at": "2026-11-26T23:05:27.387Z",
-  "core_sha256": "d6dbcffd23e27aabcc78f26e28034f07888c817c71da63f6055d62906c4c0d3a",
-  "raw_disk_sha256": "4488e661a1ac9a37c1d96546cff083743e44b1f26e8350059a636fa5f411ab82",
+  "core_revision": "conversation_core_v2_1_34_core_ext_decision_identity_2026_11_27",
+  "built_at": "2026-11-27T14:11:30.983Z",
+  "core_sha256": "b7ee5e712a8f9ed77c1db646cf182d8de682c127fe62df89217b040013fa0c01",
+  "raw_disk_sha256": "72faffed737867cd7ffc40068ecd03d1056d42ca81e84ebbd30f0e77b32b6dcf",
   "hash_explanation": "core_sha256 is the deterministic normalized hash embedded into the runtime code block; raw_disk_sha256 is the sha256 of the composed CORE code after metadata embedding; source_sha256 contains raw canonical source hashes.",
   "source_sha256": {
-    "n8n/sources/noria_core.js": "92f85391653e752e96504d30642f75d551ed34b25c661e70bb3ddeb09622c415",
+    "n8n/sources/noria_core.js": "c8856380bfb736b9ad1cd1ef622d2a6295d23812c473d3107a29f2553d5be996",
     "n8n/sources/noria_retail.js": "65b69eb932135f199adcee74b0dd40fd6e93298be6a2ebc01d1c2de45b85dde9",
     "n8n/sources/noria_router.js": "f13055e727ec8f3f71b144dda56ea3c86d27b8f0851b6b0b69e41ae74cb9ef4a",
     "n8n/sources/noria_turn_dispatch.js": "04e81ed86ad02257686319d584d06a0d1626c056e7f0da56bf2898fa03ad5f94",
