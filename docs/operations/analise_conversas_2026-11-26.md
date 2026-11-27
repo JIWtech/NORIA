@@ -121,7 +121,9 @@ Publicado às 16:12 UTC com `publish_exports_by_id.cjs apply`, autorizado para a
 - Correção no `dev`, sem publicar: o auditor é orientado a tratar aberto/fechado como `schedule`, e o contrato ganhou a categoria `attachment_notice` (suporte `attached_block`), aceita só quando o bloco citado segue anexado. A primeira tentativa, só com instrução (`conversational`), falhou no Gemini real.
 - Validação com o Gemini real (7 chamadas, cerca de 13,9 mil tokens): "fechados" aprovado; aviso com anexo aprovado depois da segunda correção; vaga sem prova, promessa de envio sem anexo e promessa de privacidade sem fonte continuam reprovadas. Foram auditorias isoladas, não turnos completos. Serviços 66/66 e release 804/804.
 - Rollback antes de publicar: reverter o commit no `dev`.
-- Em aberto: 27/11 08:10 e 22/11, interpretação inválida (`EVIDENCE_MISSING_SERVICE`) com a mensagem de anúncio mandou para a equipe; a pasta `.local/deploy_backups` não foi encontrada, e `publish_exports_by_id.cjs` depende dos recibos dela.
+- Anúncio (27/11 08:10 e 22/11): o modelo listou um serviço sem mensagem que o provasse e a EXT recusava o contrato inteiro (`EVIDENCE_MISSING_SERVICE`). Agora a EXT da Núbia ignora essa referência, registra `SERVICE_WITHOUT_EVIDENCE_IGNORED` e atende o pedido; evidência inventada e serviço desconhecido continuam recusando. EXT 28/28 (o teste falhava com os mesmos códigos da produção) e release 805/805. O erro é intermitente e não se repetiu no Gemini real (2 turnos, 6 chamadas), então a prova da correção é o teste.
+- Referência de publicação: antes das correções, o código ativo no n8n correspondia aos exports locais (conferido em 27/11: as diferenças são só estas correções e os metadados do build). Pendente de publicação: Motor, Salon, Roteador (só a revisão) e Núbia v2.
+- Em aberto: faltam `.local/deploy_backups` e `n8n/workflows/backup_pre_ondas_2026-11-12`, lidas por `publish_exports_by_id.cjs`; o script precisa de ajuste antes da próxima publicação.
 
 ## Limitações conhecidas
 
